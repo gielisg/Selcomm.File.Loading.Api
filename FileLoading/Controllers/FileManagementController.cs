@@ -590,7 +590,7 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     }
 
     /// <summary>
-    /// Create or update folder workflow configuration.
+    /// Create or update folder workflow configuration. Auto-creates folders on save.
     /// </summary>
     /// <param name="config">Folder configuration</param>
     [HttpPut("folders")]
@@ -602,7 +602,127 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         var securityContext = CreateSecurityContext("put_api_v4_file_loading_folders");
         var result = await _transferService.SaveFolderConfigAsync(config, securityContext);
 
+        if (result.IsSuccess)
+        {
+            // Auto-create folders on save
+            await _transferService.CreateFoldersAsync(config.Domain, config.FileTypeCode, securityContext);
+        }
+
         return HandleDataResult(result);
+    }
+
+    /// <summary>
+    /// Get default folder paths for a domain/file-type combination.
+    /// </summary>
+    /// <param name="domain">Domain name</param>
+    /// <param name="fileType">File type code</param>
+    [HttpGet("folders/defaults")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_folders_defaults")]
+    [Tags("Folder Configuration")]
+    [ProducesResponseType(typeof(FolderDefaultsResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetFolderDefaults(
+        [FromQuery] string domain,
+        [FromQuery(Name = "fileType")] string? fileType = null)
+    {
+        var securityContext = CreateSecurityContext("get_api_v4_file_loading_folders_defaults");
+        var result = await _transferService.GetDefaultFolderPathsAsync(domain, fileType, securityContext);
+
+        return HandleDataResult(result);
+    }
+
+    /// <summary>
+    /// Create all 5 workflow folders for a domain/file-type (local or FTP based on storage config).
+    /// </summary>
+    /// <param name="domain">Domain name</param>
+    /// <param name="fileType">File type code</param>
+    [HttpPost("folders/create")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_folders_create")]
+    [Tags("Folder Configuration")]
+    [ProducesResponseType(typeof(FolderCreateResult), StatusCodes.Status200OK)]
+    public async Task<IActionResult> CreateFolders(
+        [FromQuery] string domain,
+        [FromQuery(Name = "fileType")] string? fileType = null)
+    {
+        var securityContext = CreateSecurityContext("post_api_v4_file_loading_folders_create");
+        var result = await _transferService.CreateFoldersAsync(domain, fileType, securityContext);
+
+        return HandleDataResult(result);
+    }
+
+    // ============================================
+    // Folder Storage Configuration
+    // ============================================
+
+    /// <summary>
+    /// Get folder storage configuration for a domain (from JWT). Returns 404 if no config exists (interpreted as LOCAL mode).
+    /// </summary>
+    /// <param name="domain">Domain name</param>
+    [HttpGet("folder-storage")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_folder_storage")]
+    [Tags("Folder Configuration")]
+    [ProducesResponseType(typeof(FolderStorageConfig), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetFolderStorage([FromQuery] string domain)
+    {
+        var securityContext = CreateSecurityContext("get_api_v4_file_loading_folder_storage");
+        var result = await _transferService.GetFolderStorageAsync(domain, securityContext);
+
+        return HandleDataResult(result);
+    }
+
+    /// <summary>
+    /// Save folder storage configuration (local/FTP mode + FTP details).
+    /// </summary>
+    /// <param name="request">Storage configuration</param>
+    [HttpPut("folder-storage")]
+    [SwaggerOperation(OperationId = "put_api_v4_file_loading_folder_storage")]
+    [Tags("Folder Configuration")]
+    [ProducesResponseType(typeof(FolderStorageConfig), StatusCodes.Status200OK)]
+    public async Task<IActionResult> SaveFolderStorage([FromBody] FolderStorageRequest request)
+    {
+        var securityContext = CreateSecurityContext("put_api_v4_file_loading_folder_storage");
+        var result = await _transferService.SaveFolderStorageAsync(request, securityContext);
+
+        return HandleDataResult(result);
+    }
+
+    /// <summary>
+    /// Delete folder storage configuration (revert to local defaults).
+    /// </summary>
+    /// <param name="domain">Domain name</param>
+    [HttpDelete("folder-storage")]
+    [SwaggerOperation(OperationId = "delete_api_v4_file_loading_folder_storage")]
+    [Tags("Folder Configuration")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteFolderStorage([FromQuery] string domain)
+    {
+        var securityContext = CreateSecurityContext("delete_api_v4_file_loading_folder_storage");
+        var result = await _transferService.DeleteFolderStorageAsync(domain, securityContext);
+
+        return HandleDataResult(result);
+    }
+
+    /// <summary>
+    /// Test FTP connection with provided storage configuration (without saving).
+    /// </summary>
+    /// <param name="request">Storage configuration to test</param>
+    [HttpPost("folder-storage/test")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_folder_storage_test")]
+    [Tags("Folder Configuration")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> TestFolderStorage([FromBody] FolderStorageRequest request)
+    {
+        var securityContext = CreateSecurityContext("post_api_v4_file_loading_folder_storage_test");
+        var result = await _transferService.TestFolderStorageAsync(request, securityContext);
+
+        if (!result.IsSuccess || !result.Data)
+        {
+            return BadRequest(new ErrorResponse(result.ErrorMessage ?? "Connection test failed", result.ErrorCode));
+        }
+
+        return Ok(new { Success = true, Message = "Connection successful" });
     }
 
     // ============================================

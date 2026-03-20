@@ -168,6 +168,73 @@ public interface IFileTransferService
         SecurityContext context);
 
     // ============================================
+    // Folder Storage Configuration
+    // ============================================
+
+    /// <summary>
+    /// Get folder storage configuration for a domain.
+    /// </summary>
+    /// <param name="domain">Domain name</param>
+    /// <param name="context">Security context</param>
+    /// <returns>Storage configuration (404 = LOCAL default)</returns>
+    Task<DataResult<FolderStorageConfig>> GetFolderStorageAsync(
+        string domain,
+        SecurityContext context);
+
+    /// <summary>
+    /// Save folder storage configuration.
+    /// </summary>
+    /// <param name="request">Storage configuration request</param>
+    /// <param name="context">Security context</param>
+    /// <returns>Saved storage configuration</returns>
+    Task<DataResult<FolderStorageConfig>> SaveFolderStorageAsync(
+        FolderStorageRequest request,
+        SecurityContext context);
+
+    /// <summary>
+    /// Delete folder storage configuration (revert to local defaults).
+    /// </summary>
+    /// <param name="domain">Domain name</param>
+    /// <param name="context">Security context</param>
+    Task<DataResult<bool>> DeleteFolderStorageAsync(
+        string domain,
+        SecurityContext context);
+
+    /// <summary>
+    /// Test FTP connection with provided storage configuration.
+    /// </summary>
+    /// <param name="request">Storage configuration to test</param>
+    /// <param name="context">Security context</param>
+    /// <returns>True if connection successful</returns>
+    Task<DataResult<bool>> TestFolderStorageAsync(
+        FolderStorageRequest request,
+        SecurityContext context);
+
+    /// <summary>
+    /// Get default folder paths for a domain/file-type combination.
+    /// </summary>
+    /// <param name="domain">Domain name</param>
+    /// <param name="fileType">File type code</param>
+    /// <param name="context">Security context</param>
+    /// <returns>Default folder paths</returns>
+    Task<DataResult<FolderDefaultsResponse>> GetDefaultFolderPathsAsync(
+        string domain,
+        string? fileType,
+        SecurityContext context);
+
+    /// <summary>
+    /// Create all 5 workflow folders for a domain/file-type (local or FTP).
+    /// </summary>
+    /// <param name="domain">Domain name</param>
+    /// <param name="fileType">File type code</param>
+    /// <param name="context">Security context</param>
+    /// <returns>Folder creation result</returns>
+    Task<DataResult<FolderCreateResult>> CreateFoldersAsync(
+        string domain,
+        string? fileType,
+        SecurityContext context);
+
+    // ============================================
     // Downloaded File Tracking
     // ============================================
 

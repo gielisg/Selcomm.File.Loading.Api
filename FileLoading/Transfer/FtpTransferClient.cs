@@ -189,6 +189,72 @@ public class FtpTransferClient : ITransferClient
         }
     }
 
+    public async Task<bool> CreateDirectoryAsync(
+        string remotePath,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureConnected();
+
+        _logger.LogInformation("Creating remote directory {RemotePath}", remotePath);
+
+        try
+        {
+            if (!await _client!.DirectoryExists(remotePath, cancellationToken))
+            {
+                await _client.CreateDirectory(remotePath, true, cancellationToken);
+                _logger.LogInformation("Created remote directory {RemotePath}", remotePath);
+            }
+            else
+            {
+                _logger.LogDebug("Remote directory already exists: {RemotePath}", remotePath);
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create remote directory {RemotePath}", remotePath);
+            throw;
+        }
+    }
+
+    public async Task<bool> UploadFileAsync(
+        string localPath,
+        string remotePath,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureConnected();
+
+        _logger.LogInformation("Uploading {LocalPath} to {RemotePath}", localPath, remotePath);
+
+        try
+        {
+            // Ensure remote directory exists
+            var remoteDir = Path.GetDirectoryName(remotePath)?.Replace('\\', '/');
+            if (!string.IsNullOrEmpty(remoteDir))
+            {
+                await CreateDirectoryAsync(remoteDir, cancellationToken);
+            }
+
+            var status = await _client!.UploadFile(localPath, remotePath, FtpRemoteExists.Overwrite, true, FtpVerify.None, null, cancellationToken);
+
+            if (status == FtpStatus.Success)
+            {
+                _logger.LogInformation("Uploaded {LocalPath} to {RemotePath} successfully", localPath, remotePath);
+                return true;
+            }
+            else
+            {
+                _logger.LogWarning("Upload of {LocalPath} returned status {Status}", localPath, status);
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to upload {LocalPath} to {RemotePath}", localPath, remotePath);
+            throw;
+        }
+    }
+
     private void EnsureConnected()
     {
         if (_client == null || !_client.IsConnected)

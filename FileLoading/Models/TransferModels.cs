@@ -155,6 +155,176 @@ public enum CompressionMethod
 }
 
 // ============================================
+// Folder Storage Configuration
+// ============================================
+
+/// <summary>
+/// Storage mode for folder workflow (local disk or FTP server).
+/// </summary>
+public enum StorageMode
+{
+    /// <summary>Local file system storage.</summary>
+    Local = 1,
+
+    /// <summary>FTP/SFTP remote storage.</summary>
+    Ftp = 2
+}
+
+/// <summary>
+/// Domain-level storage configuration for folder workflow.
+/// Determines whether files are stored on local disk or an FTP server.
+/// </summary>
+public class FolderStorageConfig
+{
+    /// <summary>Storage configuration ID.</summary>
+    public int StorageId { get; set; }
+
+    /// <summary>Domain this storage config belongs to.</summary>
+    public string Domain { get; set; } = string.Empty;
+
+    /// <summary>Storage mode (Local or Ftp).</summary>
+    public StorageMode StorageMode { get; set; } = StorageMode.Local;
+
+    /// <summary>Transfer protocol (null when Local).</summary>
+    public TransferProtocol? Protocol { get; set; }
+
+    /// <summary>FTP host address (null when Local).</summary>
+    public string? Host { get; set; }
+
+    /// <summary>FTP port (null when Local).</summary>
+    public int? Port { get; set; }
+
+    /// <summary>Authentication type (null when Local).</summary>
+    public AuthenticationType? AuthType { get; set; }
+
+    /// <summary>FTP username (null when Local).</summary>
+    public string? Username { get; set; }
+
+    /// <summary>FTP password — masked in API responses (null when Local).</summary>
+    public string? Password { get; set; }
+
+    /// <summary>Path to certificate file (null when Local or not using cert auth).</summary>
+    public string? CertificatePath { get; set; }
+
+    /// <summary>Path to private key file (null when Local or not using key auth).</summary>
+    public string? PrivateKeyPath { get; set; }
+
+    /// <summary>Base path on FTP server.</summary>
+    public string BasePath { get; set; } = "/";
+
+    /// <summary>Local temp path for FTP mode processing.</summary>
+    public string? TempLocalPath { get; set; }
+
+    /// <summary>Created timestamp.</summary>
+    public DateTime CreatedAt { get; set; }
+
+    /// <summary>Last updated timestamp.</summary>
+    public DateTime? UpdatedAt { get; set; }
+}
+
+/// <summary>
+/// Request to create or update folder storage configuration.
+/// </summary>
+public class FolderStorageRequest
+{
+    /// <summary>Domain this storage config belongs to.</summary>
+    public string Domain { get; set; } = string.Empty;
+
+    /// <summary>Storage mode (Local or Ftp).</summary>
+    public StorageMode StorageMode { get; set; } = StorageMode.Local;
+
+    /// <summary>Transfer protocol (required when Ftp).</summary>
+    public TransferProtocol? Protocol { get; set; }
+
+    /// <summary>FTP host address (required when Ftp).</summary>
+    public string? Host { get; set; }
+
+    /// <summary>FTP port.</summary>
+    public int? Port { get; set; }
+
+    /// <summary>Authentication type.</summary>
+    public AuthenticationType? AuthType { get; set; }
+
+    /// <summary>FTP username.</summary>
+    public string? Username { get; set; }
+
+    /// <summary>FTP password (will be encrypted).</summary>
+    public string? Password { get; set; }
+
+    /// <summary>Path to certificate file.</summary>
+    public string? CertificatePath { get; set; }
+
+    /// <summary>Path to private key file.</summary>
+    public string? PrivateKeyPath { get; set; }
+
+    /// <summary>Base path on FTP server.</summary>
+    public string BasePath { get; set; } = "/";
+
+    /// <summary>Local temp path for FTP mode processing.</summary>
+    public string? TempLocalPath { get; set; }
+}
+
+/// <summary>
+/// Result of folder creation operation.
+/// </summary>
+public class FolderCreateResult
+{
+    /// <summary>Whether all folders were created successfully.</summary>
+    public bool AllCreated { get; set; }
+
+    /// <summary>Status of each folder creation.</summary>
+    public List<FolderCreateStatus> Folders { get; set; } = new();
+}
+
+/// <summary>
+/// Status of a single folder creation.
+/// </summary>
+public class FolderCreateStatus
+{
+    /// <summary>Folder name (Transfer, Processing, etc.).</summary>
+    public string FolderName { get; set; } = string.Empty;
+
+    /// <summary>Full path of the folder.</summary>
+    public string Path { get; set; } = string.Empty;
+
+    /// <summary>Whether the folder was created.</summary>
+    public bool Created { get; set; }
+
+    /// <summary>Whether the folder already existed.</summary>
+    public bool AlreadyExisted { get; set; }
+
+    /// <summary>Error message if creation failed.</summary>
+    public string? Error { get; set; }
+}
+
+/// <summary>
+/// Default folder paths for a domain/file-type combination.
+/// </summary>
+public class FolderDefaultsResponse
+{
+    /// <summary>Domain name.</summary>
+    public string Domain { get; set; } = string.Empty;
+
+    /// <summary>File type code.</summary>
+    public string? FileTypeCode { get; set; }
+
+    /// <summary>Default transfer folder path.</summary>
+    public string TransferFolder { get; set; } = string.Empty;
+
+    /// <summary>Default processing folder path.</summary>
+    public string ProcessingFolder { get; set; } = string.Empty;
+
+    /// <summary>Default processed folder path.</summary>
+    public string ProcessedFolder { get; set; } = string.Empty;
+
+    /// <summary>Default errors folder path.</summary>
+    public string ErrorsFolder { get; set; } = string.Empty;
+
+    /// <summary>Default skipped folder path.</summary>
+    public string SkippedFolder { get; set; } = string.Empty;
+}
+
+// ============================================
 // Folder Workflow Configuration
 // ============================================
 

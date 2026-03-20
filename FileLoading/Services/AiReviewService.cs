@@ -50,57 +50,10 @@ public class AiReviewService : IAiReviewService
         var domain = securityContext.Domain ?? string.Empty;
 
         // 1. Load & validate domain config
-        var configResult = await _repository.GetAiDomainConfigAsync(domain);
-        if (configResult.StatusCode == 404)
-        {
-            return new DataResult<AiReviewResponse>
-            {
-                StatusCode = 400,
-                ErrorCode = "AI_NOT_CONFIGURED",
-                ErrorMessage = "AI review has not been configured for this domain. Use PUT /ai-review/config to set up your API key."
-            };
-        }
-        if (!configResult.IsSuccess)
-            return Forward<AiReviewResponse>(configResult);
-
-        var domainConfig = configResult.Data!;
-
-        if (!domainConfig.Enabled)
-        {
-            return new DataResult<AiReviewResponse>
-            {
-                StatusCode = 400,
-                ErrorCode = "AI_REVIEW_DISABLED",
-                ErrorMessage = "AI review is disabled for this domain."
-            };
-        }
-
-        if (string.IsNullOrWhiteSpace(domainConfig.ApiKey))
-        {
-            return new DataResult<AiReviewResponse>
-            {
-                StatusCode = 400,
-                ErrorCode = "AI_NOT_CONFIGURED",
-                ErrorMessage = "No API key configured. Use PUT /ai-review/config to set your Anthropic API key."
-            };
-        }
-
-        // Reset daily count if needed
-        if (domainConfig.ReviewsResetDt == null || domainConfig.ReviewsResetDt.Value.Date < DateTime.Today)
-        {
-            await _repository.ResetAiReviewCountAsync(domain);
-            domainConfig.ReviewsToday = 0;
-        }
-
-        if (domainConfig.ReviewsToday >= domainConfig.MaxReviewsPerDay)
-        {
-            return new DataResult<AiReviewResponse>
-            {
-                StatusCode = 429,
-                ErrorCode = "AI_RATE_LIMITED",
-                ErrorMessage = $"Daily review limit reached ({domainConfig.ReviewsToday}/{domainConfig.MaxReviewsPerDay}). Resets at midnight."
-            };
-        }
+        var configCheck = await ValidateDomainConfigAsync(domain);
+        if (!configCheck.IsSuccess)
+            return Forward<AiReviewResponse>(configCheck);
+        var domainConfig = configCheck.Data!;
 
         // 2. Load file metadata
         var fileResult = await _repository.GetFileStatusAsync(ntFileNum, securityContext);
@@ -206,6 +159,97 @@ public class AiReviewService : IAiReviewService
 
         _logger.LogInformation("AI review completed for file {NtFileNum}: {Assessment}, {IssueCount} issues",
             ntFileNum, response.OverallAssessment, response.Issues.Count);
+
+        return new DataResult<AiReviewResponse>
+        {
+            StatusCode = 200,
+            Data = response
+        };
+    }
+
+    public async Task<DataResult<AiReviewResponse>> ReviewContentAsync(
+        AiContentReviewRequest request, SecurityContext securityContext)
+    {
+        var domain = securityContext.Domain ?? string.Empty;
+
+        // 1. Validate domain config (same checks as file review)
+        var configCheck = await ValidateDomainConfigAsync(domain);
+        if (!configCheck.IsSuccess)
+            return Forward<AiReviewResponse>(configCheck);
+        var domainConfig = configCheck.Data!;
+
+        if (string.IsNullOrWhiteSpace(request.FileContent))
+        {
+            return new DataResult<AiReviewResponse>
+            {
+                StatusCode = 400,
+                ErrorCode = "VALIDATION_ERROR",
+                ErrorMessage = "FileContent is required."
+            };
+        }
+
+        // 2. Sample from provided content
+        var lines = request.FileContent.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+        var sample = SampleFromLines(lines, _options.MaxSampleRecords);
+
+        // 3. Load file spec if file type provided
+        FileValidationConfig? validationConfig = null;
+        if (!string.IsNullOrEmpty(request.FileTypeCode))
+            validationConfig = _validationConfigProvider.GetConfig(request.FileTypeCode);
+
+        // 4. Load example file
+        string? exampleContent = request.ExampleFileContent;
+        if (string.IsNullOrEmpty(exampleContent) && !string.IsNullOrEmpty(request.FileTypeCode))
+        {
+            var exampleResult = await _repository.GetExampleFileAsync(request.FileTypeCode);
+            if (exampleResult.IsSuccess && exampleResult.Data != null && File.Exists(exampleResult.Data.FilePath))
+            {
+                try
+                {
+                    exampleContent = await File.ReadAllTextAsync(exampleResult.Data.FilePath);
+                    if (exampleContent.Length > 10000)
+                        exampleContent = exampleContent[..10000] + "\n... (truncated)";
+                }
+                catch { /* ignore */ }
+            }
+        }
+
+        // 5. Build prompt — use a lightweight FileStatusResponse for prompt construction
+        var pseudoStatus = new FileStatusResponse
+        {
+            FileType = request.FileTypeCode ?? "UNKNOWN",
+            FileName = request.FileName ?? "uploaded-content"
+        };
+
+        var systemPrompt = BuildSystemPrompt();
+        var userPrompt = BuildUserPrompt(pseudoStatus, validationConfig, sample, null, exampleContent, request.FocusAreas);
+
+        // 6. Call Claude API
+        var apiResult = await CallClaudeApiAsync(domainConfig, systemPrompt, userPrompt);
+        if (!apiResult.IsSuccess)
+            return Forward<AiReviewResponse>(apiResult);
+
+        var (reviewResult, usage) = apiResult.Data!;
+
+        // 7. Build response (no caching for ad-hoc content reviews)
+        var response = new AiReviewResponse
+        {
+            NtFileNum = 0,
+            FileType = request.FileTypeCode ?? "UNKNOWN",
+            OverallAssessment = reviewResult.OverallAssessment,
+            Summary = reviewResult.Summary,
+            Issues = reviewResult.Issues,
+            RecordsSampled = sample.RecordsSampled,
+            TotalRecords = sample.TotalRecords,
+            ReviewedAt = DateTime.Now,
+            IsCached = false,
+            Usage = usage
+        };
+
+        await _repository.IncrementAiReviewCountAsync(domain);
+
+        _logger.LogInformation("AI content review completed: {Assessment}, {IssueCount} issues",
+            response.OverallAssessment, response.Issues.Count);
 
         return new DataResult<AiReviewResponse>
         {
@@ -396,6 +440,67 @@ public class AiReviewService : IAiReviewService
     }
 
     // ============================================
+    // Domain Config Validation (shared)
+    // ============================================
+
+    private async Task<DataResult<AiDomainConfig>> ValidateDomainConfigAsync(string domain)
+    {
+        var configResult = await _repository.GetAiDomainConfigAsync(domain);
+        if (configResult.StatusCode == 404)
+        {
+            return new DataResult<AiDomainConfig>
+            {
+                StatusCode = 400,
+                ErrorCode = "AI_NOT_CONFIGURED",
+                ErrorMessage = "AI review has not been configured for this domain. Use PUT /ai-review/config to set up your API key."
+            };
+        }
+        if (!configResult.IsSuccess)
+            return configResult;
+
+        var domainConfig = configResult.Data!;
+
+        if (!domainConfig.Enabled)
+        {
+            return new DataResult<AiDomainConfig>
+            {
+                StatusCode = 400,
+                ErrorCode = "AI_REVIEW_DISABLED",
+                ErrorMessage = "AI review is disabled for this domain."
+            };
+        }
+
+        if (string.IsNullOrWhiteSpace(domainConfig.ApiKey))
+        {
+            return new DataResult<AiDomainConfig>
+            {
+                StatusCode = 400,
+                ErrorCode = "AI_NOT_CONFIGURED",
+                ErrorMessage = "No API key configured. Use PUT /ai-review/config to set your Anthropic API key."
+            };
+        }
+
+        // Reset daily count if needed
+        if (domainConfig.ReviewsResetDt == null || domainConfig.ReviewsResetDt.Value.Date < DateTime.Today)
+        {
+            await _repository.ResetAiReviewCountAsync(domain);
+            domainConfig.ReviewsToday = 0;
+        }
+
+        if (domainConfig.ReviewsToday >= domainConfig.MaxReviewsPerDay)
+        {
+            return new DataResult<AiDomainConfig>
+            {
+                StatusCode = 429,
+                ErrorCode = "AI_RATE_LIMITED",
+                ErrorMessage = $"Daily review limit reached ({domainConfig.ReviewsToday}/{domainConfig.MaxReviewsPerDay}). Resets at midnight."
+            };
+        }
+
+        return configResult;
+    }
+
+    // ============================================
     // File Path Resolution
     // ============================================
 
@@ -558,6 +663,65 @@ public class AiReviewService : IAiReviewService
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Sample from an in-memory list of lines (for pasted/uploaded content).
+    /// Reuses the same sampling logic as the file-based method.
+    /// </summary>
+    private FileSample SampleFromLines(List<string> allLines, int maxSampleRecords)
+    {
+        var sample = new FileSample();
+        if (allLines.Count == 0)
+            return sample;
+
+        var firstLine = allLines[0];
+        var lastLine = allLines[^1];
+
+        if (firstLine.StartsWith("H|") || firstLine.StartsWith("H,") || firstLine.StartsWith("HDR"))
+            sample.HeaderLine = firstLine;
+        if (lastLine.StartsWith("T|") || lastLine.StartsWith("T,") || lastLine.StartsWith("TRL") || lastLine.StartsWith("FTR"))
+            sample.TrailerLine = lastLine;
+
+        var detailStart = sample.HeaderLine != null ? 1 : 0;
+        var detailEnd = sample.TrailerLine != null ? allLines.Count - 1 : allLines.Count;
+        var detailCount = detailEnd - detailStart;
+
+        sample.TotalRecords = detailCount;
+
+        var firstCount = Math.Min(20, detailCount);
+        for (var i = detailStart; i < detailStart + firstCount; i++)
+            sample.FirstRecords.Add(allLines[i]);
+
+        var lastCount = Math.Min(10, detailCount);
+        for (var i = Math.Max(detailEnd - lastCount, detailStart + firstCount); i < detailEnd; i++)
+            sample.LastRecords.Add(allLines[i]);
+
+        var randomCount = Math.Min(50, detailCount - firstCount - lastCount);
+        if (randomCount > 0)
+        {
+            var rng = new Random(42);
+            var reservoir = new List<string>();
+            var candidateStart = detailStart + firstCount;
+            var candidateEnd = detailEnd - lastCount;
+            for (var i = candidateStart; i < candidateEnd; i++)
+            {
+                if (reservoir.Count < randomCount)
+                    reservoir.Add(allLines[i]);
+                else
+                {
+                    var j = rng.Next(i - candidateStart + 1);
+                    if (j < randomCount)
+                        reservoir[j] = allLines[i];
+                }
+            }
+            sample.RandomRecords = reservoir;
+        }
+
+        sample.RecordsSampled = sample.FirstRecords.Count + sample.RandomRecords.Count + sample.LastRecords.Count;
+        ComputeFieldStatistics(sample, allLines, detailStart, detailEnd);
+
+        return sample;
     }
 
     // ============================================

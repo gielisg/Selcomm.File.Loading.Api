@@ -37,6 +37,27 @@ public class AiReviewRequest
 }
 
 /// <summary>
+/// Request body for POST /ai-review/content — review pasted or uploaded file content directly.
+/// </summary>
+public class AiContentReviewRequest
+{
+    /// <summary>The raw file content to review.</summary>
+    public string FileContent { get; set; } = string.Empty;
+
+    /// <summary>Optional file type code for spec lookup.</summary>
+    public string? FileTypeCode { get; set; }
+
+    /// <summary>Optional file name for display.</summary>
+    public string? FileName { get; set; }
+
+    /// <summary>Optional example file content to compare against.</summary>
+    public string? ExampleFileContent { get; set; }
+
+    /// <summary>Optional focus areas for the review.</summary>
+    public List<string>? FocusAreas { get; set; }
+}
+
+/// <summary>
 /// Request body for PUT /ai-review/example-files/{fileTypeCode}.
 /// </summary>
 public class ExampleFileRequest

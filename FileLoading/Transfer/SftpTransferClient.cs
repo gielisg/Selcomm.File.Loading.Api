@@ -177,6 +177,77 @@ public class SftpTransferClient : ITransferClient
         }
     }
 
+    public async Task<bool> CreateDirectoryAsync(
+        string remotePath,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureConnected();
+
+        _logger.LogInformation("Creating remote directory {RemotePath}", remotePath);
+
+        try
+        {
+            var exists = await Task.Run(() => _client!.Exists(remotePath), cancellationToken);
+            if (!exists)
+            {
+                // Create directories recursively
+                var parts = remotePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                var current = "";
+                foreach (var part in parts)
+                {
+                    current += "/" + part;
+                    var partExists = await Task.Run(() => _client!.Exists(current), cancellationToken);
+                    if (!partExists)
+                    {
+                        await Task.Run(() => _client!.CreateDirectory(current), cancellationToken);
+                    }
+                }
+                _logger.LogInformation("Created remote directory {RemotePath}", remotePath);
+            }
+            else
+            {
+                _logger.LogDebug("Remote directory already exists: {RemotePath}", remotePath);
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create remote directory {RemotePath}", remotePath);
+            throw;
+        }
+    }
+
+    public async Task<bool> UploadFileAsync(
+        string localPath,
+        string remotePath,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureConnected();
+
+        _logger.LogInformation("Uploading {LocalPath} to {RemotePath}", localPath, remotePath);
+
+        try
+        {
+            // Ensure remote directory exists
+            var remoteDir = remotePath.Contains('/') ? remotePath[..remotePath.LastIndexOf('/')] : "/";
+            if (!string.IsNullOrEmpty(remoteDir))
+            {
+                await CreateDirectoryAsync(remoteDir, cancellationToken);
+            }
+
+            using var fileStream = File.OpenRead(localPath);
+            await Task.Run(() => _client!.UploadFile(fileStream, remotePath, true), cancellationToken);
+
+            _logger.LogInformation("Uploaded {LocalPath} to {RemotePath} successfully", localPath, remotePath);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to upload {LocalPath} to {RemotePath}", localPath, remotePath);
+            throw;
+        }
+    }
+
     private Renci.SshNet.ConnectionInfo CreateConnectionInfo()
     {
         var authMethods = new List<AuthenticationMethod>();

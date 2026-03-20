@@ -88,6 +88,92 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     }
 
     // ============================================
+    // Content / Upload Review Endpoints
+    // ============================================
+
+    /// <summary>
+    /// Review pasted file content directly. No file number required — content is provided in the request body.
+    /// </summary>
+    /// <param name="request">File content and optional parameters</param>
+    [HttpPost("content")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_ai_review_content")]
+    [Tags("AI Review")]
+    [ProducesResponseType(typeof(AiReviewResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status502BadGateway)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status504GatewayTimeout)]
+    public async Task<IActionResult> ReviewContent([FromBody] AiContentReviewRequest request)
+    {
+        _logger.LogInformation("AI content review requested, type={FileType}, length={Length}",
+            request.FileTypeCode, request.FileContent?.Length ?? 0);
+
+        var securityContext = CreateSecurityContext("post_api_v4_file_loading_ai_review_content");
+        var result = await _aiReviewService.ReviewContentAsync(request, securityContext);
+
+        if (result.IsSuccess)
+            return Ok(result.Data);
+
+        return StatusCode(result.StatusCode,
+            new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+    }
+
+    /// <summary>
+    /// Upload a file from the browser and review it with AI. The file is read in memory — not stored on the server.
+    /// </summary>
+    /// <param name="file">The file to review</param>
+    /// <param name="fileTypeCode">Optional file type code for spec lookup</param>
+    /// <param name="focusAreas">Optional comma-separated focus areas</param>
+    [HttpPost("upload")]
+    [Consumes("multipart/form-data")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_ai_review_upload")]
+    [Tags("AI Review")]
+    [ProducesResponseType(typeof(AiReviewResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status502BadGateway)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status504GatewayTimeout)]
+    public async Task<IActionResult> UploadAndReview(
+        IFormFile file,
+        [FromQuery(Name = "fileTypeCode")] string? fileTypeCode = null,
+        [FromQuery(Name = "focusAreas")] string? focusAreas = null)
+    {
+        if (file == null || file.Length == 0)
+        {
+            return BadRequest(new ErrorResponse("No file provided.", "VALIDATION_ERROR"));
+        }
+
+        _logger.LogInformation("AI upload review requested: {FileName}, size={Size}, type={FileType}",
+            file.FileName, file.Length, fileTypeCode);
+
+        // Read file content into string
+        string fileContent;
+        using (var reader = new StreamReader(file.OpenReadStream()))
+        {
+            fileContent = await reader.ReadToEndAsync();
+        }
+
+        var request = new AiContentReviewRequest
+        {
+            FileContent = fileContent,
+            FileTypeCode = fileTypeCode,
+            FileName = file.FileName,
+            FocusAreas = string.IsNullOrWhiteSpace(focusAreas)
+                ? null
+                : focusAreas.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList()
+        };
+
+        var securityContext = CreateSecurityContext("post_api_v4_file_loading_ai_review_upload");
+        var result = await _aiReviewService.ReviewContentAsync(request, securityContext);
+
+        if (result.IsSuccess)
+            return Ok(result.Data);
+
+        return StatusCode(result.StatusCode,
+            new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+    }
+
+    // ============================================
     // Example File CRUD
     // ============================================
 

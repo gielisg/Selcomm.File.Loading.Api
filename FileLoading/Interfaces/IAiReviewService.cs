@@ -18,6 +18,11 @@ public interface IAiReviewService
     Task<DataResult<AiReviewResponse>> ReviewFileAsync(int ntFileNum, AiReviewRequest? request, SecurityContext securityContext);
 
     /// <summary>
+    /// Review raw file content (pasted or uploaded). No file number required.
+    /// </summary>
+    Task<DataResult<AiReviewResponse>> ReviewContentAsync(AiContentReviewRequest request, SecurityContext securityContext);
+
+    /// <summary>
     /// Get a cached AI review for a file.
     /// </summary>
     Task<DataResult<AiReviewResponse>> GetCachedReviewAsync(int ntFileNum);

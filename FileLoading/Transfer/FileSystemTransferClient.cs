@@ -175,6 +175,64 @@ public class FileSystemTransferClient : ITransferClient
         });
     }
 
+    public Task<bool> CreateDirectoryAsync(
+        string remotePath,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureConnected();
+
+        _logger.LogInformation("Creating directory {Path}", remotePath);
+
+        try
+        {
+            if (!Directory.Exists(remotePath))
+            {
+                Directory.CreateDirectory(remotePath);
+                _logger.LogInformation("Created directory {Path}", remotePath);
+            }
+            else
+            {
+                _logger.LogDebug("Directory already exists: {Path}", remotePath);
+            }
+            return Task.FromResult(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create directory {Path}", remotePath);
+            throw;
+        }
+    }
+
+    public Task<bool> UploadFileAsync(
+        string localPath,
+        string remotePath,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureConnected();
+
+        _logger.LogInformation("Copying {LocalPath} to {RemotePath}", localPath, remotePath);
+
+        try
+        {
+            // Ensure destination directory exists
+            var destDir = Path.GetDirectoryName(remotePath);
+            if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
+            {
+                Directory.CreateDirectory(destDir);
+            }
+
+            File.Copy(localPath, remotePath, overwrite: true);
+
+            _logger.LogInformation("Copied {LocalPath} to {RemotePath} successfully", localPath, remotePath);
+            return Task.FromResult(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to copy {LocalPath} to {RemotePath}", localPath, remotePath);
+            throw;
+        }
+    }
+
     private void EnsureConnected()
     {
         if (!_connected)

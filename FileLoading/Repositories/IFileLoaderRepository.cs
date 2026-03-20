@@ -489,6 +489,28 @@ public interface IFileLoaderRepository
     Task<RawCommandResult> DeleteFileTypeNtAsync(string fileTypeCode);
 
     // ============================================
+    // Folder Storage Configuration
+    // ============================================
+
+    /// <summary>
+    /// Get folder storage configuration for a domain.
+    /// </summary>
+    /// <param name="domain">Domain name</param>
+    Task<DataResult<FolderStorageConfig>> GetFolderStorageAsync(string domain);
+
+    /// <summary>
+    /// Insert or update folder storage configuration.
+    /// </summary>
+    /// <param name="config">Storage configuration</param>
+    Task<RawCommandResult> UpsertFolderStorageAsync(FolderStorageConfig config);
+
+    /// <summary>
+    /// Delete folder storage configuration for a domain.
+    /// </summary>
+    /// <param name="domain">Domain name</param>
+    Task<RawCommandResult> DeleteFolderStorageAsync(string domain);
+
+    // ============================================
     // AI Review
     // ============================================
 

@@ -3258,4 +3258,162 @@ public class FileLoaderRepository : IFileLoaderRepository
             ("@p1", domain, DbType.String, 20)
         );
     }
+
+    // ============================================
+    // Folder Storage Configuration
+    // ============================================
+
+    public async Task<DataResult<FolderStorageConfig>> GetFolderStorageAsync(string domain)
+    {
+        _logger.LogDebug("Getting folder storage config: Domain={Domain}", domain);
+
+        var sql = @"SELECT storage_id, domain, storage_mode, protocol, host, port,
+                           auth_type, username, password_encrypted, certificate_path,
+                           private_key_path, base_path, temp_local_path, created_dt, updated_dt
+                    FROM ntfl_folder_storage
+                    WHERE domain = ?";
+
+        var result = _dbContext.ExecuteRawQuery(
+            sql,
+            reader => new FolderStorageConfig
+            {
+                StorageId = reader.GetInt32(0),
+                Domain = reader.GetString(1).Trim(),
+                StorageMode = ParseStorageMode(reader.IsDBNull(2) ? "LOCAL" : reader.GetString(2).Trim()),
+                Protocol = reader.IsDBNull(3) ? null : (TransferProtocol?)ParseStorageTransferProtocol(reader.GetString(3).Trim()),
+                Host = reader.IsDBNull(4) ? null : reader.GetString(4).Trim(),
+                Port = reader.IsDBNull(5) ? null : reader.GetInt32(5),
+                AuthType = reader.IsDBNull(6) ? null : (AuthenticationType?)ParseAuthType(reader.GetString(6).Trim()),
+                Username = reader.IsDBNull(7) ? null : reader.GetString(7).Trim(),
+                Password = reader.IsDBNull(8) ? null : reader.GetString(8).Trim(),
+                CertificatePath = reader.IsDBNull(9) ? null : reader.GetString(9).Trim(),
+                PrivateKeyPath = reader.IsDBNull(10) ? null : reader.GetString(10).Trim(),
+                BasePath = reader.IsDBNull(11) ? "/" : reader.GetString(11).Trim(),
+                TempLocalPath = reader.IsDBNull(12) ? null : reader.GetString(12).Trim(),
+                CreatedAt = reader.IsDBNull(13) ? DateTime.Now : reader.GetDateTime(13),
+                UpdatedAt = reader.IsDBNull(14) ? null : reader.GetDateTime(14)
+            },
+            ("@p1", domain, DbType.String, 32)
+        );
+
+        if (!result.IsSuccess)
+        {
+            return new DataResult<FolderStorageConfig>
+            {
+                StatusCode = result.StatusCode,
+                ErrorCode = result.ErrorCode,
+                ErrorMessage = result.ErrorMessage
+            };
+        }
+
+        if (result.Data.Count == 0)
+        {
+            return new DataResult<FolderStorageConfig>
+            {
+                StatusCode = 404,
+                ErrorCode = "NOT_FOUND",
+                ErrorMessage = $"Folder storage configuration not found for domain '{domain}'"
+            };
+        }
+
+        return new DataResult<FolderStorageConfig>
+        {
+            StatusCode = 200,
+            Data = result.Data[0]
+        };
+    }
+
+    public async Task<RawCommandResult> UpsertFolderStorageAsync(FolderStorageConfig config)
+    {
+        _logger.LogDebug("Upserting folder storage config: Domain={Domain}, Mode={Mode}", config.Domain, config.StorageMode);
+
+        // Check if exists
+        var existsResult = _dbContext.ExecuteRawScalar<int>(
+            "SELECT COUNT(*) FROM ntfl_folder_storage WHERE domain = ?",
+            ("@p1", config.Domain, DbType.String, 32)
+        );
+
+        var storageMode = config.StorageMode == StorageMode.Ftp ? "FTP" : "LOCAL";
+        var protocol = config.Protocol?.ToString().ToUpper();
+        var authType = config.AuthType?.ToString().ToUpper();
+
+        if (existsResult.IsSuccess && existsResult.Value > 0)
+        {
+            var sql = @"UPDATE ntfl_folder_storage SET
+                storage_mode = ?, protocol = ?, host = ?, port = ?,
+                auth_type = ?, username = ?, password_encrypted = ?,
+                certificate_path = ?, private_key_path = ?,
+                base_path = ?, temp_local_path = ?, updated_dt = CURRENT
+            WHERE domain = ?";
+
+            return _dbContext.ExecuteRawCommand(sql,
+                ("@p1", storageMode, DbType.String, 8),
+                ("@p2", protocol, DbType.String, 16),
+                ("@p3", config.Host, DbType.String, 255),
+                ("@p4", config.Port, DbType.Int32, 0),
+                ("@p5", authType, DbType.String, 16),
+                ("@p6", config.Username, DbType.String, 64),
+                ("@p7", config.Password, DbType.String, 512),
+                ("@p8", config.CertificatePath, DbType.String, 255),
+                ("@p9", config.PrivateKeyPath, DbType.String, 255),
+                ("@p10", config.BasePath, DbType.String, 255),
+                ("@p11", config.TempLocalPath, DbType.String, 255),
+                ("@p12", config.Domain, DbType.String, 32)
+            );
+        }
+        else
+        {
+            var sql = @"INSERT INTO ntfl_folder_storage (
+                domain, storage_mode, protocol, host, port,
+                auth_type, username, password_encrypted,
+                certificate_path, private_key_path,
+                base_path, temp_local_path, created_dt
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT)";
+
+            return _dbContext.ExecuteRawCommand(sql,
+                ("@p1", config.Domain, DbType.String, 32),
+                ("@p2", storageMode, DbType.String, 8),
+                ("@p3", protocol, DbType.String, 16),
+                ("@p4", config.Host, DbType.String, 255),
+                ("@p5", config.Port, DbType.Int32, 0),
+                ("@p6", authType, DbType.String, 16),
+                ("@p7", config.Username, DbType.String, 64),
+                ("@p8", config.Password, DbType.String, 512),
+                ("@p9", config.CertificatePath, DbType.String, 255),
+                ("@p10", config.PrivateKeyPath, DbType.String, 255),
+                ("@p11", config.BasePath, DbType.String, 255),
+                ("@p12", config.TempLocalPath, DbType.String, 255)
+            );
+        }
+    }
+
+    public async Task<RawCommandResult> DeleteFolderStorageAsync(string domain)
+    {
+        _logger.LogDebug("Deleting folder storage config: Domain={Domain}", domain);
+
+        return _dbContext.ExecuteRawCommand(
+            "DELETE FROM ntfl_folder_storage WHERE domain = ?",
+            ("@p1", domain, DbType.String, 32)
+        );
+    }
+
+    private static StorageMode ParseStorageMode(string value)
+    {
+        return value.ToUpper() switch
+        {
+            "FTP" => StorageMode.Ftp,
+            _ => StorageMode.Local
+        };
+    }
+
+    private static TransferProtocol ParseStorageTransferProtocol(string value)
+    {
+        return value.ToUpper() switch
+        {
+            "SFTP" => TransferProtocol.Sftp,
+            "FTP" => TransferProtocol.Ftp,
+            "FILESYSTEM" => TransferProtocol.FileSystem,
+            _ => TransferProtocol.Sftp
+        };
+    }
 }

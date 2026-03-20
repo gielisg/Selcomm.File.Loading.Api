@@ -75,6 +75,28 @@ public interface ITransferClient : IDisposable
     Task<RemoteFileInfo?> GetFileInfoAsync(
         string remotePath,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Create a directory on the remote source.
+    /// </summary>
+    /// <param name="remotePath">Remote directory path to create</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>True if created or already exists</returns>
+    Task<bool> CreateDirectoryAsync(
+        string remotePath,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Upload a file to the remote source.
+    /// </summary>
+    /// <param name="localPath">Local file path to upload</param>
+    /// <param name="remotePath">Remote destination path</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>True if successful</returns>
+    Task<bool> UploadFileAsync(
+        string localPath,
+        string remotePath,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
