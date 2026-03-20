@@ -8,7 +8,6 @@
 CREATE TABLE ntfl_transfer_source (
     source_id           SERIAL NOT NULL PRIMARY KEY,
     vendor_name         VARCHAR(128),  -- Friendly name for vendor/source
-    domain              VARCHAR(32) NOT NULL,
     file_type_code      VARCHAR(10),
     protocol            VARCHAR(16) NOT NULL,  -- SFTP, FTP, FILESYSTEM
     host                VARCHAR(255),
@@ -30,7 +29,6 @@ CREATE TABLE ntfl_transfer_source (
     updated_dt          DATETIME YEAR TO SECOND
 );
 
-CREATE INDEX idx_ntfl_source_domain ON ntfl_transfer_source (domain);
 CREATE INDEX idx_ntfl_source_enabled ON ntfl_transfer_source (is_enabled);
 
 ALTER TABLE ntfl_transfer_source
@@ -40,7 +38,6 @@ ALTER TABLE ntfl_transfer_source
 -- Defines folder paths for each domain/file-type combination
 CREATE TABLE ntfl_folder_config (
     config_id           SERIAL PRIMARY KEY,
-    domain              VARCHAR(32) NOT NULL,
     file_type_code      VARCHAR(10),
     transfer_folder     VARCHAR(255) NOT NULL,
     processing_folder   VARCHAR(255) NOT NULL,
@@ -51,7 +48,7 @@ CREATE TABLE ntfl_folder_config (
     updated_dt          DATETIME YEAR TO SECOND
 );
 
-CREATE UNIQUE INDEX idx_ntfl_folder_unique ON ntfl_folder_config (domain, file_type_code);
+CREATE UNIQUE INDEX idx_ntfl_folder_unique ON ntfl_folder_config (file_type_code);
 
 ALTER TABLE ntfl_folder_config
     ADD CONSTRAINT FOREIGN KEY (file_type_code) REFERENCES file_type(file_type_code);
@@ -109,7 +106,6 @@ CREATE TABLE ntfl_activity_log (
     description         LVARCHAR(512),
     details_json        TEXT,  -- JSON for additional context
     user_id             VARCHAR(32) NOT NULL,
-    domain              VARCHAR(32) NOT NULL,
     activity_dt         DATETIME YEAR TO SECOND DEFAULT CURRENT YEAR TO SECOND
 );
 
@@ -117,8 +113,6 @@ CREATE INDEX idx_ntfl_activity_file ON ntfl_activity_log (nt_file_num);
 CREATE INDEX idx_ntfl_activity_transfer ON ntfl_activity_log (transfer_id);
 CREATE INDEX idx_ntfl_activity_dt ON ntfl_activity_log (activity_dt);
 CREATE INDEX idx_ntfl_activity_user ON ntfl_activity_log (user_id);
-CREATE INDEX idx_ntfl_activity_domain ON ntfl_activity_log (domain);
-
 -- ============================================
 -- Activity Type Reference
 -- ============================================
@@ -156,37 +150,24 @@ CREATE INDEX idx_ntfl_activity_domain ON ntfl_activity_log (domain);
 
 -- Example transfer source configuration (source_id is auto-generated SERIAL)
 -- INSERT INTO ntfl_transfer_source (
---     domain, file_type_code, protocol, host, port,
+--     file_type_code, protocol, host, port,
 --     remote_path, auth_type, username, password_encrypted,
 --     file_name_pattern, delete_after_download, cron_schedule, is_enabled
 -- ) VALUES (
---     'domain1', 'CDR', 'SFTP', 'ftp.telstra.com.au', 22,
+--     'CDR', 'SFTP', 'ftp.telstra.com.au', 22,
 --     '/outgoing/cdr', 'PASSWORD', 'selcomm_user', 'encrypted_password_here',
 --     'CDR_*.csv', 'Y', '0 */15 * * * *', 'Y'
 -- );
 
 -- Example folder configuration
 -- INSERT INTO ntfl_folder_config (
---     domain, file_type_code, transfer_folder, processing_folder,
+--     file_type_code, transfer_folder, processing_folder,
 --     processed_folder, errors_folder, skipped_folder
 -- ) VALUES (
---     'domain1', 'CDR',
---     '/data/fileloader/domain1/transfer',
---     '/data/fileloader/domain1/processing',
---     '/data/fileloader/domain1/processed',
---     '/data/fileloader/domain1/errors',
---     '/data/fileloader/domain1/skipped'
--- );
-
--- Default folder configuration (no specific file type)
--- INSERT INTO ntfl_folder_config (
---     domain, file_type_code, transfer_folder, processing_folder,
---     processed_folder, errors_folder, skipped_folder
--- ) VALUES (
---     'domain1', NULL,
---     '/data/fileloader/domain1/transfer',
---     '/data/fileloader/domain1/processing',
---     '/data/fileloader/domain1/processed',
---     '/data/fileloader/domain1/errors',
---     '/data/fileloader/domain1/skipped'
+--     'CDR',
+--     '/data/fileloader/transfer',
+--     '/data/fileloader/processing',
+--     '/data/fileloader/processed',
+--     '/data/fileloader/errors',
+--     '/data/fileloader/skipped'
 -- );

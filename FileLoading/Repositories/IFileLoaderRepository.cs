@@ -213,8 +213,7 @@ public interface IFileLoaderRepository
     /// <summary>
     /// Get all transfer source configurations.
     /// </summary>
-    /// <param name="domain">Optional filter by domain</param>
-    Task<DataResult<List<TransferSourceConfig>>> GetTransferSourcesAsync(string? domain);
+    Task<DataResult<List<TransferSourceConfig>>> GetTransferSourcesAsync();
 
     /// <summary>
     /// Get a specific transfer source configuration.
@@ -245,12 +244,11 @@ public interface IFileLoaderRepository
     // ============================================
 
     /// <summary>
-    /// Get folder workflow configuration for a domain/file-type.
-    /// Falls back to domain default if file-type specific config not found.
+    /// Get folder workflow configuration for a file-type.
+    /// Falls back to default if file-type specific config not found.
     /// </summary>
-    /// <param name="domain">Domain name</param>
     /// <param name="fileTypeCode">Optional file type code</param>
-    Task<DataResult<FolderWorkflowConfig>> GetFolderConfigAsync(string domain, string? fileTypeCode);
+    Task<DataResult<FolderWorkflowConfig>> GetFolderConfigAsync(string? fileTypeCode);
 
     /// <summary>
     /// Insert or update folder workflow configuration.
@@ -364,15 +362,13 @@ public interface IFileLoaderRepository
     /// <summary>
     /// Get dashboard summary counts.
     /// </summary>
-    /// <param name="domain">Optional filter by domain</param>
     /// <param name="fileTypeCode">Optional filter by file type</param>
-    Task<DataResult<FileManagementDashboard>> GetDashboardSummaryAsync(string? domain, string? fileTypeCode);
+    Task<DataResult<FileManagementDashboard>> GetDashboardSummaryAsync(string? fileTypeCode);
 
     /// <summary>
     /// Get transfer source status summaries.
     /// </summary>
-    /// <param name="domain">Optional filter by domain</param>
-    Task<DataResult<List<TransferSourceStatus>>> GetSourceStatusesAsync(string? domain);
+    Task<DataResult<List<TransferSourceStatus>>> GetSourceStatusesAsync();
 
     // ============================================
     // File Unload Operations
@@ -493,10 +489,9 @@ public interface IFileLoaderRepository
     // ============================================
 
     /// <summary>
-    /// Get folder storage configuration for a domain.
+    /// Get folder storage configuration.
     /// </summary>
-    /// <param name="domain">Domain name</param>
-    Task<DataResult<FolderStorageConfig>> GetFolderStorageAsync(string domain);
+    Task<DataResult<FolderStorageConfig>> GetFolderStorageAsync();
 
     /// <summary>
     /// Insert or update folder storage configuration.
@@ -505,10 +500,9 @@ public interface IFileLoaderRepository
     Task<RawCommandResult> UpsertFolderStorageAsync(FolderStorageConfig config);
 
     /// <summary>
-    /// Delete folder storage configuration for a domain.
+    /// Delete folder storage configuration.
     /// </summary>
-    /// <param name="domain">Domain name</param>
-    Task<RawCommandResult> DeleteFolderStorageAsync(string domain);
+    Task<RawCommandResult> DeleteFolderStorageAsync();
 
     // ============================================
     // AI Review
@@ -542,11 +536,11 @@ public interface IFileLoaderRepository
     // AI Domain Config
     // ============================================
 
-    Task<DataResult<AiDomainConfig>> GetAiDomainConfigAsync(string domain);
+    Task<DataResult<AiDomainConfig>> GetAiDomainConfigAsync();
     Task<RawCommandResult> UpsertAiDomainConfigAsync(AiDomainConfig config);
-    Task<RawCommandResult> DeleteAiDomainConfigAsync(string domain);
-    Task<RawCommandResult> IncrementAiReviewCountAsync(string domain);
-    Task<RawCommandResult> ResetAiReviewCountAsync(string domain);
+    Task<RawCommandResult> DeleteAiDomainConfigAsync();
+    Task<RawCommandResult> IncrementAiReviewCountAsync();
+    Task<RawCommandResult> ResetAiReviewCountAsync();
 }
 
 /// <summary>

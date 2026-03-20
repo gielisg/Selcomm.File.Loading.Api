@@ -261,12 +261,6 @@ class TestTransferSources:
             data = response.json()
             assert isinstance(data, list)
 
-    def test_list_sources_with_domain_filter(self, base_url, auth_headers):
-        """GET /sources with domain filter should accept the parameter."""
-        params = {"domain": "demo3"}
-        response = requests.get(f"{base_url}/sources", headers=auth_headers, params=params, timeout=10)
-        assert response.status_code in (200, 204)
-
     def test_get_source_not_found(self, base_url, auth_headers):
         """GET /sources/{source-id} with nonexistent ID should return 404."""
         response = requests.get(f"{base_url}/sources/999999999", headers=auth_headers, timeout=10)

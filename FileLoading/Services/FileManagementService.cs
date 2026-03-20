@@ -83,7 +83,6 @@ public class FileManagementService : IFileManagementService
             ActivityType = FileActivityType.ProcessingStarted,
             Description = $"Started processing file {transfer.FileName}",
             UserId = context.UserCode ?? "SYSTEM",
-            Domain = context.Domain ?? "default"
         }, context);
 
         try
@@ -132,8 +131,7 @@ public class FileManagementService : IFileManagementService
                     ActivityType = FileActivityType.ProcessingCompleted,
                     Description = $"Successfully processed file {transfer.FileName}. Loaded {loadResult.Data.RecordsLoaded} records.",
                     UserId = context.UserCode ?? "SYSTEM",
-                    Domain = context.Domain ?? "default"
-                }, context);
+                        }, context);
 
                 return loadResult;
             }
@@ -152,8 +150,7 @@ public class FileManagementService : IFileManagementService
                     ActivityType = FileActivityType.ProcessingFailed,
                     Description = $"Failed to process file {transfer.FileName}: {errorMsg}",
                     UserId = context.UserCode ?? "SYSTEM",
-                    Domain = context.Domain ?? "default"
-                }, context);
+                        }, context);
 
                 return loadResult;
             }
@@ -203,8 +200,7 @@ public class FileManagementService : IFileManagementService
                 ActivityType = FileActivityType.FileUnloaded,
                 Description = $"Unloaded file {fileStatus.Data?.FileName}. Deleted {result.RowsAffected} records.",
                 UserId = context.UserCode ?? "SYSTEM",
-                Domain = context.Domain ?? "default"
-            }, context);
+                }, context);
 
             return new DataResult<bool>
             {
@@ -241,7 +237,6 @@ public class FileManagementService : IFileManagementService
             Description = $"Sequence skipped to {skipToSequence}. Reason: {reason ?? "Not specified"}",
             Details = JsonSerializer.Serialize(new { SkipToSequence = skipToSequence, Reason = reason }),
             UserId = context.UserCode ?? "SYSTEM",
-            Domain = context.Domain ?? "default"
         }, context);
 
         return new DataResult<bool>
@@ -304,7 +299,6 @@ public class FileManagementService : IFileManagementService
             ActivityType = activityType,
             Description = $"Moved file {transfer.FileName} to {targetFolder}. {reason ?? ""}",
             UserId = context.UserCode ?? "SYSTEM",
-            Domain = context.Domain ?? "default"
         }, context);
 
         return new DataResult<bool>
@@ -350,8 +344,7 @@ public class FileManagementService : IFileManagementService
                 ActivityType = FileActivityType.FileDeleted,
                 Description = $"Deleted file {transfer.FileName}",
                 UserId = context.UserCode ?? "SYSTEM",
-                Domain = context.Domain ?? "default"
-            }, context);
+                }, context);
 
             return new DataResult<bool>
             {
@@ -416,8 +409,7 @@ public class FileManagementService : IFileManagementService
                 ActivityType = FileActivityType.BrowserDownload,
                 Description = $"User downloaded file {transfer.FileName}",
                 UserId = context.UserCode ?? "SYSTEM",
-                Domain = context.Domain ?? "default"
-            }, context);
+                }, context);
 
             return new DataResult<FileDownloadResult>
             {
@@ -473,14 +465,14 @@ public class FileManagementService : IFileManagementService
     // ============================================
 
     public async Task<DataResult<FileManagementDashboard>> GetDashboardAsync(
-        string? domain, string? fileTypeCode, SecurityContext context)
+        string? fileTypeCode, SecurityContext context)
     {
-        var dashboardResult = await _repository.GetDashboardSummaryAsync(domain, fileTypeCode);
+        var dashboardResult = await _repository.GetDashboardSummaryAsync(fileTypeCode);
 
         if (dashboardResult.IsSuccess && dashboardResult.Data != null)
         {
             // Get source statuses
-            var statusesResult = await _repository.GetSourceStatusesAsync(domain);
+            var statusesResult = await _repository.GetSourceStatusesAsync();
             if (statusesResult.IsSuccess && statusesResult.Data != null)
             {
                 dashboardResult.Data.SourceStatuses = statusesResult.Data;
@@ -535,7 +527,6 @@ public class FileManagementService : IFileManagementService
                 NtFileNum = transfer.NtFileNum,
                 FileName = transfer.FileName,
                 FileTypeCode = sourceResult.Data?.FileTypeCode,
-                Domain = sourceResult.Data?.Domain ?? "unknown",
                 CurrentFolder = transfer.CurrentFolder ?? "",
                 Status = transfer.Status,
                 StatusDescription = GetStatusDescription(transfer.Status),
@@ -564,10 +555,6 @@ public class FileManagementService : IFileManagementService
         if (string.IsNullOrEmpty(activity.UserId))
         {
             activity.UserId = context.UserCode ?? "SYSTEM";
-        }
-        if (string.IsNullOrEmpty(activity.Domain))
-        {
-            activity.Domain = context.Domain ?? "default";
         }
 
         await _repository.InsertActivityLogAsync(activity);
@@ -604,11 +591,10 @@ public class FileManagementService : IFileManagementService
     // ============================================
 
     public async Task<DataResult<List<FileWithStatus>>> GetFilesWithErrorsAsync(
-        string? domain, string? fileTypeCode, int maxRecords, SecurityContext context)
+        string? fileTypeCode, int maxRecords, SecurityContext context)
     {
         var filter = new FileListFilter
         {
-            Domain = domain,
             FileTypeCode = fileTypeCode,
             Status = TransferStatus.Error,
             MaxRecords = maxRecords
@@ -618,11 +604,10 @@ public class FileManagementService : IFileManagementService
     }
 
     public async Task<DataResult<List<FileWithStatus>>> GetSkippedFilesAsync(
-        string? domain, string? fileTypeCode, int maxRecords, SecurityContext context)
+        string? fileTypeCode, int maxRecords, SecurityContext context)
     {
         var filter = new FileListFilter
         {
-            Domain = domain,
             FileTypeCode = fileTypeCode,
             Status = TransferStatus.Skipped,
             MaxRecords = maxRecords

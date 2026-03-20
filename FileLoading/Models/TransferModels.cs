@@ -16,9 +16,6 @@ public class TransferSourceConfig
     /// <summary>Friendly name for the vendor/source (e.g., "Telstra CDR Feed").</summary>
     public string VendorName { get; set; } = string.Empty;
 
-    /// <summary>Domain this source belongs to.</summary>
-    public string Domain { get; set; } = string.Empty;
-
     /// <summary>File type code (from file_type table).</summary>
     public string? FileTypeCode { get; set; }
 
@@ -179,9 +176,6 @@ public class FolderStorageConfig
     /// <summary>Storage configuration ID.</summary>
     public int StorageId { get; set; }
 
-    /// <summary>Domain this storage config belongs to.</summary>
-    public string Domain { get; set; } = string.Empty;
-
     /// <summary>Storage mode (Local or Ftp).</summary>
     public StorageMode StorageMode { get; set; } = StorageMode.Local;
 
@@ -227,9 +221,6 @@ public class FolderStorageConfig
 /// </summary>
 public class FolderStorageRequest
 {
-    /// <summary>Domain this storage config belongs to.</summary>
-    public string Domain { get; set; } = string.Empty;
-
     /// <summary>Storage mode (Local or Ftp).</summary>
     public StorageMode StorageMode { get; set; } = StorageMode.Local;
 
@@ -302,9 +293,6 @@ public class FolderCreateStatus
 /// </summary>
 public class FolderDefaultsResponse
 {
-    /// <summary>Domain name.</summary>
-    public string Domain { get; set; } = string.Empty;
-
     /// <summary>File type code.</summary>
     public string? FileTypeCode { get; set; }
 
@@ -336,9 +324,6 @@ public class FolderWorkflowConfig
 {
     /// <summary>Configuration ID.</summary>
     public int ConfigId { get; set; }
-
-    /// <summary>Domain this configuration belongs to.</summary>
-    public string Domain { get; set; } = string.Empty;
 
     /// <summary>File type code (null = default for domain).</summary>
     public string? FileTypeCode { get; set; }
@@ -515,9 +500,6 @@ public class FileActivityLog
     /// <summary>User who performed the activity.</summary>
     public string UserId { get; set; } = string.Empty;
 
-    /// <summary>Domain where activity occurred.</summary>
-    public string Domain { get; set; } = string.Empty;
-
     /// <summary>When the activity occurred.</summary>
     public DateTime ActivityAt { get; set; }
 }
@@ -615,9 +597,6 @@ public class TransferSourceStatus
     /// <summary>Friendly name for the vendor/source.</summary>
     public string VendorName { get; set; } = string.Empty;
 
-    /// <summary>Domain.</summary>
-    public string Domain { get; set; } = string.Empty;
-
     /// <summary>File type code.</summary>
     public string? FileTypeCode { get; set; }
 
@@ -639,9 +618,6 @@ public class TransferSourceStatus
 /// </summary>
 public class FileListFilter
 {
-    /// <summary>Filter by domain.</summary>
-    public string? Domain { get; set; }
-
     /// <summary>Filter by file type code.</summary>
     public string? FileTypeCode { get; set; }
 
@@ -680,9 +656,6 @@ public class FileWithStatus
 
     /// <summary>File type code.</summary>
     public string? FileTypeCode { get; set; }
-
-    /// <summary>Domain.</summary>
-    public string Domain { get; set; } = string.Empty;
 
     /// <summary>Current folder.</summary>
     public string CurrentFolder { get; set; } = string.Empty;
@@ -735,9 +708,6 @@ public class TransferSourceRequest
 
     /// <summary>Friendly name for the vendor/source (e.g., "Telstra CDR Feed").</summary>
     public string VendorName { get; set; } = string.Empty;
-
-    /// <summary>Domain this source belongs to.</summary>
-    public string Domain { get; set; } = string.Empty;
 
     /// <summary>File type code.</summary>
     public string? FileTypeCode { get; set; }

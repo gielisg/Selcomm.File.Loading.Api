@@ -8,10 +8,6 @@ namespace FileLoading.Models;
 /// </summary>
 public class FileListFilterRequest
 {
-    /// <summary>Filter by domain.</summary>
-    [FromQuery]
-    public string? Domain { get; set; }
-
     /// <summary>Filter by file type code (e.g. CDR, CHG, SSSWHLSCDR).</summary>
     [FromQuery(Name = "fileType")]
     public string? FileType { get; set; }

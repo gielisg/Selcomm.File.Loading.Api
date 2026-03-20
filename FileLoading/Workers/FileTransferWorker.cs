@@ -52,7 +52,7 @@ public class FileTransferWorker : BackgroundService
         var context = SecurityContext.Anonymous("default", "file_transfer_worker");
 
         // Get all enabled transfer sources
-        var sourcesResult = await transferService.GetSourceConfigsAsync(null, context);
+        var sourcesResult = await transferService.GetSourceConfigsAsync(context);
         if (!sourcesResult.IsSuccess || sourcesResult.Data == null)
         {
             _logger.LogWarning("Failed to get transfer sources: {Error}", sourcesResult.ErrorMessage);

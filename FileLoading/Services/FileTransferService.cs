@@ -69,21 +69,21 @@ public class FileTransferService : IFileTransferService
             }
 
             // Get folder configuration
-            var folderResult = await _repository.GetFolderConfigAsync(sourceConfig.Domain, sourceConfig.FileTypeCode);
+            var folderResult = await _repository.GetFolderConfigAsync(sourceConfig.FileTypeCode);
             if (!folderResult.IsSuccess || folderResult.Data == null)
             {
                 return new DataResult<TransferFetchResponse>
                 {
                     StatusCode = 400,
                     ErrorCode = "NO_FOLDER_CONFIG",
-                    ErrorMessage = $"No folder configuration found for domain '{sourceConfig.Domain}'"
+                    ErrorMessage = "No folder configuration found"
                 };
             }
 
             var folderConfig = folderResult.Data;
 
             // Check storage mode for destination folders
-            var storageResult = await _repository.GetFolderStorageAsync(sourceConfig.Domain);
+            var storageResult = await _repository.GetFolderStorageAsync();
             var isFtpStorage = storageResult.IsSuccess && storageResult.Data != null &&
                                storageResult.Data.StorageMode == StorageMode.Ftp;
             var storageConfig = isFtpStorage ? storageResult.Data : null;
@@ -296,10 +296,9 @@ public class FileTransferService : IFileTransferService
 
         // Get folder config
         var sourceResult = await _repository.GetTransferSourceAsync(transfer.SourceId ?? 0);
-        var domain = sourceResult.Data?.Domain ?? "default";
         var fileType = sourceResult.Data?.FileTypeCode;
 
-        var folderResult = await _repository.GetFolderConfigAsync(domain, fileType);
+        var folderResult = await _repository.GetFolderConfigAsync(fileType);
         if (!folderResult.IsSuccess || folderResult.Data == null)
         {
             return new DataResult<FileTransferRecord>
@@ -313,7 +312,7 @@ public class FileTransferService : IFileTransferService
         var folderConfig = folderResult.Data;
 
         // Check storage mode
-        var storageResult = await _repository.GetFolderStorageAsync(domain);
+        var storageResult = await _repository.GetFolderStorageAsync();
         var isFtpStorage = storageResult.IsSuccess && storageResult.Data != null &&
                            storageResult.Data.StorageMode == StorageMode.Ftp;
 
@@ -329,7 +328,7 @@ public class FileTransferService : IFileTransferService
                 }
                 var ftpConfig = BuildFtpConfigFromStorage(storage);
 
-                var tempDir = storage.TempLocalPath ?? $"/var/www/{domain}/files/_temp";
+                var tempDir = storage.TempLocalPath ?? $"/var/www/{context.Domain ?? "default"}/files/_temp";
                 if (!Directory.Exists(tempDir))
                 {
                     Directory.CreateDirectory(tempDir);
@@ -405,10 +404,9 @@ public class FileTransferService : IFileTransferService
 
         // Get folder config
         var sourceResult = await _repository.GetTransferSourceAsync(transfer.SourceId ?? 0);
-        var domain = sourceResult.Data?.Domain ?? "default";
         var fileType = sourceResult.Data?.FileTypeCode;
 
-        var folderResult = await _repository.GetFolderConfigAsync(domain, fileType);
+        var folderResult = await _repository.GetFolderConfigAsync(fileType);
         if (!folderResult.IsSuccess || folderResult.Data == null)
         {
             return new DataResult<FileTransferRecord>
@@ -433,7 +431,7 @@ public class FileTransferService : IFileTransferService
         };
 
         // Check storage mode
-        var storageResult = await _repository.GetFolderStorageAsync(domain);
+        var storageResult = await _repository.GetFolderStorageAsync();
         var isFtpStorage = storageResult.IsSuccess && storageResult.Data != null &&
                            storageResult.Data.StorageMode == StorageMode.Ftp;
 
@@ -584,9 +582,9 @@ public class FileTransferService : IFileTransferService
     // Source Configuration
     // ============================================
 
-    public async Task<DataResult<List<TransferSourceConfig>>> GetSourceConfigsAsync(string? domain, SecurityContext context)
+    public async Task<DataResult<List<TransferSourceConfig>>> GetSourceConfigsAsync(SecurityContext context)
     {
-        var result = await _repository.GetTransferSourcesAsync(domain);
+        var result = await _repository.GetTransferSourcesAsync();
 
         // Don't return passwords
         if (result.IsSuccess && result.Data != null)
@@ -618,7 +616,6 @@ public class FileTransferService : IFileTransferService
         {
             SourceId = request.SourceId,
             VendorName = request.VendorName,
-            Domain = request.Domain,
             FileTypeCode = request.FileTypeCode,
             Protocol = request.Protocol,
             Host = request.Host,
@@ -694,9 +691,9 @@ public class FileTransferService : IFileTransferService
     // ============================================
 
     public async Task<DataResult<FolderWorkflowConfig>> GetFolderConfigAsync(
-        string domain, string? fileTypeCode, SecurityContext context)
+        string? fileTypeCode, SecurityContext context)
     {
-        return await _repository.GetFolderConfigAsync(domain, fileTypeCode);
+        return await _repository.GetFolderConfigAsync(fileTypeCode);
     }
 
     public async Task<DataResult<FolderWorkflowConfig>> SaveFolderConfigAsync(
@@ -714,7 +711,7 @@ public class FileTransferService : IFileTransferService
             };
         }
 
-        return await _repository.GetFolderConfigAsync(config.Domain, config.FileTypeCode);
+        return await _repository.GetFolderConfigAsync(config.FileTypeCode);
     }
 
     // ============================================
@@ -722,9 +719,9 @@ public class FileTransferService : IFileTransferService
     // ============================================
 
     public async Task<DataResult<FolderStorageConfig>> GetFolderStorageAsync(
-        string domain, SecurityContext context)
+        SecurityContext context)
     {
-        var result = await _repository.GetFolderStorageAsync(domain);
+        var result = await _repository.GetFolderStorageAsync();
 
         // Mask password in response
         if (result.IsSuccess && result.Data != null)
@@ -754,7 +751,6 @@ public class FileTransferService : IFileTransferService
 
         var config = new FolderStorageConfig
         {
-            Domain = request.Domain,
             StorageMode = request.StorageMode,
             Protocol = request.Protocol,
             Host = request.Host,
@@ -773,7 +769,7 @@ public class FileTransferService : IFileTransferService
         // If password is masked, keep existing encrypted password
         if (request.Password == "********")
         {
-            var existingResult = await _repository.GetFolderStorageAsync(request.Domain);
+            var existingResult = await _repository.GetFolderStorageAsync();
             if (existingResult.IsSuccess && existingResult.Data != null)
             {
                 config.Password = existingResult.Data.Password;
@@ -808,7 +804,7 @@ public class FileTransferService : IFileTransferService
         }
 
         // Return the saved config
-        var saved = await _repository.GetFolderStorageAsync(request.Domain);
+        var saved = await _repository.GetFolderStorageAsync();
         if (saved.IsSuccess && saved.Data != null)
         {
             saved.Data.Password = string.IsNullOrEmpty(saved.Data.Password) ? null : "********";
@@ -816,9 +812,9 @@ public class FileTransferService : IFileTransferService
         return saved;
     }
 
-    public async Task<DataResult<bool>> DeleteFolderStorageAsync(string domain, SecurityContext context)
+    public async Task<DataResult<bool>> DeleteFolderStorageAsync(SecurityContext context)
     {
-        var result = await _repository.DeleteFolderStorageAsync(domain);
+        var result = await _repository.DeleteFolderStorageAsync();
         return new DataResult<bool>
         {
             StatusCode = result.IsSuccess ? 200 : 500,
@@ -847,14 +843,14 @@ public class FileTransferService : IFileTransferService
     }
 
     public Task<DataResult<FolderDefaultsResponse>> GetDefaultFolderPathsAsync(
-        string domain, string? fileType, SecurityContext context)
+        string? fileType, SecurityContext context)
     {
+        var domain = context.Domain ?? "default";
         var basePath = $"/var/www/{domain}/files";
         var typePath = string.IsNullOrEmpty(fileType) ? "default" : fileType;
 
         var defaults = new FolderDefaultsResponse
         {
-            Domain = domain,
             FileTypeCode = fileType,
             TransferFolder = $"{basePath}/{typePath}/transfer",
             ProcessingFolder = $"{basePath}/{typePath}/processing",
@@ -871,21 +867,21 @@ public class FileTransferService : IFileTransferService
     }
 
     public async Task<DataResult<FolderCreateResult>> CreateFoldersAsync(
-        string domain, string? fileType, SecurityContext context)
+        string? fileType, SecurityContext context)
     {
-        _logger.LogInformation("Creating folders for domain {Domain}, fileType {FileType}", domain, fileType);
+        _logger.LogInformation("Creating folders for fileType {FileType}", fileType);
 
         var result = new FolderCreateResult();
 
-        // Get folder config for the domain/fileType
-        var folderResult = await _repository.GetFolderConfigAsync(domain, fileType);
+        // Get folder config for the fileType
+        var folderResult = await _repository.GetFolderConfigAsync(fileType);
         if (!folderResult.IsSuccess || folderResult.Data == null)
         {
             return new DataResult<FolderCreateResult>
             {
                 StatusCode = 400,
                 ErrorCode = "NO_FOLDER_CONFIG",
-                ErrorMessage = $"No folder configuration found for domain '{domain}'"
+                ErrorMessage = "No folder configuration found"
             };
         }
 
@@ -900,7 +896,7 @@ public class FileTransferService : IFileTransferService
         };
 
         // Check storage mode
-        var storageResult = await _repository.GetFolderStorageAsync(domain);
+        var storageResult = await _repository.GetFolderStorageAsync();
         var isLocal = !storageResult.IsSuccess || storageResult.Data == null ||
                       storageResult.Data.StorageMode == StorageMode.Local;
 

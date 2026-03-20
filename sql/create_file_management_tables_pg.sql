@@ -8,7 +8,6 @@
 CREATE TABLE IF NOT EXISTS ntfl_transfer_source (
     source_id           SERIAL NOT NULL PRIMARY KEY,
     vendor_name         VARCHAR(128),
-    domain              VARCHAR(32) NOT NULL,
     file_type_code      VARCHAR(10),
     protocol            VARCHAR(16) NOT NULL,
     host                VARCHAR(255),
@@ -30,7 +29,6 @@ CREATE TABLE IF NOT EXISTS ntfl_transfer_source (
     updated_dt          TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_ntfl_source_domain ON ntfl_transfer_source (domain);
 CREATE INDEX IF NOT EXISTS idx_ntfl_source_enabled ON ntfl_transfer_source (is_enabled);
 
 ALTER TABLE ntfl_transfer_source
@@ -40,7 +38,6 @@ ALTER TABLE ntfl_transfer_source
 -- Folder workflow configuration
 CREATE TABLE IF NOT EXISTS ntfl_folder_config (
     config_id           SERIAL PRIMARY KEY,
-    domain              VARCHAR(32) NOT NULL,
     file_type_code      VARCHAR(10),
     transfer_folder     VARCHAR(255) NOT NULL,
     processing_folder   VARCHAR(255) NOT NULL,
@@ -51,7 +48,7 @@ CREATE TABLE IF NOT EXISTS ntfl_folder_config (
     updated_dt          TIMESTAMP
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_ntfl_folder_unique ON ntfl_folder_config (domain, file_type_code);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ntfl_folder_unique ON ntfl_folder_config (file_type_code);
 
 ALTER TABLE ntfl_folder_config
     ADD CONSTRAINT fk_folder_config_file_type
@@ -107,7 +104,6 @@ CREATE TABLE IF NOT EXISTS ntfl_activity_log (
     description         VARCHAR(512),
     details_json        TEXT,
     user_id             VARCHAR(32) NOT NULL,
-    domain              VARCHAR(32) NOT NULL,
     activity_dt         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -115,4 +111,3 @@ CREATE INDEX IF NOT EXISTS idx_ntfl_activity_file ON ntfl_activity_log (nt_file_
 CREATE INDEX IF NOT EXISTS idx_ntfl_activity_transfer ON ntfl_activity_log (transfer_id);
 CREATE INDEX IF NOT EXISTS idx_ntfl_activity_dt ON ntfl_activity_log (activity_dt);
 CREATE INDEX IF NOT EXISTS idx_ntfl_activity_user ON ntfl_activity_log (user_id);
-CREATE INDEX IF NOT EXISTS idx_ntfl_activity_domain ON ntfl_activity_log (domain);

@@ -39,7 +39,7 @@ tags:
   - name: Parser Configuration
     description: CRUD operations for generic parser configurations
   - name: Folder Configuration
-    description: Folder workflow configuration per domain/file-type
+    description: Folder workflow configuration per file-type
   - name: Vendors
     description: CRUD operations for vendors (networks table)
   - name: File Classes
@@ -297,12 +297,6 @@ paths:
       summary: Get dashboard summary data
       description: Get dashboard summary data including file counts by folder and transfer source statuses.
       parameters:
-        - name: domain
-          in: query
-          required: false
-          description: Filter by domain
-          schema:
-            type: string
         - name: fileType
           in: query
           required: false
@@ -330,14 +324,8 @@ paths:
       summary: List files in the transfer workflow
       description: >-
         List files in the transfer workflow with filtering.
-        Supports domain, file-type, folder, status, date range, and filename search filters.
+        Supports file-type, folder, status, date range, and filename search filters.
       parameters:
-        - name: domain
-          in: query
-          required: false
-          description: Filter by domain
-          schema:
-            type: string
         - name: fileType
           in: query
           required: false
@@ -714,12 +702,6 @@ paths:
       summary: Get files with processing errors
       description: Get files with processing errors with optional filtering.
       parameters:
-        - name: domain
-          in: query
-          required: false
-          description: Filter by domain
-          schema:
-            type: string
         - name: fileType
           in: query
           required: false
@@ -753,12 +735,6 @@ paths:
       summary: Get skipped files
       description: Get files that were skipped during processing.
       parameters:
-        - name: domain
-          in: query
-          required: false
-          description: Filter by domain
-          schema:
-            type: string
         - name: fileType
           in: query
           required: false
@@ -824,14 +800,7 @@ paths:
       tags:
         - Transfer Sources
       summary: List all transfer source configurations
-      description: List all transfer source configurations with optional domain filter.
-      parameters:
-        - name: domain
-          in: query
-          required: false
-          description: Filter by domain
-          schema:
-            type: string
+      description: List all transfer source configurations.
       responses:
         "200":
           description: Transfer sources retrieved
@@ -1099,19 +1068,13 @@ paths:
         - Folder Configuration
       summary: Get folder workflow configuration
       description: >-
-        Get folder workflow configuration for a domain.
-        Falls back to domain default if file-type specific config not found.
+        Get folder workflow configuration.
+        Falls back to default if file-type specific config not found.
       parameters:
-        - name: domain
-          in: query
-          required: true
-          description: Domain name (required)
-          schema:
-            type: string
         - name: fileType
           in: query
           required: false
-          description: File type code (optional - falls back to domain default)
+          description: File type code (optional - falls back to default)
           schema:
             type: string
       responses:
@@ -1922,10 +1885,6 @@ components:
           type: string
           description: Friendly name for the vendor/source
           example: "Telstra CDR Feed"
-        Domain:
-          type: string
-          description: Domain
-          example: "domain1"
         FileTypeCode:
           type: string
           nullable: true
@@ -1970,10 +1929,6 @@ components:
           nullable: true
           description: File type code
           example: TEL_GSM
-        Domain:
-          type: string
-          description: Domain
-          example: "domain1"
         CurrentFolder:
           type: string
           description: Current folder
@@ -2046,10 +2001,6 @@ components:
           type: string
           description: Friendly name for the vendor/source
           example: "Telstra CDR Feed"
-        Domain:
-          type: string
-          description: Domain this source belongs to
-          example: "domain1"
         FileTypeCode:
           type: string
           nullable: true
@@ -2133,7 +2084,6 @@ components:
       type: object
       required:
         - VendorName
-        - Domain
         - Host
         - Username
       properties:
@@ -2144,10 +2094,6 @@ components:
           type: string
           description: Friendly name for the vendor/source
           example: "Telstra CDR Feed"
-        Domain:
-          type: string
-          description: Domain this source belongs to
-          example: "domain1"
         FileTypeCode:
           type: string
           nullable: true
@@ -2338,10 +2284,6 @@ components:
           type: integer
           description: Configuration ID
           example: 1
-        Domain:
-          type: string
-          description: Domain this configuration belongs to
-          example: "domain1"
         FileTypeCode:
           type: string
           nullable: true
@@ -2411,10 +2353,6 @@ components:
           type: string
           description: User who performed the activity
           example: "admin"
-        Domain:
-          type: string
-          description: Domain where activity occurred
-          example: "domain1"
         ActivityAt:
           type: string
           format: date-time

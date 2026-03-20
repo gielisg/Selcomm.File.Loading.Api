@@ -105,11 +105,9 @@ public interface IFileTransferService
     /// <summary>
     /// Get all transfer source configurations.
     /// </summary>
-    /// <param name="domain">Optional filter by domain</param>
     /// <param name="context">Security context</param>
     /// <returns>List of transfer source configurations</returns>
     Task<DataResult<List<TransferSourceConfig>>> GetSourceConfigsAsync(
-        string? domain,
         SecurityContext context);
 
     /// <summary>
@@ -146,14 +144,12 @@ public interface IFileTransferService
     // ============================================
 
     /// <summary>
-    /// Get folder workflow configuration for a domain/file-type.
+    /// Get folder workflow configuration for a file-type.
     /// </summary>
-    /// <param name="domain">Domain name</param>
     /// <param name="fileTypeCode">Optional file type code</param>
     /// <param name="context">Security context</param>
     /// <returns>Folder configuration</returns>
     Task<DataResult<FolderWorkflowConfig>> GetFolderConfigAsync(
-        string domain,
         string? fileTypeCode,
         SecurityContext context);
 
@@ -172,13 +168,11 @@ public interface IFileTransferService
     // ============================================
 
     /// <summary>
-    /// Get folder storage configuration for a domain.
+    /// Get folder storage configuration.
     /// </summary>
-    /// <param name="domain">Domain name</param>
     /// <param name="context">Security context</param>
     /// <returns>Storage configuration (404 = LOCAL default)</returns>
     Task<DataResult<FolderStorageConfig>> GetFolderStorageAsync(
-        string domain,
         SecurityContext context);
 
     /// <summary>
@@ -194,10 +188,8 @@ public interface IFileTransferService
     /// <summary>
     /// Delete folder storage configuration (revert to local defaults).
     /// </summary>
-    /// <param name="domain">Domain name</param>
     /// <param name="context">Security context</param>
     Task<DataResult<bool>> DeleteFolderStorageAsync(
-        string domain,
         SecurityContext context);
 
     /// <summary>
@@ -211,26 +203,24 @@ public interface IFileTransferService
         SecurityContext context);
 
     /// <summary>
-    /// Get default folder paths for a domain/file-type combination.
+    /// Get default folder paths for a file-type combination.
+    /// Uses SecurityContext.Domain for path construction.
     /// </summary>
-    /// <param name="domain">Domain name</param>
     /// <param name="fileType">File type code</param>
     /// <param name="context">Security context</param>
     /// <returns>Default folder paths</returns>
     Task<DataResult<FolderDefaultsResponse>> GetDefaultFolderPathsAsync(
-        string domain,
         string? fileType,
         SecurityContext context);
 
     /// <summary>
-    /// Create all 5 workflow folders for a domain/file-type (local or FTP).
+    /// Create all 5 workflow folders for a file-type (local or FTP).
+    /// Uses SecurityContext.Domain for path construction.
     /// </summary>
-    /// <param name="domain">Domain name</param>
     /// <param name="fileType">File type code</param>
     /// <param name="context">Security context</param>
     /// <returns>Folder creation result</returns>
     Task<DataResult<FolderCreateResult>> CreateFoldersAsync(
-        string domain,
         string? fileType,
         SecurityContext context);
 

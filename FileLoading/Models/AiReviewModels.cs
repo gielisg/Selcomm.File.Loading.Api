@@ -140,7 +140,7 @@ public class ExampleFileRecord
 /// </summary>
 public class AiDomainConfig
 {
-    public string Domain { get; set; } = string.Empty;
+    public int ConfigId { get; set; }
     public string ApiKey { get; set; } = string.Empty;
     public string Model { get; set; } = "claude-sonnet-4-20250514";
     public bool Enabled { get; set; } = true;

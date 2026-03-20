@@ -44,18 +44,16 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// <summary>
     /// Get dashboard summary data including file counts by folder and transfer source statuses.
     /// </summary>
-    /// <param name="domain">Filter by domain</param>
     /// <param name="fileType">Filter by file type code</param>
     [HttpGet("dashboard")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_dashboard")]
     [Tags("File Management")]
     [ProducesResponseType(typeof(FileManagementDashboard), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetDashboard(
-        [FromQuery] string? domain = null,
         [FromQuery(Name = "fileType")] string? fileType = null)
     {
         var securityContext = CreateSecurityContext("get_api_v4_file_loading_dashboard");
-        var result = await _managementService.GetDashboardAsync(domain, fileType, securityContext);
+        var result = await _managementService.GetDashboardAsync(fileType, securityContext);
 
         return HandleDataResult(result);
     }
@@ -77,7 +75,6 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
 
         var filter = new FileListFilter
         {
-            Domain = request.Domain,
             FileTypeCode = request.FileType,
             CurrentFolder = request.Folder,
             Status = request.Status,
@@ -332,7 +329,6 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// <summary>
     /// Get files with processing errors.
     /// </summary>
-    /// <param name="domain">Filter by domain</param>
     /// <param name="fileType">Filter by file type code</param>
     /// <param name="maxRecords">Maximum records to return (default 100)</param>
     [HttpGet("exceptions/errors")]
@@ -340,12 +336,11 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [Tags("Exceptions")]
     [ProducesResponseType(typeof(List<FileWithStatus>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetFilesWithErrors(
-        [FromQuery] string? domain = null,
         [FromQuery(Name = "fileType")] string? fileType = null,
         [FromQuery(Name = "maxRecords")] int maxRecords = 100)
     {
         var securityContext = CreateSecurityContext("get_api_v4_file_loading_exceptions_errors");
-        var result = await _managementService.GetFilesWithErrorsAsync(domain, fileType, maxRecords, securityContext);
+        var result = await _managementService.GetFilesWithErrorsAsync(fileType, maxRecords, securityContext);
 
         return HandleDataResult(result);
     }
@@ -353,7 +348,6 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// <summary>
     /// Get skipped files.
     /// </summary>
-    /// <param name="domain">Filter by domain</param>
     /// <param name="fileType">Filter by file type code</param>
     /// <param name="maxRecords">Maximum records to return (default 100)</param>
     [HttpGet("exceptions/skipped")]
@@ -361,12 +355,11 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [Tags("Exceptions")]
     [ProducesResponseType(typeof(List<FileWithStatus>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetSkippedFiles(
-        [FromQuery] string? domain = null,
         [FromQuery(Name = "fileType")] string? fileType = null,
         [FromQuery(Name = "maxRecords")] int maxRecords = 100)
     {
         var securityContext = CreateSecurityContext("get_api_v4_file_loading_exceptions_skipped");
-        var result = await _managementService.GetSkippedFilesAsync(domain, fileType, maxRecords, securityContext);
+        var result = await _managementService.GetSkippedFilesAsync(fileType, maxRecords, securityContext);
 
         return HandleDataResult(result);
     }
@@ -378,15 +371,14 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// <summary>
     /// List all transfer source configurations.
     /// </summary>
-    /// <param name="domain">Filter by domain</param>
     [HttpGet("sources")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_sources")]
     [Tags("Transfer Sources")]
     [ProducesResponseType(typeof(List<TransferSourceConfig>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetTransferSources([FromQuery] string? domain = null)
+    public async Task<IActionResult> GetTransferSources()
     {
         var securityContext = CreateSecurityContext("get_api_v4_file_loading_sources");
-        var result = await _transferService.GetSourceConfigsAsync(domain, securityContext);
+        var result = await _transferService.GetSourceConfigsAsync(securityContext);
 
         return HandleDataResult(result);
     }
@@ -570,21 +562,19 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     // ============================================
 
     /// <summary>
-    /// Get folder workflow configuration for a domain. Falls back to domain default if file-type specific config not found. No DELETE — folders always exist per domain.
+    /// Get folder workflow configuration. Falls back to default if file-type specific config not found.
     /// </summary>
-    /// <param name="domain">Domain name (required)</param>
-    /// <param name="fileType">File type code (optional — falls back to domain default)</param>
+    /// <param name="fileType">File type code (optional — falls back to default)</param>
     [HttpGet("folders")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_folders")]
     [Tags("Folder Configuration")]
     [ProducesResponseType(typeof(FolderWorkflowConfig), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetFolderConfig(
-        [FromQuery] string domain,
         [FromQuery(Name = "fileType")] string? fileType = null)
     {
         var securityContext = CreateSecurityContext("get_api_v4_file_loading_folders");
-        var result = await _transferService.GetFolderConfigAsync(domain, fileType, securityContext);
+        var result = await _transferService.GetFolderConfigAsync(fileType, securityContext);
 
         return HandleDataResult(result);
     }
@@ -605,46 +595,42 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         if (result.IsSuccess)
         {
             // Auto-create folders on save
-            await _transferService.CreateFoldersAsync(config.Domain, config.FileTypeCode, securityContext);
+            await _transferService.CreateFoldersAsync(config.FileTypeCode, securityContext);
         }
 
         return HandleDataResult(result);
     }
 
     /// <summary>
-    /// Get default folder paths for a domain/file-type combination.
+    /// Get default folder paths for a file-type combination.
     /// </summary>
-    /// <param name="domain">Domain name</param>
     /// <param name="fileType">File type code</param>
     [HttpGet("folders/defaults")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_folders_defaults")]
     [Tags("Folder Configuration")]
     [ProducesResponseType(typeof(FolderDefaultsResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetFolderDefaults(
-        [FromQuery] string domain,
         [FromQuery(Name = "fileType")] string? fileType = null)
     {
         var securityContext = CreateSecurityContext("get_api_v4_file_loading_folders_defaults");
-        var result = await _transferService.GetDefaultFolderPathsAsync(domain, fileType, securityContext);
+        var result = await _transferService.GetDefaultFolderPathsAsync(fileType, securityContext);
 
         return HandleDataResult(result);
     }
 
     /// <summary>
-    /// Create all 5 workflow folders for a domain/file-type (local or FTP based on storage config).
+    /// Create all 5 workflow folders for a file-type (local or FTP based on storage config).
     /// </summary>
-    /// <param name="domain">Domain name</param>
     /// <param name="fileType">File type code</param>
     [HttpPost("folders/create")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_folders_create")]
     [Tags("Folder Configuration")]
     [ProducesResponseType(typeof(FolderCreateResult), StatusCodes.Status200OK)]
     public async Task<IActionResult> CreateFolders(
-        [FromQuery] string domain,
         [FromQuery(Name = "fileType")] string? fileType = null)
     {
         var securityContext = CreateSecurityContext("post_api_v4_file_loading_folders_create");
-        var result = await _transferService.CreateFoldersAsync(domain, fileType, securityContext);
+        var result = await _transferService.CreateFoldersAsync(fileType, securityContext);
 
         return HandleDataResult(result);
     }
@@ -654,18 +640,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     // ============================================
 
     /// <summary>
-    /// Get folder storage configuration for a domain (from JWT). Returns 404 if no config exists (interpreted as LOCAL mode).
+    /// Get folder storage configuration. Returns 404 if no config exists (interpreted as LOCAL mode).
     /// </summary>
-    /// <param name="domain">Domain name</param>
     [HttpGet("folder-storage")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_folder_storage")]
     [Tags("Folder Configuration")]
     [ProducesResponseType(typeof(FolderStorageConfig), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetFolderStorage([FromQuery] string domain)
+    public async Task<IActionResult> GetFolderStorage()
     {
         var securityContext = CreateSecurityContext("get_api_v4_file_loading_folder_storage");
-        var result = await _transferService.GetFolderStorageAsync(domain, securityContext);
+        var result = await _transferService.GetFolderStorageAsync(securityContext);
 
         return HandleDataResult(result);
     }
@@ -689,16 +674,15 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// <summary>
     /// Delete folder storage configuration (revert to local defaults).
     /// </summary>
-    /// <param name="domain">Domain name</param>
     [HttpDelete("folder-storage")]
     [SwaggerOperation(OperationId = "delete_api_v4_file_loading_folder_storage")]
     [Tags("Folder Configuration")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> DeleteFolderStorage([FromQuery] string domain)
+    public async Task<IActionResult> DeleteFolderStorage()
     {
         var securityContext = CreateSecurityContext("delete_api_v4_file_loading_folder_storage");
-        var result = await _transferService.DeleteFolderStorageAsync(domain, securityContext);
+        var result = await _transferService.DeleteFolderStorageAsync(securityContext);
 
         return HandleDataResult(result);
     }

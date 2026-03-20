@@ -1174,27 +1174,17 @@ public class FileLoaderRepository : IFileLoaderRepository
     // Transfer Source Configuration
     // ============================================
 
-    public async Task<DataResult<List<TransferSourceConfig>>> GetTransferSourcesAsync(string? domain)
+    public async Task<DataResult<List<TransferSourceConfig>>> GetTransferSourcesAsync()
     {
-        _logger.LogDebug("Getting transfer sources for domain: {Domain}", domain ?? "all");
+        _logger.LogDebug("Getting transfer sources");
 
-        var sql = @"SELECT source_id, vendor_name, domain, file_type_code, protocol, host, port,
+        var sql = @"SELECT source_id, vendor_name, file_type_code, protocol, host, port,
                            remote_path, auth_type, username, password_encrypted,
                            certificate_path, private_key_path, file_name_pattern,
                            skip_file_pattern, delete_after_download, compress_on_archive,
                            compression_method, cron_schedule, is_enabled, created_dt, updated_dt
-                    FROM ntfl_transfer_source";
-
-        if (!string.IsNullOrEmpty(domain))
-        {
-            sql += " WHERE domain = ?";
-        }
-
-        sql += " ORDER BY domain, source_id";
-
-        var parameters = string.IsNullOrEmpty(domain)
-            ? Array.Empty<(string, object?, DbType, int?)>()
-            : new[] { ("@p1", (object?)domain, DbType.String, (int?)32) };
+                    FROM ntfl_transfer_source
+                    ORDER BY source_id";
 
         var result = _dbContext.ExecuteRawQuery(
             sql,
@@ -1202,28 +1192,26 @@ public class FileLoaderRepository : IFileLoaderRepository
             {
                 SourceId = reader.GetInt32(0),
                 VendorName = reader.IsDBNull(1) ? string.Empty : reader.GetString(1).Trim(),
-                Domain = reader.GetString(2).Trim(),
-                FileTypeCode = reader.IsDBNull(3) ? null : reader.GetString(3).Trim(),
-                Protocol = ParseProtocol(reader.IsDBNull(4) ? "SFTP" : reader.GetString(4).Trim()),
-                Host = reader.IsDBNull(5) ? string.Empty : reader.GetString(5).Trim(),
-                Port = reader.IsDBNull(6) ? 22 : reader.GetInt32(6),
-                RemotePath = reader.IsDBNull(7) ? "/" : reader.GetString(7).Trim(),
-                AuthType = ParseAuthType(reader.IsDBNull(8) ? "PASSWORD" : reader.GetString(8).Trim()),
-                Username = reader.IsDBNull(9) ? string.Empty : reader.GetString(9).Trim(),
-                Password = reader.IsDBNull(10) ? null : reader.GetString(10), // Encrypted
-                CertificatePath = reader.IsDBNull(11) ? null : reader.GetString(11).Trim(),
-                PrivateKeyPath = reader.IsDBNull(12) ? null : reader.GetString(12).Trim(),
-                FileNamePattern = reader.IsDBNull(13) ? "*.*" : reader.GetString(13).Trim(),
-                SkipFilePattern = reader.IsDBNull(14) ? null : reader.GetString(14).Trim(),
-                DeleteAfterDownload = reader.IsDBNull(15) || reader.GetString(15).Trim().ToUpper() == "Y",
-                CompressOnArchive = reader.IsDBNull(16) || reader.GetString(16).Trim().ToUpper() == "Y",
-                Compression = ParseCompression(reader.IsDBNull(17) ? "GZIP" : reader.GetString(17).Trim()),
-                CronSchedule = reader.IsDBNull(18) ? null : reader.GetString(18).Trim(),
-                IsEnabled = reader.IsDBNull(19) || reader.GetString(19).Trim().ToUpper() == "Y",
-                CreatedAt = reader.IsDBNull(20) ? DateTime.Now : reader.GetDateTime(20),
-                UpdatedAt = reader.IsDBNull(21) ? null : reader.GetDateTime(21)
-            },
-            parameters
+                FileTypeCode = reader.IsDBNull(2) ? null : reader.GetString(2).Trim(),
+                Protocol = ParseProtocol(reader.IsDBNull(3) ? "SFTP" : reader.GetString(3).Trim()),
+                Host = reader.IsDBNull(4) ? string.Empty : reader.GetString(4).Trim(),
+                Port = reader.IsDBNull(5) ? 22 : reader.GetInt32(5),
+                RemotePath = reader.IsDBNull(6) ? "/" : reader.GetString(6).Trim(),
+                AuthType = ParseAuthType(reader.IsDBNull(7) ? "PASSWORD" : reader.GetString(7).Trim()),
+                Username = reader.IsDBNull(8) ? string.Empty : reader.GetString(8).Trim(),
+                Password = reader.IsDBNull(9) ? null : reader.GetString(9), // Encrypted
+                CertificatePath = reader.IsDBNull(10) ? null : reader.GetString(10).Trim(),
+                PrivateKeyPath = reader.IsDBNull(11) ? null : reader.GetString(11).Trim(),
+                FileNamePattern = reader.IsDBNull(12) ? "*.*" : reader.GetString(12).Trim(),
+                SkipFilePattern = reader.IsDBNull(13) ? null : reader.GetString(13).Trim(),
+                DeleteAfterDownload = reader.IsDBNull(14) || reader.GetString(14).Trim().ToUpper() == "Y",
+                CompressOnArchive = reader.IsDBNull(15) || reader.GetString(15).Trim().ToUpper() == "Y",
+                Compression = ParseCompression(reader.IsDBNull(16) ? "GZIP" : reader.GetString(16).Trim()),
+                CronSchedule = reader.IsDBNull(17) ? null : reader.GetString(17).Trim(),
+                IsEnabled = reader.IsDBNull(18) || reader.GetString(18).Trim().ToUpper() == "Y",
+                CreatedAt = reader.IsDBNull(19) ? DateTime.Now : reader.GetDateTime(19),
+                UpdatedAt = reader.IsDBNull(20) ? null : reader.GetDateTime(20)
+            }
         );
 
         return new DataResult<List<TransferSourceConfig>>
@@ -1239,7 +1227,7 @@ public class FileLoaderRepository : IFileLoaderRepository
     {
         _logger.LogDebug("Getting transfer source: {SourceId}", sourceId);
 
-        var result = await GetTransferSourcesAsync(null);
+        var result = await GetTransferSourcesAsync();
         if (!result.IsSuccess)
         {
             return new DataResult<TransferSourceConfig>
@@ -1273,33 +1261,32 @@ public class FileLoaderRepository : IFileLoaderRepository
         _logger.LogDebug("Inserting transfer source: {VendorName}", config.VendorName);
 
         var sql = @"INSERT INTO ntfl_transfer_source (
-            vendor_name, domain, file_type_code, protocol, host, port,
+            vendor_name, file_type_code, protocol, host, port,
             remote_path, auth_type, username, password_encrypted,
             certificate_path, private_key_path, file_name_pattern,
             skip_file_pattern, delete_after_download, compress_on_archive,
             compression_method, cron_schedule, is_enabled, created_dt
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT)";
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT)";
 
         return _dbContext.ExecuteRawCommand(sql,
             ("@p1", config.VendorName, DbType.String, 128),
-            ("@p2", config.Domain, DbType.String, 32),
-            ("@p3", config.FileTypeCode, DbType.String, 10),
-            ("@p4", config.Protocol.ToString().ToUpper(), DbType.String, 16),
-            ("@p5", config.Host, DbType.String, 255),
-            ("@p6", config.Port, DbType.Int32, null),
-            ("@p7", config.RemotePath, DbType.String, 255),
-            ("@p8", config.AuthType.ToString().ToUpper(), DbType.String, 16),
-            ("@p9", config.Username, DbType.String, 64),
-            ("@p10", config.Password, DbType.String, 512),
-            ("@p11", config.CertificatePath, DbType.String, 255),
-            ("@p12", config.PrivateKeyPath, DbType.String, 255),
-            ("@p13", config.FileNamePattern, DbType.String, 128),
-            ("@p14", config.SkipFilePattern, DbType.String, 128),
-            ("@p15", config.DeleteAfterDownload ? "Y" : "N", DbType.String, 1),
-            ("@p16", config.CompressOnArchive ? "Y" : "N", DbType.String, 1),
-            ("@p17", config.Compression.ToString().ToUpper(), DbType.String, 16),
-            ("@p18", config.CronSchedule, DbType.String, 64),
-            ("@p19", config.IsEnabled ? "Y" : "N", DbType.String, 1)
+            ("@p2", config.FileTypeCode, DbType.String, 10),
+            ("@p3", config.Protocol.ToString().ToUpper(), DbType.String, 16),
+            ("@p4", config.Host, DbType.String, 255),
+            ("@p5", config.Port, DbType.Int32, null),
+            ("@p6", config.RemotePath, DbType.String, 255),
+            ("@p7", config.AuthType.ToString().ToUpper(), DbType.String, 16),
+            ("@p8", config.Username, DbType.String, 64),
+            ("@p9", config.Password, DbType.String, 512),
+            ("@p10", config.CertificatePath, DbType.String, 255),
+            ("@p11", config.PrivateKeyPath, DbType.String, 255),
+            ("@p12", config.FileNamePattern, DbType.String, 128),
+            ("@p13", config.SkipFilePattern, DbType.String, 128),
+            ("@p14", config.DeleteAfterDownload ? "Y" : "N", DbType.String, 1),
+            ("@p15", config.CompressOnArchive ? "Y" : "N", DbType.String, 1),
+            ("@p16", config.Compression.ToString().ToUpper(), DbType.String, 16),
+            ("@p17", config.CronSchedule, DbType.String, 64),
+            ("@p18", config.IsEnabled ? "Y" : "N", DbType.String, 1)
         );
     }
 
@@ -1308,7 +1295,7 @@ public class FileLoaderRepository : IFileLoaderRepository
         _logger.LogDebug("Updating transfer source: {SourceId}", config.SourceId);
 
         var sql = @"UPDATE ntfl_transfer_source SET
-            vendor_name = ?, domain = ?, file_type_code = ?, protocol = ?, host = ?, port = ?,
+            vendor_name = ?, file_type_code = ?, protocol = ?, host = ?, port = ?,
             remote_path = ?, auth_type = ?, username = ?, password_encrypted = ?,
             certificate_path = ?, private_key_path = ?, file_name_pattern = ?,
             skip_file_pattern = ?, delete_after_download = ?, compress_on_archive = ?,
@@ -1317,25 +1304,24 @@ public class FileLoaderRepository : IFileLoaderRepository
 
         return _dbContext.ExecuteRawCommand(sql,
             ("@p1", config.VendorName, DbType.String, 128),
-            ("@p2", config.Domain, DbType.String, 32),
-            ("@p3", config.FileTypeCode, DbType.String, 10),
-            ("@p4", config.Protocol.ToString().ToUpper(), DbType.String, 16),
-            ("@p5", config.Host, DbType.String, 255),
-            ("@p6", config.Port, DbType.Int32, null),
-            ("@p7", config.RemotePath, DbType.String, 255),
-            ("@p8", config.AuthType.ToString().ToUpper(), DbType.String, 16),
-            ("@p9", config.Username, DbType.String, 64),
-            ("@p10", config.Password, DbType.String, 512),
-            ("@p11", config.CertificatePath, DbType.String, 255),
-            ("@p12", config.PrivateKeyPath, DbType.String, 255),
-            ("@p13", config.FileNamePattern, DbType.String, 128),
-            ("@p14", config.SkipFilePattern, DbType.String, 128),
-            ("@p15", config.DeleteAfterDownload ? "Y" : "N", DbType.String, 1),
-            ("@p16", config.CompressOnArchive ? "Y" : "N", DbType.String, 1),
-            ("@p17", config.Compression.ToString().ToUpper(), DbType.String, 16),
-            ("@p18", config.CronSchedule, DbType.String, 64),
-            ("@p19", config.IsEnabled ? "Y" : "N", DbType.String, 1),
-            ("@p20", config.SourceId, DbType.Int32, null)
+            ("@p2", config.FileTypeCode, DbType.String, 10),
+            ("@p3", config.Protocol.ToString().ToUpper(), DbType.String, 16),
+            ("@p4", config.Host, DbType.String, 255),
+            ("@p5", config.Port, DbType.Int32, null),
+            ("@p6", config.RemotePath, DbType.String, 255),
+            ("@p7", config.AuthType.ToString().ToUpper(), DbType.String, 16),
+            ("@p8", config.Username, DbType.String, 64),
+            ("@p9", config.Password, DbType.String, 512),
+            ("@p10", config.CertificatePath, DbType.String, 255),
+            ("@p11", config.PrivateKeyPath, DbType.String, 255),
+            ("@p12", config.FileNamePattern, DbType.String, 128),
+            ("@p13", config.SkipFilePattern, DbType.String, 128),
+            ("@p14", config.DeleteAfterDownload ? "Y" : "N", DbType.String, 1),
+            ("@p15", config.CompressOnArchive ? "Y" : "N", DbType.String, 1),
+            ("@p16", config.Compression.ToString().ToUpper(), DbType.String, 16),
+            ("@p17", config.CronSchedule, DbType.String, 64),
+            ("@p18", config.IsEnabled ? "Y" : "N", DbType.String, 1),
+            ("@p19", config.SourceId, DbType.Int32, null)
         );
     }
 
@@ -1353,16 +1339,16 @@ public class FileLoaderRepository : IFileLoaderRepository
     // Folder Configuration
     // ============================================
 
-    public async Task<DataResult<FolderWorkflowConfig>> GetFolderConfigAsync(string domain, string? fileTypeCode)
+    public async Task<DataResult<FolderWorkflowConfig>> GetFolderConfigAsync(string? fileTypeCode)
     {
-        _logger.LogDebug("Getting folder config: Domain={Domain}, FileType={FileType}", domain, fileTypeCode);
+        _logger.LogDebug("Getting folder config: FileType={FileType}", fileTypeCode);
 
-        // Try to find specific config first, then fall back to domain default
-        var sql = @"SELECT config_id, domain, file_type_code, transfer_folder,
+        // Try to find specific config first, then fall back to default
+        var sql = @"SELECT config_id, file_type_code, transfer_folder,
                            processing_folder, processed_folder, errors_folder, skipped_folder,
                            created_dt, updated_dt
                     FROM ntfl_folder_config
-                    WHERE domain = ? AND (file_type_code = ? OR file_type_code IS NULL)
+                    WHERE file_type_code = ? OR file_type_code IS NULL
                     ORDER BY file_type_code DESC";
 
         var result = _dbContext.ExecuteRawQuery(
@@ -1370,18 +1356,16 @@ public class FileLoaderRepository : IFileLoaderRepository
             reader => new FolderWorkflowConfig
             {
                 ConfigId = reader.GetInt32(0),
-                Domain = reader.GetString(1).Trim(),
-                FileTypeCode = reader.IsDBNull(2) ? null : reader.GetString(2).Trim(),
-                TransferFolder = reader.GetString(3).Trim(),
-                ProcessingFolder = reader.GetString(4).Trim(),
-                ProcessedFolder = reader.GetString(5).Trim(),
-                ErrorsFolder = reader.GetString(6).Trim(),
-                SkippedFolder = reader.GetString(7).Trim(),
-                CreatedAt = reader.IsDBNull(8) ? DateTime.Now : reader.GetDateTime(8),
-                UpdatedAt = reader.IsDBNull(9) ? null : reader.GetDateTime(9)
+                FileTypeCode = reader.IsDBNull(1) ? null : reader.GetString(1).Trim(),
+                TransferFolder = reader.GetString(2).Trim(),
+                ProcessingFolder = reader.GetString(3).Trim(),
+                ProcessedFolder = reader.GetString(4).Trim(),
+                ErrorsFolder = reader.GetString(5).Trim(),
+                SkippedFolder = reader.GetString(6).Trim(),
+                CreatedAt = reader.IsDBNull(7) ? DateTime.Now : reader.GetDateTime(7),
+                UpdatedAt = reader.IsDBNull(8) ? null : reader.GetDateTime(8)
             },
-            ("@p1", domain, DbType.String, 32),
-            ("@p2", fileTypeCode, DbType.String, 10)
+            ("@p1", fileTypeCode, DbType.String, 10)
         );
 
         if (!result.IsSuccess)
@@ -1400,7 +1384,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             {
                 StatusCode = 404,
                 ErrorCode = "NOT_FOUND",
-                ErrorMessage = $"Folder configuration not found for domain '{domain}'"
+                ErrorMessage = "Folder configuration not found"
             };
         }
 
@@ -1413,14 +1397,13 @@ public class FileLoaderRepository : IFileLoaderRepository
 
     public async Task<RawCommandResult> SaveFolderConfigAsync(FolderWorkflowConfig config)
     {
-        _logger.LogDebug("Saving folder config: Domain={Domain}, FileType={FileType}", config.Domain, config.FileTypeCode);
+        _logger.LogDebug("Saving folder config: FileType={FileType}", config.FileTypeCode);
 
         // Check if exists
         var existsResult = _dbContext.ExecuteRawScalar<int>(
-            "SELECT COUNT(*) FROM ntfl_folder_config WHERE domain = ? AND (file_type_code = ? OR (file_type_code IS NULL AND ? IS NULL))",
-            ("@p1", config.Domain, DbType.String, 32),
-            ("@p2", config.FileTypeCode, DbType.String, 10),
-            ("@p3", config.FileTypeCode, DbType.String, 10)
+            "SELECT COUNT(*) FROM ntfl_folder_config WHERE file_type_code = ? OR (file_type_code IS NULL AND ? IS NULL)",
+            ("@p1", config.FileTypeCode, DbType.String, 10),
+            ("@p2", config.FileTypeCode, DbType.String, 10)
         );
 
         if (existsResult.IsSuccess && existsResult.Value > 0)
@@ -1429,7 +1412,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             var sql = @"UPDATE ntfl_folder_config SET
                 transfer_folder = ?, processing_folder = ?, processed_folder = ?,
                 errors_folder = ?, skipped_folder = ?, updated_dt = CURRENT
-            WHERE domain = ? AND (file_type_code = ? OR (file_type_code IS NULL AND ? IS NULL))";
+            WHERE file_type_code = ? OR (file_type_code IS NULL AND ? IS NULL)";
 
             return _dbContext.ExecuteRawCommand(sql,
                 ("@p1", config.TransferFolder, DbType.String, 255),
@@ -1437,27 +1420,25 @@ public class FileLoaderRepository : IFileLoaderRepository
                 ("@p3", config.ProcessedFolder, DbType.String, 255),
                 ("@p4", config.ErrorsFolder, DbType.String, 255),
                 ("@p5", config.SkippedFolder, DbType.String, 255),
-                ("@p6", config.Domain, DbType.String, 32),
-                ("@p7", config.FileTypeCode, DbType.String, 10),
-                ("@p8", config.FileTypeCode, DbType.String, 10)
+                ("@p6", config.FileTypeCode, DbType.String, 10),
+                ("@p7", config.FileTypeCode, DbType.String, 10)
             );
         }
         else
         {
             // Insert
             var sql = @"INSERT INTO ntfl_folder_config (
-                domain, file_type_code, transfer_folder, processing_folder,
+                file_type_code, transfer_folder, processing_folder,
                 processed_folder, errors_folder, skipped_folder, created_dt
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT)";
+            ) VALUES (?, ?, ?, ?, ?, ?, CURRENT)";
 
             return _dbContext.ExecuteRawCommand(sql,
-                ("@p1", config.Domain, DbType.String, 32),
-                ("@p2", config.FileTypeCode, DbType.String, 10),
-                ("@p3", config.TransferFolder, DbType.String, 255),
-                ("@p4", config.ProcessingFolder, DbType.String, 255),
-                ("@p5", config.ProcessedFolder, DbType.String, 255),
-                ("@p6", config.ErrorsFolder, DbType.String, 255),
-                ("@p7", config.SkippedFolder, DbType.String, 255)
+                ("@p1", config.FileTypeCode, DbType.String, 10),
+                ("@p2", config.TransferFolder, DbType.String, 255),
+                ("@p3", config.ProcessingFolder, DbType.String, 255),
+                ("@p4", config.ProcessedFolder, DbType.String, 255),
+                ("@p5", config.ErrorsFolder, DbType.String, 255),
+                ("@p6", config.SkippedFolder, DbType.String, 255)
             );
         }
     }
@@ -1693,19 +1674,13 @@ public class FileLoaderRepository : IFileLoaderRepository
         sql.Append(filter.MaxRecords);
         sql.Append(@" t.transfer_id, t.nt_file_num, t.file_name, t.status_id,
                      t.current_folder, t.file_size, t.created_dt, t.completed_dt,
-                     t.error_message, t.source_id, s.domain, s.file_type_code
+                     t.error_message, t.source_id, s.file_type_code
                 FROM ntfl_transfer t
                 LEFT OUTER JOIN ntfl_transfer_source s ON t.source_id = s.source_id
                 WHERE 1=1");
 
         var parameters = new List<(string, object?, DbType, int?)>();
         var paramIndex = 1;
-
-        if (!string.IsNullOrEmpty(filter.Domain))
-        {
-            sql.Append($" AND s.domain = ?");
-            parameters.Add(($"@p{paramIndex++}", filter.Domain, DbType.String, 32));
-        }
 
         if (!string.IsNullOrEmpty(filter.FileTypeCode))
         {
@@ -1760,8 +1735,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                 CompletedAt = reader.IsDBNull(7) ? null : reader.GetDateTime(7),
                 ErrorMessage = reader.IsDBNull(8) ? null : reader.GetString(8).Trim(),
                 SourceId = reader.IsDBNull(9) ? null : reader.GetInt32(9),
-                Domain = reader.IsDBNull(10) ? string.Empty : reader.GetString(10).Trim(),
-                FileTypeCode = reader.IsDBNull(11) ? null : reader.GetString(11).Trim()
+                FileTypeCode = reader.IsDBNull(10) ? null : reader.GetString(10).Trim()
             },
             parameters.ToArray()
         );
@@ -1835,8 +1809,8 @@ public class FileLoaderRepository : IFileLoaderRepository
 
         var sql = @"INSERT INTO ntfl_activity_log (
             nt_file_num, transfer_id, file_name, activity_type,
-            description, details_json, user_id, domain, activity_dt
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT)";
+            description, details_json, user_id, activity_dt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT)";
 
         return _dbContext.ExecuteRawCommand(sql,
             ("@p1", log.NtFileNum, DbType.Int32, null),
@@ -1845,8 +1819,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             ("@p4", (int)log.ActivityType, DbType.Int32, null),
             ("@p5", log.Description?.Substring(0, Math.Min(log.Description.Length, 512)), DbType.String, 512),
             ("@p6", log.Details, DbType.String, null),
-            ("@p7", log.UserId, DbType.String, 32),
-            ("@p8", log.Domain, DbType.String, 32)
+            ("@p7", log.UserId, DbType.String, 32)
         );
     }
 
@@ -1857,7 +1830,7 @@ public class FileLoaderRepository : IFileLoaderRepository
         var sql = new StringBuilder(@"SELECT FIRST ");
         sql.Append(maxRecords);
         sql.Append(@" activity_id, nt_file_num, transfer_id, file_name,
-                     activity_type, description, details_json, user_id, domain, activity_dt
+                     activity_type, description, details_json, user_id, activity_dt
                 FROM ntfl_activity_log WHERE 1=1");
 
         var parameters = new List<(string, object?, DbType, int?)>();
@@ -1889,8 +1862,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                 Description = reader.IsDBNull(5) ? string.Empty : reader.GetString(5).Trim(),
                 Details = reader.IsDBNull(6) ? null : reader.GetString(6),
                 UserId = reader.IsDBNull(7) ? string.Empty : reader.GetString(7).Trim(),
-                Domain = reader.IsDBNull(8) ? string.Empty : reader.GetString(8).Trim(),
-                ActivityAt = reader.IsDBNull(9) ? DateTime.Now : reader.GetDateTime(9)
+                ActivityAt = reader.IsDBNull(8) ? DateTime.Now : reader.GetDateTime(8)
             },
             parameters.ToArray()
         );
@@ -1908,9 +1880,9 @@ public class FileLoaderRepository : IFileLoaderRepository
     // Dashboard Queries
     // ============================================
 
-    public async Task<DataResult<FileManagementDashboard>> GetDashboardSummaryAsync(string? domain, string? fileTypeCode)
+    public async Task<DataResult<FileManagementDashboard>> GetDashboardSummaryAsync(string? fileTypeCode)
     {
-        _logger.LogDebug("Getting dashboard summary: Domain={Domain}, FileType={FileType}", domain, fileTypeCode);
+        _logger.LogDebug("Getting dashboard summary: FileType={FileType}", fileTypeCode);
 
         var dashboard = new FileManagementDashboard();
 
@@ -1970,27 +1942,17 @@ public class FileLoaderRepository : IFileLoaderRepository
         };
     }
 
-    public async Task<DataResult<List<TransferSourceStatus>>> GetSourceStatusesAsync(string? domain)
+    public async Task<DataResult<List<TransferSourceStatus>>> GetSourceStatusesAsync()
     {
-        _logger.LogDebug("Getting source statuses: Domain={Domain}", domain);
+        _logger.LogDebug("Getting source statuses");
 
-        var sql = @"SELECT s.source_id, s.vendor_name, s.domain, s.file_type_code, s.is_enabled,
+        var sql = @"SELECT s.source_id, s.vendor_name, s.file_type_code, s.is_enabled,
                            MAX(t.completed_dt) as last_transfer,
                            COUNT(CASE WHEN t.created_dt >= TODAY THEN 1 END) as today_count,
                            MAX(CASE WHEN t.status_id = 5 THEN t.error_message END) as last_error
                     FROM ntfl_transfer_source s
-                    LEFT OUTER JOIN ntfl_transfer t ON s.source_id = t.source_id";
-
-        if (!string.IsNullOrEmpty(domain))
-        {
-            sql += " WHERE s.domain = ?";
-        }
-
-        sql += " GROUP BY s.source_id, s.vendor_name, s.domain, s.file_type_code, s.is_enabled";
-
-        var parameters = string.IsNullOrEmpty(domain)
-            ? Array.Empty<(string, object?, DbType, int?)>()
-            : new[] { ("@p1", (object?)domain, DbType.String, (int?)32) };
+                    LEFT OUTER JOIN ntfl_transfer t ON s.source_id = t.source_id
+                    GROUP BY s.source_id, s.vendor_name, s.file_type_code, s.is_enabled";
 
         var result = _dbContext.ExecuteRawQuery(
             sql,
@@ -1998,14 +1960,12 @@ public class FileLoaderRepository : IFileLoaderRepository
             {
                 SourceId = reader.GetInt32(0),
                 VendorName = reader.IsDBNull(1) ? string.Empty : reader.GetString(1).Trim(),
-                Domain = reader.GetString(2).Trim(),
-                FileTypeCode = reader.IsDBNull(3) ? null : reader.GetString(3).Trim(),
-                IsEnabled = reader.IsDBNull(4) || reader.GetString(4).Trim().ToUpper() == "Y",
-                LastTransferAt = reader.IsDBNull(5) ? null : reader.GetDateTime(5),
-                FilesTransferredToday = reader.IsDBNull(6) ? 0 : reader.GetInt32(6),
-                LastError = reader.IsDBNull(7) ? null : reader.GetString(7).Trim()
-            },
-            parameters
+                FileTypeCode = reader.IsDBNull(2) ? null : reader.GetString(2).Trim(),
+                IsEnabled = reader.IsDBNull(3) || reader.GetString(3).Trim().ToUpper() == "Y",
+                LastTransferAt = reader.IsDBNull(4) ? null : reader.GetDateTime(4),
+                FilesTransferredToday = reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
+                LastError = reader.IsDBNull(6) ? null : reader.GetString(6).Trim()
+            }
         );
 
         return new DataResult<List<TransferSourceStatus>>
@@ -3142,15 +3102,15 @@ public class FileLoaderRepository : IFileLoaderRepository
     // AI Domain Config
     // ============================================
 
-    public async Task<DataResult<AiDomainConfig>> GetAiDomainConfigAsync(string domain)
+    public async Task<DataResult<AiDomainConfig>> GetAiDomainConfigAsync()
     {
         var result = _dbContext.ExecuteRawQuery<AiDomainConfig>(
-            @"SELECT domain, api_key, model, enabled, max_reviews_day, max_output_tokens,
+            @"SELECT config_id, api_key, model, enabled, max_reviews_day, max_output_tokens,
                      reviews_today, reviews_reset_dt, created_at, created_by, updated_at, updated_by
-              FROM ntfl_ai_domain_config WHERE domain = ?",
+              FROM ntfl_ai_domain_config LIMIT 1",
             reader => new AiDomainConfig
             {
-                Domain = reader.GetString(0).Trim(),
+                ConfigId = reader.GetInt32(0),
                 ApiKey = reader.GetString(1).Trim(),
                 Model = reader.IsDBNull(2) ? "claude-sonnet-4-20250514" : reader.GetString(2).Trim(),
                 Enabled = reader.IsDBNull(3) || reader.GetString(3).Trim() == "Y",
@@ -3162,8 +3122,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                 CreatedBy = reader.IsDBNull(9) ? null : reader.GetString(9).Trim(),
                 UpdatedAt = reader.IsDBNull(10) ? null : reader.GetDateTime(10),
                 UpdatedBy = reader.IsDBNull(11) ? null : reader.GetString(11).Trim()
-            },
-            ("@p1", domain, DbType.String, 20)
+            }
         );
 
         if (!result.IsSuccess)
@@ -3182,7 +3141,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             {
                 StatusCode = 404,
                 ErrorCode = "AI_NOT_CONFIGURED",
-                ErrorMessage = "AI review has not been configured for this domain. Use PUT /ai-review/config to set up your API key."
+                ErrorMessage = "AI review has not been configured. Use PUT /ai-review/config to set up your API key."
             };
         }
 
@@ -3196,8 +3155,7 @@ public class FileLoaderRepository : IFileLoaderRepository
     public async Task<RawCommandResult> UpsertAiDomainConfigAsync(AiDomainConfig config)
     {
         var existsResult = _dbContext.ExecuteRawScalar<int>(
-            "SELECT COUNT(*) FROM ntfl_ai_domain_config WHERE domain = ?",
-            ("@p1", config.Domain, DbType.String, 20)
+            "SELECT COUNT(*) FROM ntfl_ai_domain_config"
         );
 
         if (existsResult.IsSuccess && existsResult.Value > 0)
@@ -3206,57 +3164,52 @@ public class FileLoaderRepository : IFileLoaderRepository
                 @"UPDATE ntfl_ai_domain_config SET
                     api_key = ?, model = ?, enabled = ?, max_reviews_day = ?,
                     max_output_tokens = ?, updated_at = ?, updated_by = ?
-                  WHERE domain = ?",
+                  WHERE config_id = 1",
                 ("@p1", config.ApiKey, DbType.String, 200),
                 ("@p2", config.Model, DbType.String, 50),
                 ("@p3", config.Enabled ? "Y" : "N", DbType.String, 1),
                 ("@p4", config.MaxReviewsPerDay, DbType.Int32, null),
                 ("@p5", config.MaxOutputTokens, DbType.Int32, null),
                 ("@p6", config.UpdatedAt ?? DateTime.Now, DbType.DateTime, null),
-                ("@p7", (object?)config.UpdatedBy ?? DBNull.Value, DbType.String, 50),
-                ("@p8", config.Domain, DbType.String, 20)
+                ("@p7", (object?)config.UpdatedBy ?? DBNull.Value, DbType.String, 50)
             );
         }
 
         return _dbContext.ExecuteRawCommand(
             @"INSERT INTO ntfl_ai_domain_config
-              (domain, api_key, model, enabled, max_reviews_day, max_output_tokens,
+              (api_key, model, enabled, max_reviews_day, max_output_tokens,
                reviews_today, reviews_reset_dt, created_at, created_by, updated_at, updated_by)
-              VALUES (?, ?, ?, ?, ?, ?, 0, TODAY, ?, ?, ?, ?)",
-            ("@p1", config.Domain, DbType.String, 20),
-            ("@p2", config.ApiKey, DbType.String, 200),
-            ("@p3", config.Model, DbType.String, 50),
-            ("@p4", config.Enabled ? "Y" : "N", DbType.String, 1),
-            ("@p5", config.MaxReviewsPerDay, DbType.Int32, null),
-            ("@p6", config.MaxOutputTokens, DbType.Int32, null),
-            ("@p7", config.CreatedAt ?? DateTime.Now, DbType.DateTime, null),
-            ("@p8", (object?)config.CreatedBy ?? DBNull.Value, DbType.String, 50),
-            ("@p9", config.UpdatedAt ?? DateTime.Now, DbType.DateTime, null),
-            ("@p10", (object?)config.UpdatedBy ?? DBNull.Value, DbType.String, 50)
+              VALUES (?, ?, ?, ?, ?, 0, TODAY, ?, ?, ?, ?)",
+            ("@p1", config.ApiKey, DbType.String, 200),
+            ("@p2", config.Model, DbType.String, 50),
+            ("@p3", config.Enabled ? "Y" : "N", DbType.String, 1),
+            ("@p4", config.MaxReviewsPerDay, DbType.Int32, null),
+            ("@p5", config.MaxOutputTokens, DbType.Int32, null),
+            ("@p6", config.CreatedAt ?? DateTime.Now, DbType.DateTime, null),
+            ("@p7", (object?)config.CreatedBy ?? DBNull.Value, DbType.String, 50),
+            ("@p8", config.UpdatedAt ?? DateTime.Now, DbType.DateTime, null),
+            ("@p9", (object?)config.UpdatedBy ?? DBNull.Value, DbType.String, 50)
         );
     }
 
-    public async Task<RawCommandResult> DeleteAiDomainConfigAsync(string domain)
+    public async Task<RawCommandResult> DeleteAiDomainConfigAsync()
     {
         return _dbContext.ExecuteRawCommand(
-            "DELETE FROM ntfl_ai_domain_config WHERE domain = ?",
-            ("@p1", domain, DbType.String, 20)
+            "DELETE FROM ntfl_ai_domain_config"
         );
     }
 
-    public async Task<RawCommandResult> IncrementAiReviewCountAsync(string domain)
+    public async Task<RawCommandResult> IncrementAiReviewCountAsync()
     {
         return _dbContext.ExecuteRawCommand(
-            "UPDATE ntfl_ai_domain_config SET reviews_today = reviews_today + 1 WHERE domain = ?",
-            ("@p1", domain, DbType.String, 20)
+            "UPDATE ntfl_ai_domain_config SET reviews_today = reviews_today + 1 WHERE config_id = 1"
         );
     }
 
-    public async Task<RawCommandResult> ResetAiReviewCountAsync(string domain)
+    public async Task<RawCommandResult> ResetAiReviewCountAsync()
     {
         return _dbContext.ExecuteRawCommand(
-            "UPDATE ntfl_ai_domain_config SET reviews_today = 0, reviews_reset_dt = TODAY WHERE domain = ?",
-            ("@p1", domain, DbType.String, 20)
+            "UPDATE ntfl_ai_domain_config SET reviews_today = 0, reviews_reset_dt = TODAY WHERE config_id = 1"
         );
     }
 
@@ -3264,37 +3217,35 @@ public class FileLoaderRepository : IFileLoaderRepository
     // Folder Storage Configuration
     // ============================================
 
-    public async Task<DataResult<FolderStorageConfig>> GetFolderStorageAsync(string domain)
+    public async Task<DataResult<FolderStorageConfig>> GetFolderStorageAsync()
     {
-        _logger.LogDebug("Getting folder storage config: Domain={Domain}", domain);
+        _logger.LogDebug("Getting folder storage config");
 
-        var sql = @"SELECT storage_id, domain, storage_mode, protocol, host, port,
+        var sql = @"SELECT storage_id, storage_mode, protocol, host, port,
                            auth_type, username, password_encrypted, certificate_path,
                            private_key_path, base_path, temp_local_path, created_dt, updated_dt
                     FROM ntfl_folder_storage
-                    WHERE domain = ?";
+                    LIMIT 1";
 
         var result = _dbContext.ExecuteRawQuery(
             sql,
             reader => new FolderStorageConfig
             {
                 StorageId = reader.GetInt32(0),
-                Domain = reader.GetString(1).Trim(),
-                StorageMode = ParseStorageMode(reader.IsDBNull(2) ? "LOCAL" : reader.GetString(2).Trim()),
-                Protocol = reader.IsDBNull(3) ? null : (TransferProtocol?)ParseStorageTransferProtocol(reader.GetString(3).Trim()),
-                Host = reader.IsDBNull(4) ? null : reader.GetString(4).Trim(),
-                Port = reader.IsDBNull(5) ? null : reader.GetInt32(5),
-                AuthType = reader.IsDBNull(6) ? null : (AuthenticationType?)ParseAuthType(reader.GetString(6).Trim()),
-                Username = reader.IsDBNull(7) ? null : reader.GetString(7).Trim(),
-                Password = reader.IsDBNull(8) ? null : reader.GetString(8).Trim(),
-                CertificatePath = reader.IsDBNull(9) ? null : reader.GetString(9).Trim(),
-                PrivateKeyPath = reader.IsDBNull(10) ? null : reader.GetString(10).Trim(),
-                BasePath = reader.IsDBNull(11) ? "/" : reader.GetString(11).Trim(),
-                TempLocalPath = reader.IsDBNull(12) ? null : reader.GetString(12).Trim(),
-                CreatedAt = reader.IsDBNull(13) ? DateTime.Now : reader.GetDateTime(13),
-                UpdatedAt = reader.IsDBNull(14) ? null : reader.GetDateTime(14)
-            },
-            ("@p1", domain, DbType.String, 32)
+                StorageMode = ParseStorageMode(reader.IsDBNull(1) ? "LOCAL" : reader.GetString(1).Trim()),
+                Protocol = reader.IsDBNull(2) ? null : (TransferProtocol?)ParseStorageTransferProtocol(reader.GetString(2).Trim()),
+                Host = reader.IsDBNull(3) ? null : reader.GetString(3).Trim(),
+                Port = reader.IsDBNull(4) ? null : reader.GetInt32(4),
+                AuthType = reader.IsDBNull(5) ? null : (AuthenticationType?)ParseAuthType(reader.GetString(5).Trim()),
+                Username = reader.IsDBNull(6) ? null : reader.GetString(6).Trim(),
+                Password = reader.IsDBNull(7) ? null : reader.GetString(7).Trim(),
+                CertificatePath = reader.IsDBNull(8) ? null : reader.GetString(8).Trim(),
+                PrivateKeyPath = reader.IsDBNull(9) ? null : reader.GetString(9).Trim(),
+                BasePath = reader.IsDBNull(10) ? "/" : reader.GetString(10).Trim(),
+                TempLocalPath = reader.IsDBNull(11) ? null : reader.GetString(11).Trim(),
+                CreatedAt = reader.IsDBNull(12) ? DateTime.Now : reader.GetDateTime(12),
+                UpdatedAt = reader.IsDBNull(13) ? null : reader.GetDateTime(13)
+            }
         );
 
         if (!result.IsSuccess)
@@ -3313,7 +3264,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             {
                 StatusCode = 404,
                 ErrorCode = "NOT_FOUND",
-                ErrorMessage = $"Folder storage configuration not found for domain '{domain}'"
+                ErrorMessage = "Folder storage configuration not found"
             };
         }
 
@@ -3326,12 +3277,11 @@ public class FileLoaderRepository : IFileLoaderRepository
 
     public async Task<RawCommandResult> UpsertFolderStorageAsync(FolderStorageConfig config)
     {
-        _logger.LogDebug("Upserting folder storage config: Domain={Domain}, Mode={Mode}", config.Domain, config.StorageMode);
+        _logger.LogDebug("Upserting folder storage config: Mode={Mode}", config.StorageMode);
 
         // Check if exists
         var existsResult = _dbContext.ExecuteRawScalar<int>(
-            "SELECT COUNT(*) FROM ntfl_folder_storage WHERE domain = ?",
-            ("@p1", config.Domain, DbType.String, 32)
+            "SELECT COUNT(*) FROM ntfl_folder_storage"
         );
 
         var storageMode = config.StorageMode == StorageMode.Ftp ? "FTP" : "LOCAL";
@@ -3345,7 +3295,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                 auth_type = ?, username = ?, password_encrypted = ?,
                 certificate_path = ?, private_key_path = ?,
                 base_path = ?, temp_local_path = ?, updated_dt = CURRENT
-            WHERE domain = ?";
+            WHERE storage_id = (SELECT MIN(storage_id) FROM ntfl_folder_storage)";
 
             return _dbContext.ExecuteRawCommand(sql,
                 ("@p1", storageMode, DbType.String, 8),
@@ -3358,43 +3308,40 @@ public class FileLoaderRepository : IFileLoaderRepository
                 ("@p8", config.CertificatePath, DbType.String, 255),
                 ("@p9", config.PrivateKeyPath, DbType.String, 255),
                 ("@p10", config.BasePath, DbType.String, 255),
-                ("@p11", config.TempLocalPath, DbType.String, 255),
-                ("@p12", config.Domain, DbType.String, 32)
+                ("@p11", config.TempLocalPath, DbType.String, 255)
             );
         }
         else
         {
             var sql = @"INSERT INTO ntfl_folder_storage (
-                domain, storage_mode, protocol, host, port,
+                storage_mode, protocol, host, port,
                 auth_type, username, password_encrypted,
                 certificate_path, private_key_path,
                 base_path, temp_local_path, created_dt
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT)";
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT)";
 
             return _dbContext.ExecuteRawCommand(sql,
-                ("@p1", config.Domain, DbType.String, 32),
-                ("@p2", storageMode, DbType.String, 8),
-                ("@p3", protocol, DbType.String, 16),
-                ("@p4", config.Host, DbType.String, 255),
-                ("@p5", config.Port, DbType.Int32, 0),
-                ("@p6", authType, DbType.String, 16),
-                ("@p7", config.Username, DbType.String, 64),
-                ("@p8", config.Password, DbType.String, 512),
-                ("@p9", config.CertificatePath, DbType.String, 255),
-                ("@p10", config.PrivateKeyPath, DbType.String, 255),
-                ("@p11", config.BasePath, DbType.String, 255),
-                ("@p12", config.TempLocalPath, DbType.String, 255)
+                ("@p1", storageMode, DbType.String, 8),
+                ("@p2", protocol, DbType.String, 16),
+                ("@p3", config.Host, DbType.String, 255),
+                ("@p4", config.Port, DbType.Int32, 0),
+                ("@p5", authType, DbType.String, 16),
+                ("@p6", config.Username, DbType.String, 64),
+                ("@p7", config.Password, DbType.String, 512),
+                ("@p8", config.CertificatePath, DbType.String, 255),
+                ("@p9", config.PrivateKeyPath, DbType.String, 255),
+                ("@p10", config.BasePath, DbType.String, 255),
+                ("@p11", config.TempLocalPath, DbType.String, 255)
             );
         }
     }
 
-    public async Task<RawCommandResult> DeleteFolderStorageAsync(string domain)
+    public async Task<RawCommandResult> DeleteFolderStorageAsync()
     {
-        _logger.LogDebug("Deleting folder storage config: Domain={Domain}", domain);
+        _logger.LogDebug("Deleting folder storage config");
 
         return _dbContext.ExecuteRawCommand(
-            "DELETE FROM ntfl_folder_storage WHERE domain = ?",
-            ("@p1", domain, DbType.String, 32)
+            "DELETE FROM ntfl_folder_storage"
         );
     }
 

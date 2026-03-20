@@ -30,9 +30,9 @@ CREATE TABLE ntfl_ai_example_file (
     updated_by       VARCHAR(50)
 );
 
--- Per-domain AI configuration (API keys, limits)
+-- AI configuration (API keys, limits) — single-row table
 CREATE TABLE ntfl_ai_domain_config (
-    domain           VARCHAR(20) PRIMARY KEY,
+    config_id        SERIAL PRIMARY KEY,
     api_key          VARCHAR(200) NOT NULL,
     model            VARCHAR(50) DEFAULT 'claude-sonnet-4-20250514',
     enabled          CHAR(1) DEFAULT 'Y',

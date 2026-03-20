@@ -40,8 +40,8 @@ public interface IAiReviewService
     // Domain AI Config CRUD
     // ============================================
 
-    Task<DataResult<AiDomainConfig>> GetDomainConfigAsync(string domain);
-    Task<DataResult<AiDomainConfig>> SaveDomainConfigAsync(string domain, AiDomainConfigRequest request, SecurityContext securityContext);
-    Task<RawCommandResult> DeleteDomainConfigAsync(string domain);
-    Task<DataResult<AiConfigStatusResponse>> GetConfigStatusAsync(string domain);
+    Task<DataResult<AiDomainConfig>> GetDomainConfigAsync();
+    Task<DataResult<AiDomainConfig>> SaveDomainConfigAsync(AiDomainConfigRequest request, SecurityContext securityContext);
+    Task<RawCommandResult> DeleteDomainConfigAsync();
+    Task<DataResult<AiConfigStatusResponse>> GetConfigStatusAsync();
 }

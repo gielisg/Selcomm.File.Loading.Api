@@ -101,12 +101,10 @@ public interface IFileManagementService
     /// <summary>
     /// Get dashboard summary data.
     /// </summary>
-    /// <param name="domain">Optional filter by domain</param>
     /// <param name="fileTypeCode">Optional filter by file type</param>
     /// <param name="context">Security context</param>
     /// <returns>Dashboard summary</returns>
     Task<DataResult<FileManagementDashboard>> GetDashboardAsync(
-        string? domain,
         string? fileTypeCode,
         SecurityContext context);
 
@@ -178,13 +176,11 @@ public interface IFileManagementService
     /// <summary>
     /// Get files with errors for the exceptions view.
     /// </summary>
-    /// <param name="domain">Optional filter by domain</param>
     /// <param name="fileTypeCode">Optional filter by file type</param>
     /// <param name="maxRecords">Maximum records to return</param>
     /// <param name="context">Security context</param>
     /// <returns>List of files with errors</returns>
     Task<DataResult<List<FileWithStatus>>> GetFilesWithErrorsAsync(
-        string? domain,
         string? fileTypeCode,
         int maxRecords,
         SecurityContext context);
@@ -192,13 +188,11 @@ public interface IFileManagementService
     /// <summary>
     /// Get files in the Skipped folder.
     /// </summary>
-    /// <param name="domain">Optional filter by domain</param>
     /// <param name="fileTypeCode">Optional filter by file type</param>
     /// <param name="maxRecords">Maximum records to return</param>
     /// <param name="context">Security context</param>
     /// <returns>List of skipped files</returns>
     Task<DataResult<List<FileWithStatus>>> GetSkippedFilesAsync(
-        string? domain,
         string? fileTypeCode,
         int maxRecords,
         SecurityContext context);

@@ -270,9 +270,8 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     public async Task<IActionResult> GetDomainConfig()
     {
         var securityContext = CreateSecurityContext("get_api_v4_file_loading_ai_review_config");
-        var domain = securityContext.Domain ?? string.Empty;
 
-        var result = await _aiReviewService.GetDomainConfigAsync(domain);
+        var result = await _aiReviewService.GetDomainConfigAsync();
 
         if (result.IsSuccess)
             return Ok(result.Data);
@@ -293,9 +292,8 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     public async Task<IActionResult> SaveDomainConfig([FromBody] AiDomainConfigRequest request)
     {
         var securityContext = CreateSecurityContext("put_api_v4_file_loading_ai_review_config");
-        var domain = securityContext.Domain ?? string.Empty;
 
-        var result = await _aiReviewService.SaveDomainConfigAsync(domain, request, securityContext);
+        var result = await _aiReviewService.SaveDomainConfigAsync(request, securityContext);
 
         if (result.IsSuccess)
             return Ok(result.Data);
@@ -314,9 +312,8 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     public async Task<IActionResult> DeleteDomainConfig()
     {
         var securityContext = CreateSecurityContext("delete_api_v4_file_loading_ai_review_config");
-        var domain = securityContext.Domain ?? string.Empty;
 
-        var result = await _aiReviewService.DeleteDomainConfigAsync(domain);
+        var result = await _aiReviewService.DeleteDomainConfigAsync();
 
         if (result.IsSuccess)
             return Ok(new { Message = "AI config deleted." });
@@ -335,9 +332,8 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     public async Task<IActionResult> GetConfigStatus()
     {
         var securityContext = CreateSecurityContext("get_api_v4_file_loading_ai_review_config_status");
-        var domain = securityContext.Domain ?? string.Empty;
 
-        var result = await _aiReviewService.GetConfigStatusAsync(domain);
+        var result = await _aiReviewService.GetConfigStatusAsync();
 
         if (result.IsSuccess)
             return Ok(result.Data);

@@ -47,10 +47,8 @@ public class AiReviewService : IAiReviewService
     public async Task<DataResult<AiReviewResponse>> ReviewFileAsync(
         int ntFileNum, AiReviewRequest? request, SecurityContext securityContext)
     {
-        var domain = securityContext.Domain ?? string.Empty;
-
         // 1. Load & validate domain config
-        var configCheck = await ValidateDomainConfigAsync(domain);
+        var configCheck = await ValidateDomainConfigAsync();
         if (!configCheck.IsSuccess)
             return Forward<AiReviewResponse>(configCheck);
         var domainConfig = configCheck.Data!;
@@ -155,7 +153,7 @@ public class AiReviewService : IAiReviewService
         // 11. Store result and increment count
         var expiresAt = DateTime.Now.AddMinutes(_options.CacheDurationMinutes);
         await _repository.StoreAiReviewAsync(response, securityContext.UserCode ?? "system", expiresAt);
-        await _repository.IncrementAiReviewCountAsync(domain);
+        await _repository.IncrementAiReviewCountAsync();
 
         _logger.LogInformation("AI review completed for file {NtFileNum}: {Assessment}, {IssueCount} issues",
             ntFileNum, response.OverallAssessment, response.Issues.Count);
@@ -170,10 +168,8 @@ public class AiReviewService : IAiReviewService
     public async Task<DataResult<AiReviewResponse>> ReviewContentAsync(
         AiContentReviewRequest request, SecurityContext securityContext)
     {
-        var domain = securityContext.Domain ?? string.Empty;
-
         // 1. Validate domain config (same checks as file review)
-        var configCheck = await ValidateDomainConfigAsync(domain);
+        var configCheck = await ValidateDomainConfigAsync();
         if (!configCheck.IsSuccess)
             return Forward<AiReviewResponse>(configCheck);
         var domainConfig = configCheck.Data!;
@@ -246,7 +242,7 @@ public class AiReviewService : IAiReviewService
             Usage = usage
         };
 
-        await _repository.IncrementAiReviewCountAsync(domain);
+        await _repository.IncrementAiReviewCountAsync();
 
         _logger.LogInformation("AI content review completed: {Assessment}, {IssueCount} issues",
             response.OverallAssessment, response.Issues.Count);
@@ -336,9 +332,9 @@ public class AiReviewService : IAiReviewService
     // Domain AI Config CRUD
     // ============================================
 
-    public async Task<DataResult<AiDomainConfig>> GetDomainConfigAsync(string domain)
+    public async Task<DataResult<AiDomainConfig>> GetDomainConfigAsync()
     {
-        var result = await _repository.GetAiDomainConfigAsync(domain);
+        var result = await _repository.GetAiDomainConfigAsync();
         if (result.IsSuccess && result.Data != null)
         {
             // Mask API key for display
@@ -348,7 +344,7 @@ public class AiReviewService : IAiReviewService
     }
 
     public async Task<DataResult<AiDomainConfig>> SaveDomainConfigAsync(
-        string domain, AiDomainConfigRequest request, SecurityContext securityContext)
+        AiDomainConfigRequest request, SecurityContext securityContext)
     {
         if (string.IsNullOrWhiteSpace(request.ApiKey))
         {
@@ -362,7 +358,6 @@ public class AiReviewService : IAiReviewService
 
         var config = new AiDomainConfig
         {
-            Domain = domain,
             ApiKey = request.ApiKey,
             Model = request.Model ?? "claude-sonnet-4-20250514",
             Enabled = request.Enabled,
@@ -393,14 +388,14 @@ public class AiReviewService : IAiReviewService
         };
     }
 
-    public async Task<RawCommandResult> DeleteDomainConfigAsync(string domain)
+    public async Task<RawCommandResult> DeleteDomainConfigAsync()
     {
-        return await _repository.DeleteAiDomainConfigAsync(domain);
+        return await _repository.DeleteAiDomainConfigAsync();
     }
 
-    public async Task<DataResult<AiConfigStatusResponse>> GetConfigStatusAsync(string domain)
+    public async Task<DataResult<AiConfigStatusResponse>> GetConfigStatusAsync()
     {
-        var configResult = await _repository.GetAiDomainConfigAsync(domain);
+        var configResult = await _repository.GetAiDomainConfigAsync();
 
         if (configResult.StatusCode == 404 || configResult.Data == null)
         {
@@ -443,16 +438,16 @@ public class AiReviewService : IAiReviewService
     // Domain Config Validation (shared)
     // ============================================
 
-    private async Task<DataResult<AiDomainConfig>> ValidateDomainConfigAsync(string domain)
+    private async Task<DataResult<AiDomainConfig>> ValidateDomainConfigAsync()
     {
-        var configResult = await _repository.GetAiDomainConfigAsync(domain);
+        var configResult = await _repository.GetAiDomainConfigAsync();
         if (configResult.StatusCode == 404)
         {
             return new DataResult<AiDomainConfig>
             {
                 StatusCode = 400,
                 ErrorCode = "AI_NOT_CONFIGURED",
-                ErrorMessage = "AI review has not been configured for this domain. Use PUT /ai-review/config to set up your API key."
+                ErrorMessage = "AI review has not been configured. Use PUT /ai-review/config to set up your API key."
             };
         }
         if (!configResult.IsSuccess)
@@ -466,7 +461,7 @@ public class AiReviewService : IAiReviewService
             {
                 StatusCode = 400,
                 ErrorCode = "AI_REVIEW_DISABLED",
-                ErrorMessage = "AI review is disabled for this domain."
+                ErrorMessage = "AI review is disabled."
             };
         }
 
@@ -483,7 +478,7 @@ public class AiReviewService : IAiReviewService
         // Reset daily count if needed
         if (domainConfig.ReviewsResetDt == null || domainConfig.ReviewsResetDt.Value.Date < DateTime.Today)
         {
-            await _repository.ResetAiReviewCountAsync(domain);
+            await _repository.ResetAiReviewCountAsync();
             domainConfig.ReviewsToday = 0;
         }
 
