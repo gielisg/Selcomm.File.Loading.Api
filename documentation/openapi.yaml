@@ -1,0 +1,2826 @@
+openapi: 3.0.3
+info:
+  title: FileLoading API
+  description: >-
+    File Loading API - loads and processes network files (converted from ntfileload.4gl).
+    Supports multiple file classes: CDR, CHG, EBL, SVC, and more.
+    Includes file management, transfer operations, parser configuration, and workflow tracking.
+  version: "4.0.0"
+  contact:
+    name: Select Software
+
+servers:
+  - url: http://localhost:5140
+    description: Local development
+  - url: https://api.example.com
+    description: Production
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+tags:
+  - name: Health
+    description: Health check endpoints
+  - name: File Loading
+    description: Load and process network files
+  - name: File Management
+    description: Manage files in the transfer workflow
+  - name: Transfer Operations
+    description: Fetch files from remote transfer sources
+  - name: Activity Log
+    description: File activity audit trail
+  - name: Validation
+    description: File validation summaries
+  - name: Exceptions
+    description: Files with errors or skipped status
+  - name: Transfer Sources
+    description: CRUD operations for transfer source configurations
+  - name: Parser Configuration
+    description: CRUD operations for generic parser configurations
+  - name: Folder Configuration
+    description: Folder workflow configuration per domain/file-type
+  - name: Vendors
+    description: CRUD operations for vendors (networks table)
+  - name: File Classes
+    description: CRUD operations for file classes
+  - name: File Types
+    description: CRUD operations for file types
+  - name: File Types NT
+    description: CRUD operations for file type NT records
+
+paths:
+  # ==================================================
+  # Health Check
+  # ==================================================
+  /api/v4/file-loading/health-check:
+    get:
+      operationId: get_api_v4_file_loading_health_check
+      tags:
+        - Health
+      summary: Health check
+      description: >-
+        Returns API health status and database connectivity.
+        Uses the shared HealthCheck connection string from appsettings.shared.json.
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthCheckResponse"
+              example:
+                Status: Healthy
+                Timestamp: "2026-03-20T10:30:00Z"
+                Service: File Loading API
+                Version: "4.0.0"
+                Database:
+                  Status: Connected
+                  ResponseTimeMs: 12
+        "503":
+          description: Service is unhealthy (database unreachable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthCheckResponse"
+              example:
+                Status: Unhealthy
+                Timestamp: "2026-03-20T10:30:00Z"
+                Service: File Loading API
+                Version: "4.0.0"
+                Database:
+                  Status: Unreachable
+                  Message: "Connection refused"
+
+  # ==================================================
+  # File Loading
+  # ==================================================
+  /api/v4/file-loading/load:
+    post:
+      operationId: post_api_v4_file_loading_load
+      tags:
+        - File Loading
+      summary: Load a network file for processing
+      description: Load a network file for processing by specifying a file path and type.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoadFileRequest"
+      responses:
+        "202":
+          description: File load accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileLoadResponse"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "Invalid file type code"
+                ErrorCode: "INVALID_FILE_TYPE"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v4/file-loading/upload:
+    post:
+      operationId: post_api_v4_file_loading_upload
+      tags:
+        - File Loading
+      summary: Upload and load a file
+      description: Upload a file via multipart form data and load it for processing.
+      parameters:
+        - name: fileType
+          in: query
+          required: true
+          description: File type code
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: File to upload
+              required:
+                - file
+      responses:
+        "202":
+          description: File upload accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileLoadResponse"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "File is empty"
+                ErrorCode: "EMPTY_FILE"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v4/file-loading/files/{nt-file-num}:
+    get:
+      operationId: get_api_v4_file_loading_files_nt_file_num
+      tags:
+        - File Loading
+      summary: Get file load status
+      description: Get file load status by nt-file-num (the database record key assigned at load time).
+      parameters:
+        - $ref: "#/components/parameters/NtFileNum"
+      responses:
+        "200":
+          description: File status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "File not found"
+                ErrorCode: "NOT_FOUND"
+
+  /api/v4/file-loading/files:
+    get:
+      operationId: get_api_v4_file_loading_files
+      tags:
+        - File Loading
+      summary: List loaded files with filtering
+      description: List loaded files with optional filtering by file type code, customer number, and max records.
+      parameters:
+        - name: fileTypeCode
+          in: query
+          required: false
+          description: Filter by file type code (e.g. CDR, CHG, SSSWHLSCDR)
+          schema:
+            type: string
+        - name: ntCustNum
+          in: query
+          required: false
+          description: Filter by customer number
+          schema:
+            type: string
+        - name: maxRecords
+          in: query
+          required: false
+          description: Maximum records to return (default 100)
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: File list retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileListResponse"
+        "204":
+          description: No files found
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v4/file-loading/file-types:
+    get:
+      operationId: get_api_v4_file_loading_file_types
+      tags:
+        - File Loading
+      summary: Get supported file types for loading
+      description: Returns the list of supported file types for loading operations.
+      responses:
+        "200":
+          description: File type list retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileTypeListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v4/file-loading/files/{nt-file-num}/reprocess:
+    post:
+      operationId: post_api_v4_file_loading_files_nt_file_num_reprocess
+      tags:
+        - File Loading
+      summary: Reprocess a previously loaded file
+      description: Reprocess a previously loaded file by its nt-file-num.
+      parameters:
+        - $ref: "#/components/parameters/NtFileNum"
+      responses:
+        "202":
+          description: Reprocess accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileLoadResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "File not found"
+                ErrorCode: "NOT_FOUND"
+
+  # ==================================================
+  # File Management - Dashboard
+  # ==================================================
+  /api/v4/file-loading/dashboard:
+    get:
+      operationId: get_api_v4_file_loading_dashboard
+      tags:
+        - File Management
+      summary: Get dashboard summary data
+      description: Get dashboard summary data including file counts by folder and transfer source statuses.
+      parameters:
+        - name: domain
+          in: query
+          required: false
+          description: Filter by domain
+          schema:
+            type: string
+        - name: fileType
+          in: query
+          required: false
+          description: Filter by file type code
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Dashboard data retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileManagementDashboard"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ==================================================
+  # File Management - Files (workflow)
+  # ==================================================
+  /api/v4/file-loading/manager/files:
+    get:
+      operationId: get_api_v4_file_loading_manager_files
+      tags:
+        - File Management
+      summary: List files in the transfer workflow
+      description: >-
+        List files in the transfer workflow with filtering.
+        Supports domain, file-type, folder, status, date range, and filename search filters.
+      parameters:
+        - name: domain
+          in: query
+          required: false
+          description: Filter by domain
+          schema:
+            type: string
+        - name: fileType
+          in: query
+          required: false
+          description: Filter by file type code (e.g. CDR, CHG, SSSWHLSCDR)
+          schema:
+            type: string
+        - name: folder
+          in: query
+          required: false
+          description: Filter by current folder (Transfer, Processing, Processed, Errors, Skipped)
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          description: "Filter by transfer status (0=Pending, 1=Downloading, 2=Downloaded, 3=Processing, 4=Processed, 5=Error, 6=Skipped)"
+          schema:
+            $ref: "#/components/schemas/TransferStatus"
+        - name: fromDate
+          in: query
+          required: false
+          description: Filter by date range start (inclusive)
+          schema:
+            type: string
+            format: date-time
+        - name: toDate
+          in: query
+          required: false
+          description: Filter by date range end (inclusive)
+          schema:
+            type: string
+            format: date-time
+        - name: search
+          in: query
+          required: false
+          description: Search by file name (partial match)
+          schema:
+            type: string
+        - name: maxRecords
+          in: query
+          required: false
+          description: Maximum records to return (default 100)
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: File list retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileListWithStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v4/file-loading/manager/files/{transfer-id}:
+    get:
+      operationId: get_api_v4_file_loading_manager_files_transfer_id
+      tags:
+        - File Management
+      summary: Get file details by transfer-id
+      description: Get file details by transfer-id (the workflow tracking key).
+      parameters:
+        - $ref: "#/components/parameters/TransferId"
+      responses:
+        "200":
+          description: File details retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileWithStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "Transfer record not found"
+                ErrorCode: "NOT_FOUND"
+
+  /api/v4/file-loading/manager/files/{transfer-id}/process:
+    post:
+      operationId: post_api_v4_file_loading_manager_files_transfer_id_process
+      tags:
+        - File Management
+      summary: Process a file from the transfer workflow
+      description: Process a file from the transfer workflow by its transfer-id.
+      parameters:
+        - $ref: "#/components/parameters/TransferId"
+      responses:
+        "200":
+          description: File processing started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileLoadResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Transfer record not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "Transfer record not found"
+                ErrorCode: "NOT_FOUND"
+
+  /api/v4/file-loading/manager/files/{transfer-id}/retry:
+    post:
+      operationId: post_api_v4_file_loading_manager_files_transfer_id_retry
+      tags:
+        - File Management
+      summary: Retry processing a failed file
+      description: Retry processing a file that previously failed.
+      parameters:
+        - $ref: "#/components/parameters/TransferId"
+      responses:
+        "200":
+          description: Retry started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileLoadResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Transfer record not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "Transfer record not found"
+                ErrorCode: "NOT_FOUND"
+
+  /api/v4/file-loading/manager/files/{transfer-id}/move:
+    post:
+      operationId: post_api_v4_file_loading_manager_files_transfer_id_move
+      tags:
+        - File Management
+      summary: Move a file to a specific workflow folder
+      description: Move a file to a specific workflow folder (Transfer, Processing, Processed, Errors, Skipped).
+      parameters:
+        - $ref: "#/components/parameters/TransferId"
+        - name: folder
+          in: query
+          required: true
+          description: Target folder name (Transfer, Processing, Processed, Errors, Skipped)
+          schema:
+            type: string
+        - name: reason
+          in: query
+          required: false
+          description: Optional reason for the move
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File moved successfully
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Transfer record not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "Transfer record not found"
+                ErrorCode: "NOT_FOUND"
+
+  /api/v4/file-loading/manager/files/{nt-file-num}/unload:
+    post:
+      operationId: post_api_v4_file_loading_manager_files_nt_file_num_unload
+      tags:
+        - File Management
+      summary: Unload a loaded file
+      description: >-
+        Unload a loaded file (reverse the load operation).
+        Uses nt-file-num because it operates on the database record created at load time.
+      parameters:
+        - $ref: "#/components/parameters/NtFileNum"
+      responses:
+        "200":
+          description: File unloaded successfully
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "File not found"
+                ErrorCode: "NOT_FOUND"
+
+  /api/v4/file-loading/manager/files/{nt-file-num}/skip-sequence:
+    post:
+      operationId: post_api_v4_file_loading_manager_files_nt_file_num_skip_sequence
+      tags:
+        - File Management
+      summary: Force skip a sequence number
+      description: >-
+        Force skip a sequence number.
+        Uses nt-file-num because it operates on the database record created at load time.
+      parameters:
+        - $ref: "#/components/parameters/NtFileNum"
+        - name: skipTo
+          in: query
+          required: true
+          description: Sequence number to skip to
+          schema:
+            type: integer
+        - name: reason
+          in: query
+          required: false
+          description: Optional reason for skipping
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Sequence skipped successfully
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "File not found"
+                ErrorCode: "NOT_FOUND"
+
+  /api/v4/file-loading/manager/files/{transfer-id}/download:
+    get:
+      operationId: get_api_v4_file_loading_manager_files_transfer_id_download
+      tags:
+        - File Management
+      summary: Download a file to browser
+      description: Download a file from the workflow to the user's browser.
+      parameters:
+        - $ref: "#/components/parameters/TransferId"
+      responses:
+        "200":
+          description: File download
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "File not found"
+                ErrorCode: "NOT_FOUND"
+
+  /api/v4/file-loading/manager/files/{transfer-id}:
+    delete:
+      operationId: delete_api_v4_file_loading_manager_files_transfer_id
+      tags:
+        - File Management
+      summary: Delete a file from the workflow
+      description: Delete a file from the transfer workflow.
+      parameters:
+        - $ref: "#/components/parameters/TransferId"
+      responses:
+        "200":
+          description: File deleted successfully
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "Transfer record not found"
+                ErrorCode: "NOT_FOUND"
+
+  # ==================================================
+  # Activity Log
+  # ==================================================
+  /api/v4/file-loading/activity:
+    get:
+      operationId: get_api_v4_file_loading_activity
+      tags:
+        - Activity Log
+      summary: Get activity log entries
+      description: Get activity log entries. Filter by nt-file-num, transfer-id, or both.
+      parameters:
+        - name: ntFileNum
+          in: query
+          required: false
+          description: Filter by file number
+          schema:
+            type: integer
+        - name: transferId
+          in: query
+          required: false
+          description: Filter by transfer record ID
+          schema:
+            type: integer
+        - name: maxRecords
+          in: query
+          required: false
+          description: Maximum records to return (default 100)
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: Activity log entries retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FileActivityLog"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ==================================================
+  # Validation
+  # ==================================================
+  /api/v4/file-loading/files/{nt-file-num}/validation-summary:
+    get:
+      operationId: get_api_v4_file_loading_files_nt_file_num_validation_summary
+      tags:
+        - Validation
+      summary: Get AI-friendly validation summary
+      description: Get AI-friendly validation summary for a loaded file.
+      parameters:
+        - $ref: "#/components/parameters/NtFileNum"
+      responses:
+        "200":
+          description: Validation summary retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationSummaryForAI"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "File not found"
+                ErrorCode: "NOT_FOUND"
+
+  # ==================================================
+  # Exceptions
+  # ==================================================
+  /api/v4/file-loading/exceptions/errors:
+    get:
+      operationId: get_api_v4_file_loading_exceptions_errors
+      tags:
+        - Exceptions
+      summary: Get files with processing errors
+      description: Get files with processing errors with optional filtering.
+      parameters:
+        - name: domain
+          in: query
+          required: false
+          description: Filter by domain
+          schema:
+            type: string
+        - name: fileType
+          in: query
+          required: false
+          description: Filter by file type code
+          schema:
+            type: string
+        - name: maxRecords
+          in: query
+          required: false
+          description: Maximum records to return (default 100)
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: Error files retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FileWithStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v4/file-loading/exceptions/skipped:
+    get:
+      operationId: get_api_v4_file_loading_exceptions_skipped
+      tags:
+        - Exceptions
+      summary: Get skipped files
+      description: Get files that were skipped during processing.
+      parameters:
+        - name: domain
+          in: query
+          required: false
+          description: Filter by domain
+          schema:
+            type: string
+        - name: fileType
+          in: query
+          required: false
+          description: Filter by file type code
+          schema:
+            type: string
+        - name: maxRecords
+          in: query
+          required: false
+          description: Maximum records to return (default 100)
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: Skipped files retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FileWithStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ==================================================
+  # Transfer Operations
+  # ==================================================
+  /api/v4/file-loading/transfers/{source-id}/fetch:
+    post:
+      operationId: post_api_v4_file_loading_transfers_source_id_fetch
+      tags:
+        - Transfer Operations
+      summary: Fetch files from a transfer source
+      description: Fetch files from a transfer source (SFTP/FTP/FileSystem).
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "200":
+          description: Fetch completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransferFetchResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Source not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "Transfer source not found"
+                ErrorCode: "NOT_FOUND"
+
+  # ==================================================
+  # Transfer Sources (CRUD)
+  # ==================================================
+  /api/v4/file-loading/sources:
+    get:
+      operationId: get_api_v4_file_loading_sources
+      tags:
+        - Transfer Sources
+      summary: List all transfer source configurations
+      description: List all transfer source configurations with optional domain filter.
+      parameters:
+        - name: domain
+          in: query
+          required: false
+          description: Filter by domain
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Transfer sources retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TransferSourceConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v4/file-loading/sources/{source-id}:
+    get:
+      operationId: get_api_v4_file_loading_sources_source_id
+      tags:
+        - Transfer Sources
+      summary: Get a specific transfer source configuration
+      description: Get a specific transfer source configuration by source-id.
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "200":
+          description: Transfer source retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransferSourceConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Source not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "Transfer source not found"
+                ErrorCode: "NOT_FOUND"
+
+    put:
+      operationId: put_api_v4_file_loading_sources_source_id
+      tags:
+        - Transfer Sources
+      summary: Create or update a transfer source
+      description: Create or update a transfer source. Use source-id=0 to create (ID is auto-generated).
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransferSourceRequest"
+      responses:
+        "200":
+          description: Transfer source saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransferSourceConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    delete:
+      operationId: delete_api_v4_file_loading_sources_source_id
+      tags:
+        - Transfer Sources
+      summary: Delete a transfer source configuration
+      description: Delete a transfer source configuration by source-id.
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "200":
+          description: Transfer source deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Source not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "Transfer source not found"
+                ErrorCode: "NOT_FOUND"
+
+  /api/v4/file-loading/sources/{source-id}/test:
+    post:
+      operationId: post_api_v4_file_loading_sources_source_id_test
+      tags:
+        - Transfer Sources
+      summary: Test connection to a saved transfer source
+      description: Test connection to a saved transfer source by source-id.
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "200":
+          description: Connection successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionTestResult"
+              example:
+                Success: true
+                Message: "Connection successful"
+        "400":
+          description: Connection test failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "Connection test failed"
+                ErrorCode: "CONNECTION_FAILED"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v4/file-loading/sources/test:
+    post:
+      operationId: post_api_v4_file_loading_sources_test
+      tags:
+        - Transfer Sources
+      summary: Test connection with provided configuration
+      description: Test connection with provided configuration (without saving).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransferSourceRequest"
+      responses:
+        "200":
+          description: Connection successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionTestResult"
+              example:
+                Success: true
+                Message: "Connection successful"
+        "400":
+          description: Connection test failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "Connection test failed"
+                ErrorCode: "CONNECTION_FAILED"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ==================================================
+  # Parser Configuration (CRUD)
+  # ==================================================
+  /api/v4/file-loading/parsers:
+    get:
+      operationId: get_api_v4_file_loading_parsers
+      tags:
+        - Parser Configuration
+      summary: List all generic parser configurations
+      description: List all generic parser configurations with optional active filter.
+      parameters:
+        - name: active
+          in: query
+          required: false
+          description: Filter by active status
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Parser configurations retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GenericFileFormatConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v4/file-loading/parsers/{file-type-code}:
+    get:
+      operationId: get_api_v4_file_loading_parsers_file_type_code
+      tags:
+        - Parser Configuration
+      summary: Get a specific generic parser configuration
+      description: Get a specific generic parser configuration with column mappings.
+      parameters:
+        - $ref: "#/components/parameters/FileTypeCode"
+      responses:
+        "200":
+          description: Parser configuration retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericFileFormatConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Parser configuration not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "Parser configuration not found"
+                ErrorCode: "NOT_FOUND"
+
+    put:
+      operationId: put_api_v4_file_loading_parsers_file_type_code
+      tags:
+        - Parser Configuration
+      summary: Create or update a generic parser configuration
+      description: Create or update a generic parser configuration with column mappings.
+      parameters:
+        - $ref: "#/components/parameters/FileTypeCode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenericParserConfigRequest"
+      responses:
+        "200":
+          description: Parser configuration saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericFileFormatConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    delete:
+      operationId: delete_api_v4_file_loading_parsers_file_type_code
+      tags:
+        - Parser Configuration
+      summary: Delete a generic parser configuration
+      description: Delete a generic parser configuration and its column mappings.
+      parameters:
+        - $ref: "#/components/parameters/FileTypeCode"
+      responses:
+        "200":
+          description: Parser configuration deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Parser configuration not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "Parser configuration not found"
+                ErrorCode: "NOT_FOUND"
+
+  # ==================================================
+  # Folder Configuration
+  # ==================================================
+  /api/v4/file-loading/folders:
+    get:
+      operationId: get_api_v4_file_loading_folders
+      tags:
+        - Folder Configuration
+      summary: Get folder workflow configuration
+      description: >-
+        Get folder workflow configuration for a domain.
+        Falls back to domain default if file-type specific config not found.
+      parameters:
+        - name: domain
+          in: query
+          required: true
+          description: Domain name (required)
+          schema:
+            type: string
+        - name: fileType
+          in: query
+          required: false
+          description: File type code (optional - falls back to domain default)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Folder configuration retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FolderWorkflowConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Folder configuration not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "Folder configuration not found"
+                ErrorCode: "NOT_FOUND"
+
+    put:
+      operationId: put_api_v4_file_loading_folders
+      tags:
+        - Folder Configuration
+      summary: Create or update folder workflow configuration
+      description: Create or update folder workflow configuration.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FolderWorkflowConfig"
+      responses:
+        "200":
+          description: Folder configuration saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FolderWorkflowConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ==================================================
+  # Vendors (CRUD)
+  # ==================================================
+  /api/v4/file-loading/vendors:
+    get:
+      operationId: get_api_v4_file_loading_vendors
+      tags:
+        - Vendors
+      summary: List all vendors
+      description: List all vendors (networks table).
+      responses:
+        "200":
+          description: Vendors retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VendorRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v4/file-loading/vendors/{network-id}:
+    get:
+      operationId: get_api_v4_file_loading_vendors_network_id
+      tags:
+        - Vendors
+      summary: Get a specific vendor
+      description: Get a specific vendor by network-id.
+      parameters:
+        - $ref: "#/components/parameters/NetworkId"
+      responses:
+        "200":
+          description: Vendor retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VendorRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Vendor not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "Vendor not found"
+                ErrorCode: "NOT_FOUND"
+
+    put:
+      operationId: put_api_v4_file_loading_vendors_network_id
+      tags:
+        - Vendors
+      summary: Create or update a vendor
+      description: Create or update a vendor by network-id.
+      parameters:
+        - $ref: "#/components/parameters/NetworkId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VendorRecord"
+      responses:
+        "200":
+          description: Vendor saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VendorRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    delete:
+      operationId: delete_api_v4_file_loading_vendors_network_id
+      tags:
+        - Vendors
+      summary: Delete a vendor
+      description: Delete a vendor by network-id.
+      parameters:
+        - $ref: "#/components/parameters/NetworkId"
+      responses:
+        "200":
+          description: Vendor deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Vendor not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "Vendor not found"
+                ErrorCode: "NOT_FOUND"
+
+  # ==================================================
+  # File Classes (CRUD)
+  # ==================================================
+  /api/v4/file-loading/file-classes:
+    get:
+      operationId: get_api_v4_file_loading_file_classes
+      tags:
+        - File Classes
+      summary: List all file classes
+      description: List all file classes (e.g. CDR, CHG). A file class groups related file types.
+      responses:
+        "200":
+          description: File classes retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FileClassRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v4/file-loading/file-classes/{file-class-code}:
+    get:
+      operationId: get_api_v4_file_loading_file_classes_file_class_code
+      tags:
+        - File Classes
+      summary: Get a specific file class
+      description: Get a specific file class by file-class-code.
+      parameters:
+        - $ref: "#/components/parameters/FileClassCode"
+      responses:
+        "200":
+          description: File class retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileClassRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: File class not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "File class not found"
+                ErrorCode: "NOT_FOUND"
+
+    put:
+      operationId: put_api_v4_file_loading_file_classes_file_class_code
+      tags:
+        - File Classes
+      summary: Create or update a file class
+      description: Create or update a file class by file-class-code.
+      parameters:
+        - $ref: "#/components/parameters/FileClassCode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileClassRecord"
+      responses:
+        "200":
+          description: File class saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileClassRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    delete:
+      operationId: delete_api_v4_file_loading_file_classes_file_class_code
+      tags:
+        - File Classes
+      summary: Delete a file class
+      description: Delete a file class by file-class-code.
+      parameters:
+        - $ref: "#/components/parameters/FileClassCode"
+      responses:
+        "200":
+          description: File class deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: File class not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "File class not found"
+                ErrorCode: "NOT_FOUND"
+
+  # ==================================================
+  # File Types (CRUD)
+  # ==================================================
+  /api/v4/file-loading/manager/file-types:
+    get:
+      operationId: get_api_v4_file_loading_manager_file_types
+      tags:
+        - File Types
+      summary: List all file types
+      description: List all file types. Each file type belongs to a file class and optionally a vendor.
+      responses:
+        "200":
+          description: File types retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FileTypeRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v4/file-loading/file-types/{file-type-code}:
+    get:
+      operationId: get_api_v4_file_loading_file_types_file_type_code
+      tags:
+        - File Types
+      summary: Get a specific file type
+      description: Get a specific file type by file-type-code (e.g. TEL_GSM, SSSWHLSCDR).
+      parameters:
+        - $ref: "#/components/parameters/FileTypeCode"
+      responses:
+        "200":
+          description: File type retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileTypeRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: File type not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "File type not found"
+                ErrorCode: "NOT_FOUND"
+
+    put:
+      operationId: put_api_v4_file_loading_file_types_file_type_code
+      tags:
+        - File Types
+      summary: Create or update a file type
+      description: Create or update a file type by file-type-code.
+      parameters:
+        - $ref: "#/components/parameters/FileTypeCode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileTypeRecord"
+      responses:
+        "200":
+          description: File type saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileTypeRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    delete:
+      operationId: delete_api_v4_file_loading_file_types_file_type_code
+      tags:
+        - File Types
+      summary: Delete a file type
+      description: Delete a file type by file-type-code.
+      parameters:
+        - $ref: "#/components/parameters/FileTypeCode"
+      responses:
+        "200":
+          description: File type deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: File type not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "File type not found"
+                ErrorCode: "NOT_FOUND"
+
+  # ==================================================
+  # File Types NT (CRUD)
+  # ==================================================
+  /api/v4/file-loading/file-types-nt:
+    get:
+      operationId: get_api_v4_file_loading_file_types_nt
+      tags:
+        - File Types NT
+      summary: List file type NT records
+      description: >-
+        List file type NT records. NT records map a file type to a customer number,
+        filename pattern, and header/trailer skip counts used during loading.
+      parameters:
+        - name: fileType
+          in: query
+          required: false
+          description: Filter by file type code
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File type NT records retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FileTypeNtRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v4/file-loading/file-types-nt/{file-type-code}:
+    get:
+      operationId: get_api_v4_file_loading_file_types_nt_file_type_code
+      tags:
+        - File Types NT
+      summary: Get a specific file type NT record
+      description: Get a specific file type NT record by file-type-code.
+      parameters:
+        - $ref: "#/components/parameters/FileTypeCode"
+      responses:
+        "200":
+          description: File type NT record retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileTypeNtRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: File type NT record not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "File type NT record not found"
+                ErrorCode: "NOT_FOUND"
+
+    put:
+      operationId: put_api_v4_file_loading_file_types_nt_file_type_code
+      tags:
+        - File Types NT
+      summary: Create or update a file type NT record
+      description: Create or update a file type NT record by file-type-code.
+      parameters:
+        - $ref: "#/components/parameters/FileTypeCode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileTypeNtRecord"
+      responses:
+        "200":
+          description: File type NT record saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileTypeNtRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    delete:
+      operationId: delete_api_v4_file_loading_file_types_nt_file_type_code
+      tags:
+        - File Types NT
+      summary: Delete a file type NT record
+      description: Delete a file type NT record by file-type-code.
+      parameters:
+        - $ref: "#/components/parameters/FileTypeCode"
+      responses:
+        "200":
+          description: File type NT record deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: File type NT record not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                Error: "File type NT record not found"
+                ErrorCode: "NOT_FOUND"
+
+# ==================================================
+# Components
+# ==================================================
+components:
+  # ================================================
+  # Security Schemes
+  # ================================================
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT Bearer token authentication
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API Key authentication via X-API-Key header
+
+  # ================================================
+  # Reusable Parameters
+  # ================================================
+  parameters:
+    NtFileNum:
+      name: nt-file-num
+      in: path
+      required: true
+      description: File number (nt_file_num) - the database record key assigned at load time
+      schema:
+        type: integer
+
+    TransferId:
+      name: transfer-id
+      in: path
+      required: true
+      description: Transfer record ID - the workflow tracking key
+      schema:
+        type: integer
+
+    SourceId:
+      name: source-id
+      in: path
+      required: true
+      description: Transfer source ID (auto-generated integer)
+      schema:
+        type: integer
+
+    FileTypeCode:
+      name: file-type-code
+      in: path
+      required: true
+      description: File type code (e.g. TEL_GSM, SSSWHLSCDR, CDR)
+      schema:
+        type: string
+
+    FileClassCode:
+      name: file-class-code
+      in: path
+      required: true
+      description: File class code (e.g. CDR, CHG)
+      schema:
+        type: string
+
+    NetworkId:
+      name: network-id
+      in: path
+      required: true
+      description: Network ID (CHAR(2))
+      schema:
+        type: string
+        maxLength: 2
+
+  # ================================================
+  # Reusable Responses
+  # ================================================
+  responses:
+    Unauthorized:
+      description: Authentication required - missing or invalid JWT token or API key
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            Error: "Unauthorized"
+            ErrorCode: "UNAUTHORIZED"
+
+  # ================================================
+  # Schemas
+  # ================================================
+  schemas:
+    # --- Health ---
+    HealthCheckResponse:
+      type: object
+      properties:
+        Status:
+          type: string
+          description: Health status (Healthy or Unhealthy)
+          example: Healthy
+        Timestamp:
+          type: string
+          format: date-time
+          description: Timestamp of the health check
+        Service:
+          type: string
+          description: Service name
+          example: File Loading API
+        Version:
+          type: string
+          description: API version
+          example: "4.0.0"
+        Database:
+          type: object
+          properties:
+            Status:
+              type: string
+              description: Database status (Connected or Unreachable)
+              example: Connected
+            ResponseTimeMs:
+              type: integer
+              description: Database response time in milliseconds (present when connected)
+              example: 12
+            Message:
+              type: string
+              description: Error message (present when unreachable)
+
+    # --- Error ---
+    ErrorResponse:
+      type: object
+      properties:
+        Error:
+          type: string
+          description: Human-readable error message
+          example: "An error occurred"
+        ErrorCode:
+          type: string
+          description: Machine-readable error code
+          example: "INVALID_REQUEST"
+        Details:
+          description: Additional error details (optional)
+          nullable: true
+
+    # --- File Loading Request/Response ---
+    LoadFileRequest:
+      type: object
+      required:
+        - FileName
+        - FileType
+      properties:
+        FileName:
+          type: string
+          description: Full path to file
+          example: "/data/files/CDR_20260320.csv"
+        FileType:
+          type: string
+          description: File type code (from file_type table)
+          example: TEL_GSM
+        NtCustNum:
+          type: string
+          nullable: true
+          description: Network customer number
+        FileDate:
+          type: string
+          format: date-time
+          nullable: true
+          description: File date (defaults to today)
+        ExpectedSequence:
+          type: integer
+          nullable: true
+          description: Expected sequence number (for validation)
+
+    FileLoadResponse:
+      type: object
+      properties:
+        NtFileNum:
+          type: integer
+          description: File number (nt_file_num)
+          example: 12345
+        FileName:
+          type: string
+          description: File name
+          example: "CDR_20260320.csv"
+        FileType:
+          type: string
+          description: File type code
+          example: TEL_GSM
+        Status:
+          type: string
+          description: Status description
+          example: Pending
+        StatusId:
+          type: integer
+          description: Status ID
+          example: 1
+        RecordsLoaded:
+          type: integer
+          description: Records loaded count
+          example: 0
+        RecordsFailed:
+          type: integer
+          description: Records failed count
+          example: 0
+        StartedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Processing start time
+        CompletedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Processing completion time
+
+    FileStatusResponse:
+      type: object
+      properties:
+        NtFileNum:
+          type: integer
+          description: File number (nt_file_num)
+          example: 12345
+        FileName:
+          type: string
+          description: File name
+          example: "CDR_20260320.csv"
+        FileType:
+          type: string
+          description: File type code
+          example: TEL_GSM
+        NtCustNum:
+          type: string
+          description: Network customer number
+          example: "CUST001"
+        NtFileSeq:
+          type: integer
+          description: File sequence number
+          example: 42
+        StatusId:
+          type: integer
+          description: Status ID
+          example: 2
+        StatusDescription:
+          type: string
+          description: Status description
+          example: "Transactions loaded"
+        NtFileDate:
+          type: string
+          format: date-time
+          nullable: true
+          description: File date
+        CreatedTm:
+          type: string
+          format: date-time
+          nullable: true
+          description: Created timestamp
+        TotalRecords:
+          type: integer
+          nullable: true
+          description: Total records in file
+          example: 5000
+        TotalCost:
+          type: number
+          format: decimal
+          nullable: true
+          description: Total cost
+          example: 12345.67
+        EarliestCall:
+          type: string
+          format: date-time
+          nullable: true
+          description: Earliest call date in file
+        LatestCall:
+          type: string
+          format: date-time
+          nullable: true
+          description: Latest call date in file
+
+    FileListResponse:
+      type: object
+      properties:
+        Items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileStatusResponse"
+        TotalCount:
+          type: integer
+          description: Total number of matching files
+
+    FileTypeListResponse:
+      type: object
+      properties:
+        Items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileTypeInfo"
+
+    FileTypeInfo:
+      type: object
+      properties:
+        Code:
+          type: string
+          description: File type code
+          example: TEL_GSM
+        Description:
+          type: string
+          description: File type description
+          example: "Telstra GSM CDRs"
+        FileClassCode:
+          type: string
+          description: File class code (CDR, CHG, etc.)
+          example: CDR
+        FileClassDescription:
+          type: string
+          description: File class description
+          example: "Call Detail Records"
+        NtCustNum:
+          type: string
+          description: Network customer number
+          example: "CUST001"
+        NtFileName:
+          type: string
+          description: File name pattern
+          example: "TEL_GSM_*.csv"
+        SkipHdr:
+          type: integer
+          nullable: true
+          description: Skip header records count
+        SkipTlr:
+          type: integer
+          nullable: true
+          description: Skip trailer records count
+
+    # --- File Management ---
+    FileManagementDashboard:
+      type: object
+      properties:
+        FilesInTransfer:
+          type: integer
+          description: Count of files in Transfer folder
+          example: 5
+        FilesInProcessing:
+          type: integer
+          description: Count of files in Processing folder
+          example: 2
+        FilesProcessedToday:
+          type: integer
+          description: Count of files processed today
+          example: 47
+        FilesWithErrors:
+          type: integer
+          description: Count of files with errors
+          example: 3
+        FilesSkipped:
+          type: integer
+          description: Count of files skipped
+          example: 1
+        SourceStatuses:
+          type: array
+          items:
+            $ref: "#/components/schemas/TransferSourceStatus"
+
+    TransferSourceStatus:
+      type: object
+      properties:
+        SourceId:
+          type: integer
+          description: Source ID
+          example: 1
+        VendorName:
+          type: string
+          description: Friendly name for the vendor/source
+          example: "Telstra CDR Feed"
+        Domain:
+          type: string
+          description: Domain
+          example: "domain1"
+        FileTypeCode:
+          type: string
+          nullable: true
+          description: File type code
+          example: TEL_GSM
+        IsEnabled:
+          type: boolean
+          description: Whether the source is enabled
+          example: true
+        LastTransferAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last successful transfer time
+        FilesTransferredToday:
+          type: integer
+          description: Files transferred today
+          example: 12
+        LastError:
+          type: string
+          nullable: true
+          description: Last error message if any
+
+    FileWithStatus:
+      type: object
+      properties:
+        TransferId:
+          type: integer
+          description: Transfer record ID
+          example: 100
+        NtFileNum:
+          type: integer
+          nullable: true
+          description: NT file number (if file has been created)
+          example: 12345
+        FileName:
+          type: string
+          description: File name
+          example: "CDR_20260320.csv"
+        FileTypeCode:
+          type: string
+          nullable: true
+          description: File type code
+          example: TEL_GSM
+        Domain:
+          type: string
+          description: Domain
+          example: "domain1"
+        CurrentFolder:
+          type: string
+          description: Current folder
+          example: Processing
+        Status:
+          $ref: "#/components/schemas/TransferStatus"
+        StatusDescription:
+          type: string
+          description: Status description
+          example: Processing
+        FileSize:
+          type: integer
+          format: int64
+          nullable: true
+          description: File size in bytes
+          example: 1048576
+        CreatedAt:
+          type: string
+          format: date-time
+          description: When the file was created/downloaded
+        CompletedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When processing completed (if applicable)
+        ErrorMessage:
+          type: string
+          nullable: true
+          description: Error message if any
+        SourceId:
+          type: integer
+          nullable: true
+          description: Source ID if transferred from remote
+          example: 1
+
+    FileListWithStatusResponse:
+      type: object
+      properties:
+        Items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileWithStatus"
+        TotalCount:
+          type: integer
+          description: Total count (for pagination)
+
+    TransferStatus:
+      type: integer
+      description: >-
+        Transfer status enumeration:
+        0=Pending, 1=Downloading, 2=Downloaded, 3=Processing, 4=Processed, 5=Error, 6=Skipped
+      enum:
+        - 0
+        - 1
+        - 2
+        - 3
+        - 4
+        - 5
+        - 6
+
+    # --- Transfer Sources ---
+    TransferSourceConfig:
+      type: object
+      properties:
+        SourceId:
+          type: integer
+          description: Unique identifier (auto-generated)
+          example: 1
+        VendorName:
+          type: string
+          description: Friendly name for the vendor/source
+          example: "Telstra CDR Feed"
+        Domain:
+          type: string
+          description: Domain this source belongs to
+          example: "domain1"
+        FileTypeCode:
+          type: string
+          nullable: true
+          description: File type code
+          example: TEL_GSM
+        Protocol:
+          $ref: "#/components/schemas/TransferProtocol"
+        Host:
+          type: string
+          description: Remote host address
+          example: "sftp.telstra.com.au"
+        Port:
+          type: integer
+          description: Remote port (default 22 for SFTP, 21 for FTP)
+          example: 22
+        RemotePath:
+          type: string
+          description: Remote path to monitor
+          example: "/outgoing/cdrs"
+        AuthType:
+          $ref: "#/components/schemas/AuthenticationType"
+        Username:
+          type: string
+          description: Username for authentication
+          example: "sftpuser"
+        Password:
+          type: string
+          nullable: true
+          description: Password (encrypted in database)
+        CertificatePath:
+          type: string
+          nullable: true
+          description: Path to certificate file
+        PrivateKeyPath:
+          type: string
+          nullable: true
+          description: Path to private key file
+        FileNamePattern:
+          type: string
+          description: Pattern to match files for download
+          example: "*.csv"
+        SkipFilePattern:
+          type: string
+          nullable: true
+          description: Pattern to match files that should be skipped
+        DeleteAfterDownload:
+          type: boolean
+          description: Whether to delete files from source after successful download
+          example: true
+        CompressOnArchive:
+          type: boolean
+          description: Whether to compress files when archiving to Processed folder
+          example: true
+        Compression:
+          $ref: "#/components/schemas/CompressionMethod"
+        CronSchedule:
+          type: string
+          nullable: true
+          description: CRON schedule expression
+          example: "0 */15 * * * *"
+        IsEnabled:
+          type: boolean
+          description: Whether this source is enabled for scheduled transfers
+          example: true
+        CreatedAt:
+          type: string
+          format: date-time
+          description: Created timestamp
+        UpdatedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last updated timestamp
+        ConnectionUrl:
+          type: string
+          description: Computed connection URL for display
+          example: "sftp://sftpuser@sftp.telstra.com.au/outgoing/cdrs"
+          readOnly: true
+
+    TransferSourceRequest:
+      type: object
+      required:
+        - VendorName
+        - Domain
+        - Host
+        - Username
+      properties:
+        SourceId:
+          type: integer
+          description: Source ID (set from route for updates, ignored for creates)
+        VendorName:
+          type: string
+          description: Friendly name for the vendor/source
+          example: "Telstra CDR Feed"
+        Domain:
+          type: string
+          description: Domain this source belongs to
+          example: "domain1"
+        FileTypeCode:
+          type: string
+          nullable: true
+          description: File type code
+        Protocol:
+          $ref: "#/components/schemas/TransferProtocol"
+        Host:
+          type: string
+          description: Remote host address
+          example: "sftp.telstra.com.au"
+        Port:
+          type: integer
+          description: Remote port
+          default: 22
+          example: 22
+        RemotePath:
+          type: string
+          description: Remote path to monitor
+          default: "/"
+          example: "/outgoing/cdrs"
+        AuthType:
+          $ref: "#/components/schemas/AuthenticationType"
+        Username:
+          type: string
+          description: Username
+          example: "sftpuser"
+        Password:
+          type: string
+          nullable: true
+          description: Password (will be encrypted)
+        CertificatePath:
+          type: string
+          nullable: true
+          description: Path to certificate file
+        PrivateKeyPath:
+          type: string
+          nullable: true
+          description: Path to private key file
+        FileNamePattern:
+          type: string
+          description: File name pattern
+          default: "*.*"
+          example: "*.csv"
+        SkipFilePattern:
+          type: string
+          nullable: true
+          description: Skip file pattern
+        DeleteAfterDownload:
+          type: boolean
+          description: Delete after download
+          default: true
+        CompressOnArchive:
+          type: boolean
+          description: Compress on archive
+          default: true
+        Compression:
+          $ref: "#/components/schemas/CompressionMethod"
+        CronSchedule:
+          type: string
+          nullable: true
+          description: CRON schedule
+        IsEnabled:
+          type: boolean
+          description: Whether enabled
+          default: true
+
+    TransferProtocol:
+      type: integer
+      description: "Transfer protocol: 1=SFTP, 2=FTP, 3=FileSystem"
+      enum:
+        - 1
+        - 2
+        - 3
+
+    AuthenticationType:
+      type: integer
+      description: "Authentication type: 1=Password, 2=Certificate, 3=PrivateKey"
+      enum:
+        - 1
+        - 2
+        - 3
+
+    CompressionMethod:
+      type: integer
+      description: "Compression method: 0=None, 1=GZip, 2=Zip"
+      enum:
+        - 0
+        - 1
+        - 2
+
+    TransferFetchResponse:
+      type: object
+      properties:
+        FilesFound:
+          type: integer
+          description: Number of files found on remote
+          example: 10
+        FilesDownloaded:
+          type: integer
+          description: Number of files downloaded
+          example: 8
+        FilesSkipped:
+          type: integer
+          description: Number of files skipped (already downloaded or matched skip pattern)
+          example: 1
+        FilesFailed:
+          type: integer
+          description: Number of files that failed to download
+          example: 1
+        TransferRecords:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileTransferRecord"
+        Errors:
+          type: array
+          items:
+            type: string
+
+    FileTransferRecord:
+      type: object
+      properties:
+        TransferId:
+          type: integer
+          description: Transfer record ID
+          example: 100
+        SourceId:
+          type: integer
+          nullable: true
+          description: Source ID this transfer originated from
+        NtFileNum:
+          type: integer
+          nullable: true
+          description: FK to nt_file after file creation
+        FileName:
+          type: string
+          description: File name
+          example: "CDR_20260320.csv"
+        Status:
+          $ref: "#/components/schemas/TransferStatus"
+        SourcePath:
+          type: string
+          nullable: true
+          description: Source path (remote or local)
+        DestinationPath:
+          type: string
+          nullable: true
+          description: Destination path (local)
+        CurrentFolder:
+          type: string
+          nullable: true
+          description: Current folder in workflow
+        FileSize:
+          type: integer
+          format: int64
+          nullable: true
+          description: File size in bytes
+        StartedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When transfer started
+        CompletedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When transfer completed
+        ErrorMessage:
+          type: string
+          nullable: true
+          description: Error message if transfer failed
+        RetryCount:
+          type: integer
+          description: Number of retry attempts
+        CreatedBy:
+          type: string
+          nullable: true
+          description: User who created this transfer
+        CreatedAt:
+          type: string
+          format: date-time
+          description: When this record was created
+
+    # --- Folder Configuration ---
+    FolderWorkflowConfig:
+      type: object
+      properties:
+        ConfigId:
+          type: integer
+          description: Configuration ID
+          example: 1
+        Domain:
+          type: string
+          description: Domain this configuration belongs to
+          example: "domain1"
+        FileTypeCode:
+          type: string
+          nullable: true
+          description: File type code (null = default for domain)
+        TransferFolder:
+          type: string
+          description: Folder where files are initially transferred to
+          example: "/data/domain1/Transfer"
+        ProcessingFolder:
+          type: string
+          description: Folder where files are moved during processing
+          example: "/data/domain1/Processing"
+        ProcessedFolder:
+          type: string
+          description: Folder where successfully processed files are archived
+          example: "/data/domain1/Processed"
+        ErrorsFolder:
+          type: string
+          description: Folder where files with errors are moved
+          example: "/data/domain1/Errors"
+        SkippedFolder:
+          type: string
+          description: Folder where skipped files are moved
+          example: "/data/domain1/Skipped"
+        CreatedAt:
+          type: string
+          format: date-time
+          description: Created timestamp
+        UpdatedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last updated timestamp
+
+    # --- Activity Log ---
+    FileActivityLog:
+      type: object
+      properties:
+        ActivityId:
+          type: integer
+          format: int64
+          description: Activity log ID
+          example: 1001
+        NtFileNum:
+          type: integer
+          nullable: true
+          description: FK to nt_file if applicable
+        TransferId:
+          type: integer
+          nullable: true
+          description: FK to transfer record if applicable
+        FileName:
+          type: string
+          description: File name for reference
+          example: "CDR_20260320.csv"
+        ActivityType:
+          $ref: "#/components/schemas/FileActivityType"
+        Description:
+          type: string
+          description: Human-readable description of the activity
+          example: "File downloaded from SFTP source"
+        Details:
+          type: string
+          nullable: true
+          description: Additional details as JSON
+        UserId:
+          type: string
+          description: User who performed the activity
+          example: "admin"
+        Domain:
+          type: string
+          description: Domain where activity occurred
+          example: "domain1"
+        ActivityAt:
+          type: string
+          format: date-time
+          description: When the activity occurred
+
+    FileActivityType:
+      type: integer
+      description: >-
+        Activity type: 1=Downloaded, 2=MovedToProcessing, 3=ProcessingStarted,
+        4=ProcessingCompleted, 5=ProcessingFailed, 6=MovedToSkipped,
+        7=MovedToErrors, 8=MovedToProcessed, 9=FileDeleted, 10=FileUnloaded,
+        11=SequenceSkipped, 12=ManualDownload, 13=BrowserDownload,
+        14=SourceCreated, 15=SourceModified, 16=SourceDeleted
+      enum:
+        - 1
+        - 2
+        - 3
+        - 4
+        - 5
+        - 6
+        - 7
+        - 8
+        - 9
+        - 10
+        - 11
+        - 12
+        - 13
+        - 14
+        - 15
+        - 16
+
+    # --- Validation ---
+    ValidationSummaryForAI:
+      type: object
+      properties:
+        OverallStatus:
+          type: string
+          description: Overall status in plain English
+          example: "File rejected due to validation errors"
+        MainIssues:
+          type: array
+          items:
+            type: string
+          description: Top issues in plain English sentences
+          example:
+            - "45 records have invalid decimal values in the Cost Amount field"
+            - "Header record is missing"
+        ErrorCountsByField:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Error counts grouped by field name
+          example:
+            NtCost: 45
+            ClStartDt: 12
+        ErrorCountsByType:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Error counts grouped by error code
+          example:
+            FIELD_PARSE_DECIMAL: 45
+            FIELD_PARSE_DATETIME: 12
+        SuggestedActions:
+          type: array
+          items:
+            type: string
+          description: Suggested actions to fix the issues
+          example:
+            - "Check the Cost Amount column for non-numeric values"
+            - "Verify date format matches yyyy-MM-dd HH:mm:ss"
+        CanPartiallyProcess:
+          type: boolean
+          description: True if the file can be partially processed (some records valid)
+          example: true
+
+    # --- Lookup / Reference ---
+    VendorRecord:
+      type: object
+      properties:
+        NetworkId:
+          type: string
+          description: Network ID (PK, CHAR(2))
+          maxLength: 2
+          example: "TL"
+        NetworkNarr:
+          type: string
+          description: Network/vendor name
+          example: "Telstra"
+
+    FileClassRecord:
+      type: object
+      properties:
+        FileClassCode:
+          type: string
+          description: File class code (PK)
+          example: CDR
+        FileClassNarr:
+          type: string
+          description: File class description
+          example: "Call Detail Records"
+
+    FileTypeRecord:
+      type: object
+      properties:
+        FileTypeCode:
+          type: string
+          description: File type code (PK)
+          example: TEL_GSM
+        FileTypeNarr:
+          type: string
+          description: File type description
+          example: "Telstra GSM CDRs"
+        FileClassCode:
+          type: string
+          description: File class code (FK to file_class)
+          example: CDR
+        NetworkId:
+          type: string
+          nullable: true
+          description: Network/vendor ID (FK to networks)
+          example: "TL"
+        FileClassNarr:
+          type: string
+          nullable: true
+          description: File class description (populated by JOIN, read-only)
+          readOnly: true
+        NetworkNarr:
+          type: string
+          nullable: true
+          description: Network/vendor name (populated by JOIN, read-only)
+          readOnly: true
+
+    FileTypeNtRecord:
+      type: object
+      properties:
+        FileTypeCode:
+          type: string
+          description: File type code (FK to file_type)
+          example: TEL_GSM
+        NtCustNum:
+          type: string
+          description: Network customer number
+          example: "CUST001"
+        NtFileName:
+          type: string
+          description: File name pattern
+          example: "TEL_GSM_*.csv"
+        SkipHdr:
+          type: integer
+          description: Number of header rows to skip
+          example: 1
+        SkipTlr:
+          type: integer
+          description: Number of trailer rows to skip
+          example: 1
+        FileTypeNarr:
+          type: string
+          nullable: true
+          description: File type description (populated by JOIN, read-only)
+          readOnly: true
+
+    # --- Parser Configuration ---
+    GenericFileFormatConfig:
+      type: object
+      properties:
+        FileTypeCode:
+          type: string
+          description: File type code
+          example: "CUSTOM_CSV"
+        FileFormat:
+          type: string
+          description: "File format type: CSV, XLSX, or Delimited"
+          enum:
+            - CSV
+            - XLSX
+            - Delimited
+          example: CSV
+        Delimiter:
+          type: string
+          nullable: true
+          description: Delimiter character (comma, tab, pipe, semicolon, or any single char)
+          example: ","
+        HasHeaderRow:
+          type: boolean
+          description: Whether the file has a header row
+        SkipRowsTop:
+          type: integer
+          description: Number of rows to skip from top
+        SkipRowsBottom:
+          type: integer
+          description: Number of rows to skip from bottom
+        RowIdMode:
+          type: string
+          description: "Row identification mode: Position, Indicator, or Pattern"
+          enum:
+            - Position
+            - Indicator
+            - Pattern
+          example: Position
+        RowIdColumn:
+          type: integer
+          description: Column index for row type identification
+        HeaderIndicator:
+          type: string
+          nullable: true
+          description: Header row indicator value or regex pattern
+        TrailerIndicator:
+          type: string
+          nullable: true
+          description: Trailer row indicator value or regex pattern
+        DetailIndicator:
+          type: string
+          nullable: true
+          description: Detail row indicator value or regex pattern
+        SkipIndicator:
+          type: string
+          nullable: true
+          description: Skip row indicator value or regex pattern
+        TotalColumnIndex:
+          type: integer
+          nullable: true
+          description: Column index for total value in trailer
+        TotalType:
+          type: string
+          nullable: true
+          description: Total type (e.g. SUM, COUNT)
+        SheetName:
+          type: string
+          nullable: true
+          description: Sheet name for XLSX files
+        SheetIndex:
+          type: integer
+          description: Sheet index for XLSX files (0-based)
+        DateFormat:
+          type: string
+          nullable: true
+          description: Default date format for the file
+          example: "yyyy-MM-dd HH:mm:ss"
+        CustomSpName:
+          type: string
+          nullable: true
+          description: Custom stored procedure name for post-processing
+        Active:
+          type: boolean
+          description: Whether this configuration is active
+        ColumnMappings:
+          type: array
+          items:
+            $ref: "#/components/schemas/GenericColumnMapping"
+
+    GenericColumnMapping:
+      type: object
+      properties:
+        FileTypeCode:
+          type: string
+          description: File type code
+        ColumnIndex:
+          type: integer
+          description: Column index in the source file (0-based)
+          example: 0
+        SourceColumnName:
+          type: string
+          nullable: true
+          description: Source column name (from header row)
+          example: "Account"
+        TargetField:
+          type: string
+          description: Target field name
+          example: AccountCode
+        DataType:
+          type: string
+          description: Data type (String, Integer, Decimal, DateTime, Boolean)
+          example: String
+        DateFormat:
+          type: string
+          nullable: true
+          description: Date format for DateTime fields
+        IsRequired:
+          type: boolean
+          description: Whether this field is required
+        DefaultValue:
+          type: string
+          nullable: true
+          description: Default value if source is empty
+        RegexPattern:
+          type: string
+          nullable: true
+          description: Regex validation pattern
+        MaxLength:
+          type: integer
+          nullable: true
+          description: Maximum string length
+
+    GenericParserConfigRequest:
+      type: object
+      required:
+        - FileTypeCode
+      properties:
+        FileTypeCode:
+          type: string
+          description: File type code
+          example: "CUSTOM_CSV"
+        FileFormat:
+          type: string
+          description: "File format: CSV, XLSX, or Delimited"
+          default: CSV
+          example: CSV
+        Delimiter:
+          type: string
+          nullable: true
+          description: Delimiter character
+        HasHeaderRow:
+          type: boolean
+          description: Whether the file has a header row
+        SkipRowsTop:
+          type: integer
+          description: Number of rows to skip from top
+        SkipRowsBottom:
+          type: integer
+          description: Number of rows to skip from bottom
+        RowIdMode:
+          type: string
+          description: "Row identification mode: POSITION, INDICATOR, or PATTERN"
+          default: POSITION
+        RowIdColumn:
+          type: integer
+          description: Column index for row type identification
+        HeaderIndicator:
+          type: string
+          nullable: true
+        TrailerIndicator:
+          type: string
+          nullable: true
+        DetailIndicator:
+          type: string
+          nullable: true
+        SkipIndicator:
+          type: string
+          nullable: true
+        TotalColumnIndex:
+          type: integer
+          nullable: true
+        TotalType:
+          type: string
+          nullable: true
+        SheetName:
+          type: string
+          nullable: true
+        SheetIndex:
+          type: integer
+        DateFormat:
+          type: string
+          nullable: true
+        CustomSpName:
+          type: string
+          nullable: true
+        Active:
+          type: boolean
+          default: true
+        ColumnMappings:
+          type: array
+          items:
+            $ref: "#/components/schemas/GenericColumnMappingRequest"
+
+    GenericColumnMappingRequest:
+      type: object
+      required:
+        - TargetField
+      properties:
+        ColumnIndex:
+          type: integer
+          description: Column index (0-based)
+        SourceColumnName:
+          type: string
+          nullable: true
+        TargetField:
+          type: string
+          description: Target field name
+        DataType:
+          type: string
+          default: String
+        DateFormat:
+          type: string
+          nullable: true
+        IsRequired:
+          type: boolean
+        DefaultValue:
+          type: string
+          nullable: true
+        RegexPattern:
+          type: string
+          nullable: true
+        MaxLength:
+          type: integer
+          nullable: true
+
+    # --- Connection Test ---
+    ConnectionTestResult:
+      type: object
+      properties:
+        Success:
+          type: boolean
+          description: Whether the connection test succeeded
+          example: true
+        Message:
+          type: string
+          description: Result message
+          example: "Connection successful"
