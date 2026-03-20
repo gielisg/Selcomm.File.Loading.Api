@@ -42,7 +42,7 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     /// </summary>
     /// <param name="ntFileNum">NT file number to review</param>
     /// <param name="request">Optional review parameters</param>
-    [HttpPost("files/{ntFileNum:int}")]
+    [HttpPost("files/{nt-file-num}")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_ai_review_file")]
     [Tags("AI Review")]
     [ProducesResponseType(typeof(AiReviewResponse), StatusCodes.Status200OK)]
@@ -52,7 +52,7 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status502BadGateway)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status504GatewayTimeout)]
     public async Task<IActionResult> TriggerAiReview(
-        [FromRoute] int ntFileNum,
+        [FromRoute(Name = "nt-file-num")] int ntFileNum,
         [FromBody] AiReviewRequest? request = null)
     {
         _logger.LogInformation("AI review requested for file {NtFileNum}", ntFileNum);
@@ -71,13 +71,14 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     /// Get the cached AI review for a file.
     /// </summary>
     /// <param name="ntFileNum">NT file number</param>
-    [HttpGet("files/{ntFileNum:int}")]
+    [HttpGet("files/{nt-file-num}")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_ai_review_file")]
     [Tags("AI Review")]
     [ProducesResponseType(typeof(AiReviewResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetCachedAiReview([FromRoute] int ntFileNum)
+    public async Task<IActionResult> GetCachedAiReview([FromRoute(Name = "nt-file-num")] int ntFileNum)
     {
+        var securityContext = CreateSecurityContext("get_api_v4_file_loading_ai_review_file");
         var result = await _aiReviewService.GetCachedReviewAsync(ntFileNum);
 
         if (result.IsSuccess)
@@ -186,6 +187,7 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(List<ExampleFileRecord>), StatusCodes.Status200OK)]
     public async Task<IActionResult> ListExampleFiles()
     {
+        var securityContext = CreateSecurityContext("get_api_v4_file_loading_ai_review_example_files");
         var result = await _aiReviewService.ListExampleFilesAsync();
         return HandleDataResult(result);
     }
@@ -194,12 +196,12 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     /// Get the example file for a file type.
     /// </summary>
     /// <param name="fileTypeCode">File type code</param>
-    [HttpGet("example-files/{fileTypeCode}")]
+    [HttpGet("example-files/{file-type-code}")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_ai_review_example_file")]
     [Tags("AI Review")]
     [ProducesResponseType(typeof(ExampleFileRecord), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetExampleFile([FromRoute] string fileTypeCode)
+    public async Task<IActionResult> GetExampleFile([FromRoute(Name = "file-type-code")] string fileTypeCode)
     {
         var result = await _aiReviewService.GetExampleFileAsync(fileTypeCode);
 
@@ -215,13 +217,13 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     /// </summary>
     /// <param name="fileTypeCode">File type code</param>
     /// <param name="request">Example file details</param>
-    [HttpPut("example-files/{fileTypeCode}")]
+    [HttpPut("example-files/{file-type-code}")]
     [SwaggerOperation(OperationId = "put_api_v4_file_loading_ai_review_example_file")]
     [Tags("AI Review")]
     [ProducesResponseType(typeof(ExampleFileRecord), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> SaveExampleFile(
-        [FromRoute] string fileTypeCode,
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
         [FromBody] ExampleFileRequest request)
     {
         var securityContext = CreateSecurityContext("put_api_v4_file_loading_ai_review_example_file");
@@ -238,11 +240,11 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     /// Remove the example file for a file type.
     /// </summary>
     /// <param name="fileTypeCode">File type code</param>
-    [HttpDelete("example-files/{fileTypeCode}")]
+    [HttpDelete("example-files/{file-type-code}")]
     [SwaggerOperation(OperationId = "delete_api_v4_file_loading_ai_review_example_file")]
     [Tags("AI Review")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<IActionResult> DeleteExampleFile([FromRoute] string fileTypeCode)
+    public async Task<IActionResult> DeleteExampleFile([FromRoute(Name = "file-type-code")] string fileTypeCode)
     {
         var result = await _aiReviewService.DeleteExampleFileAsync(fileTypeCode);
 

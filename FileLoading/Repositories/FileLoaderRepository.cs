@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Selcomm.Data.Common;
+using FileLoading.Data;
 using FileLoading.Models;
 using FileLoading.Validation;
 
@@ -16,12 +17,12 @@ namespace FileLoading.Repositories;
 /// </summary>
 public class FileLoaderRepository : IFileLoaderRepository
 {
-    private readonly OdbcDbContext _dbContext;
+    private readonly FileLoaderDbContext _dbContext;
     private readonly ILogger<FileLoaderRepository> _logger;
 
     private const int BatchSize = 1000;
 
-    public FileLoaderRepository(OdbcDbContext dbContext, ILogger<FileLoaderRepository> logger)
+    public FileLoaderRepository(FileLoaderDbContext dbContext, ILogger<FileLoaderRepository> logger)
     {
         _dbContext = dbContext;
         _logger = logger;
@@ -55,7 +56,7 @@ public class FileLoaderRepository : IFileLoaderRepository
 
         // Call sp_file_loading_nt_file_api via standard ExecuteValueQuery pattern
         // Returns: StatusCode (201), Id (nt_file_num), ErrorCode, ErrorMessage
-        var spResult = _dbContext.ExecuteValueQuery<int>(
+        var spResult = await _dbContext.ExecuteValueQueryAsync<int>(
             "sp_file_loading_nt_file_api",
             securityContext,
             ("@p_file_type_code", fileTypeCode, DbType.String, 10),
@@ -95,7 +96,7 @@ public class FileLoaderRepository : IFileLoaderRepository
 
         // Call su_file_loading_nt_file_api via standard ExecuteCommand pattern
         // Returns: StatusCode (200), ErrorCode, ErrorMessage
-        return _dbContext.ExecuteCommand(
+        return await _dbContext.ExecuteCommandAsync(
             "su_file_loading_nt_file_api",
             securityContext,
             ("@p_nt_file_num", ntFileNum, DbType.Int32, null),
