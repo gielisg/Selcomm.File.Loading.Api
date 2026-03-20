@@ -75,7 +75,7 @@ public class FileTransferService : IFileTransferService
                 return new DataResult<TransferFetchResponse>
                 {
                     StatusCode = 400,
-                    ErrorCode = "NO_FOLDER_CONFIG",
+                    ErrorCode = "FileLoading.FolderConfigNotFound",
                     ErrorMessage = "No folder configuration found"
                 };
             }
@@ -275,7 +275,7 @@ public class FileTransferService : IFileTransferService
             return new DataResult<TransferFetchResponse>
             {
                 StatusCode = 500,
-                ErrorCode = "TRANSFER_ERROR",
+                ErrorCode = "FileLoading.TransferError",
                 ErrorMessage = ex.Message
             };
         }
@@ -304,7 +304,7 @@ public class FileTransferService : IFileTransferService
             return new DataResult<FileTransferRecord>
             {
                 StatusCode = 400,
-                ErrorCode = "NO_FOLDER_CONFIG",
+                ErrorCode = "FileLoading.FolderConfigNotFound",
                 ErrorMessage = "Folder configuration not found"
             };
         }
@@ -383,7 +383,7 @@ public class FileTransferService : IFileTransferService
             return new DataResult<FileTransferRecord>
             {
                 StatusCode = 500,
-                ErrorCode = "MOVE_FAILED",
+                ErrorCode = "FileLoading.MoveFailed",
                 ErrorMessage = ex.Message
             };
         }
@@ -412,7 +412,7 @@ public class FileTransferService : IFileTransferService
             return new DataResult<FileTransferRecord>
             {
                 StatusCode = 400,
-                ErrorCode = "NO_FOLDER_CONFIG",
+                ErrorCode = "FileLoading.FolderConfigNotFound",
                 ErrorMessage = "Folder configuration not found"
             };
         }
@@ -517,7 +517,7 @@ public class FileTransferService : IFileTransferService
             return new DataResult<FileTransferRecord>
             {
                 StatusCode = 500,
-                ErrorCode = "MOVE_FAILED",
+                ErrorCode = "FileLoading.MoveFailed",
                 ErrorMessage = ex.Message
             };
         }
@@ -539,7 +539,7 @@ public class FileTransferService : IFileTransferService
             return new DataResult<string>
             {
                 StatusCode = 500,
-                ErrorCode = "COMPRESSION_ERROR",
+                ErrorCode = "FileLoading.CompressionError",
                 ErrorMessage = ex.Message
             };
         }
@@ -557,7 +557,7 @@ public class FileTransferService : IFileTransferService
             return new DataResult<string>
             {
                 StatusCode = 500,
-                ErrorCode = "DECOMPRESSION_ERROR",
+                ErrorCode = "FileLoading.DecompressionError",
                 ErrorMessage = ex.Message
             };
         }
@@ -743,7 +743,7 @@ public class FileTransferService : IFileTransferService
                 return new DataResult<FolderStorageConfig>
                 {
                     StatusCode = 400,
-                    ErrorCode = "VALIDATION_ERROR",
+                    ErrorCode = "FileLoading.ValidationError",
                     ErrorMessage = "Host is required for FTP storage mode"
                 };
             }
@@ -833,7 +833,7 @@ public class FileTransferService : IFileTransferService
             {
                 StatusCode = 400,
                 Data = false,
-                ErrorCode = "INVALID_MODE",
+                ErrorCode = "FileLoading.ValidationError",
                 ErrorMessage = "Connection test is only applicable for FTP storage mode"
             };
         }
@@ -880,7 +880,7 @@ public class FileTransferService : IFileTransferService
             return new DataResult<FolderCreateResult>
             {
                 StatusCode = 400,
-                ErrorCode = "NO_FOLDER_CONFIG",
+                ErrorCode = "FileLoading.FolderConfigNotFound",
                 ErrorMessage = "No folder configuration found"
             };
         }
@@ -971,7 +971,7 @@ public class FileTransferService : IFileTransferService
                 return new DataResult<FolderCreateResult>
                 {
                     StatusCode = 500,
-                    ErrorCode = "FTP_ERROR",
+                    ErrorCode = "FileLoading.FtpError",
                     ErrorMessage = $"Failed to connect to FTP server: {ex.Message}"
                 };
             }
@@ -1098,7 +1098,7 @@ public class FileTransferService : IFileTransferService
             {
                 StatusCode = 400,
                 Data = false,
-                ErrorCode = "CONNECTION_FAILED",
+                ErrorCode = "FileLoading.ConnectionFailed",
                 ErrorMessage = ex.Message
             };
         }

@@ -99,7 +99,7 @@ public class FileManagementService : IFileManagementService
                 return new DataResult<FileLoadResponse>
                 {
                     StatusCode = 400,
-                    ErrorCode = "UNKNOWN_FILE_TYPE",
+                    ErrorCode = "FileLoading.FileTypeNotFound",
                     ErrorMessage = errorMsg
                 };
             }
@@ -164,7 +164,7 @@ public class FileManagementService : IFileManagementService
             return new DataResult<FileLoadResponse>
             {
                 StatusCode = 500,
-                ErrorCode = "PROCESSING_ERROR",
+                ErrorCode = "FileLoading.ProcessingError",
                 ErrorMessage = ex.Message
             };
         }
@@ -215,7 +215,7 @@ public class FileManagementService : IFileManagementService
             {
                 StatusCode = 500,
                 Data = false,
-                ErrorCode = "UNLOAD_ERROR",
+                ErrorCode = "FileLoading.UnloadError",
                 ErrorMessage = ex.Message
             };
         }
@@ -359,7 +359,7 @@ public class FileManagementService : IFileManagementService
             {
                 StatusCode = 500,
                 Data = false,
-                ErrorCode = "DELETE_ERROR",
+                ErrorCode = "FileLoading.DeleteError",
                 ErrorMessage = ex.Message
             };
         }
@@ -387,7 +387,7 @@ public class FileManagementService : IFileManagementService
             return new DataResult<FileDownloadResult>
             {
                 StatusCode = 404,
-                ErrorCode = "FILE_NOT_FOUND",
+                ErrorCode = "FileLoading.FileNotFound",
                 ErrorMessage = "Physical file not found"
             };
         }
@@ -429,7 +429,7 @@ public class FileManagementService : IFileManagementService
             return new DataResult<FileDownloadResult>
             {
                 StatusCode = 500,
-                ErrorCode = "DOWNLOAD_ERROR",
+                ErrorCode = "FileLoading.DownloadError",
                 ErrorMessage = ex.Message
             };
         }
@@ -675,7 +675,7 @@ public class FileManagementService : IFileManagementService
             return new DataResult<GenericFileFormatConfig>
             {
                 StatusCode = 404,
-                ErrorCode = "NOT_FOUND",
+                ErrorCode = "FileLoading.ParserConfigNotFound",
                 ErrorMessage = $"Parser config not found: {fileTypeCode}"
             };
         }
@@ -755,7 +755,7 @@ public class FileManagementService : IFileManagementService
             return new DataResult<GenericFileFormatConfig>
             {
                 StatusCode = 500,
-                ErrorCode = result.ErrorCode ?? "DATABASE_ERROR",
+                ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError",
                 ErrorMessage = result.ErrorMessage
             };
         }
@@ -820,7 +820,7 @@ public class FileManagementService : IFileManagementService
     {
         var auth = await _repository.AuthoriseAsync(context, "VENDOR", "*");
         if (!auth.IsSuccess)
-            return new DataResult<List<VendorRecord>> { StatusCode = 403, ErrorCode = "UNAUTHORISED", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+            return new DataResult<List<VendorRecord>> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         return await _repository.GetVendorsAsync();
     }
@@ -829,7 +829,7 @@ public class FileManagementService : IFileManagementService
     {
         var auth = await _repository.AuthoriseAsync(context, "VENDOR", networkId);
         if (!auth.IsSuccess)
-            return new DataResult<VendorRecord> { StatusCode = 403, ErrorCode = "UNAUTHORISED", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+            return new DataResult<VendorRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         return await _repository.GetVendorAsync(networkId);
     }
@@ -838,7 +838,7 @@ public class FileManagementService : IFileManagementService
     {
         var auth = await _repository.AuthoriseAsync(context, "VENDOR", record.NetworkId);
         if (!auth.IsSuccess)
-            return new DataResult<VendorRecord> { StatusCode = 403, ErrorCode = "UNAUTHORISED", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+            return new DataResult<VendorRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         var existing = await _repository.GetVendorAsync(record.NetworkId);
         RawCommandResult result;
@@ -849,7 +849,7 @@ public class FileManagementService : IFileManagementService
             result = await _repository.InsertVendorAsync(record);
 
         if (!result.IsSuccess)
-            return new DataResult<VendorRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "DATABASE_ERROR", ErrorMessage = result.ErrorMessage };
+            return new DataResult<VendorRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
 
         var saved = await _repository.GetVendorAsync(record.NetworkId);
         return new DataResult<VendorRecord> { StatusCode = 200, Data = saved.Data };
@@ -859,7 +859,7 @@ public class FileManagementService : IFileManagementService
     {
         var auth = await _repository.AuthoriseAsync(context, "VENDOR", networkId);
         if (!auth.IsSuccess)
-            return new DataResult<bool> { StatusCode = 403, ErrorCode = "UNAUTHORISED", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+            return new DataResult<bool> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         var result = await _repository.DeleteVendorAsync(networkId);
         return new DataResult<bool> { StatusCode = result.IsSuccess ? 200 : 500, Data = result.IsSuccess, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
@@ -873,7 +873,7 @@ public class FileManagementService : IFileManagementService
     {
         var auth = await _repository.AuthoriseAsync(context, "FILE_CLASS", "*");
         if (!auth.IsSuccess)
-            return new DataResult<List<FileClassRecord>> { StatusCode = 403, ErrorCode = "UNAUTHORISED", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+            return new DataResult<List<FileClassRecord>> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         return await _repository.GetFileClassesAsync();
     }
@@ -882,7 +882,7 @@ public class FileManagementService : IFileManagementService
     {
         var auth = await _repository.AuthoriseAsync(context, "FILE_CLASS", fileClassCode);
         if (!auth.IsSuccess)
-            return new DataResult<FileClassRecord> { StatusCode = 403, ErrorCode = "UNAUTHORISED", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+            return new DataResult<FileClassRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         return await _repository.GetFileClassAsync(fileClassCode);
     }
@@ -891,7 +891,7 @@ public class FileManagementService : IFileManagementService
     {
         var auth = await _repository.AuthoriseAsync(context, "FILE_CLASS", record.FileClassCode);
         if (!auth.IsSuccess)
-            return new DataResult<FileClassRecord> { StatusCode = 403, ErrorCode = "UNAUTHORISED", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+            return new DataResult<FileClassRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         var existing = await _repository.GetFileClassAsync(record.FileClassCode);
         RawCommandResult result;
@@ -902,7 +902,7 @@ public class FileManagementService : IFileManagementService
             result = await _repository.InsertFileClassAsync(record);
 
         if (!result.IsSuccess)
-            return new DataResult<FileClassRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "DATABASE_ERROR", ErrorMessage = result.ErrorMessage };
+            return new DataResult<FileClassRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
 
         var saved = await _repository.GetFileClassAsync(record.FileClassCode);
         return new DataResult<FileClassRecord> { StatusCode = 200, Data = saved.Data };
@@ -912,7 +912,7 @@ public class FileManagementService : IFileManagementService
     {
         var auth = await _repository.AuthoriseAsync(context, "FILE_CLASS", fileClassCode);
         if (!auth.IsSuccess)
-            return new DataResult<bool> { StatusCode = 403, ErrorCode = "UNAUTHORISED", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+            return new DataResult<bool> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         var result = await _repository.DeleteFileClassAsync(fileClassCode);
         return new DataResult<bool> { StatusCode = result.IsSuccess ? 200 : 500, Data = result.IsSuccess, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
@@ -926,7 +926,7 @@ public class FileManagementService : IFileManagementService
     {
         var auth = await _repository.AuthoriseAsync(context, "FILE_TYPE", "*");
         if (!auth.IsSuccess)
-            return new DataResult<List<FileTypeRecord>> { StatusCode = 403, ErrorCode = "UNAUTHORISED", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+            return new DataResult<List<FileTypeRecord>> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         return await _repository.GetFileTypeRecordsAsync();
     }
@@ -935,7 +935,7 @@ public class FileManagementService : IFileManagementService
     {
         var auth = await _repository.AuthoriseAsync(context, "FILE_TYPE", fileTypeCode);
         if (!auth.IsSuccess)
-            return new DataResult<FileTypeRecord> { StatusCode = 403, ErrorCode = "UNAUTHORISED", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+            return new DataResult<FileTypeRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         return await _repository.GetFileTypeRecordAsync(fileTypeCode);
     }
@@ -944,7 +944,7 @@ public class FileManagementService : IFileManagementService
     {
         var auth = await _repository.AuthoriseAsync(context, "FILE_TYPE", record.FileTypeCode);
         if (!auth.IsSuccess)
-            return new DataResult<FileTypeRecord> { StatusCode = 403, ErrorCode = "UNAUTHORISED", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+            return new DataResult<FileTypeRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         var existing = await _repository.GetFileTypeRecordAsync(record.FileTypeCode);
         RawCommandResult result;
@@ -955,7 +955,7 @@ public class FileManagementService : IFileManagementService
             result = await _repository.InsertFileTypeAsync(record);
 
         if (!result.IsSuccess)
-            return new DataResult<FileTypeRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "DATABASE_ERROR", ErrorMessage = result.ErrorMessage };
+            return new DataResult<FileTypeRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
 
         var saved = await _repository.GetFileTypeRecordAsync(record.FileTypeCode);
         return new DataResult<FileTypeRecord> { StatusCode = 200, Data = saved.Data };
@@ -965,7 +965,7 @@ public class FileManagementService : IFileManagementService
     {
         var auth = await _repository.AuthoriseAsync(context, "FILE_TYPE", fileTypeCode);
         if (!auth.IsSuccess)
-            return new DataResult<bool> { StatusCode = 403, ErrorCode = "UNAUTHORISED", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+            return new DataResult<bool> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         var result = await _repository.DeleteFileTypeAsync(fileTypeCode);
         return new DataResult<bool> { StatusCode = result.IsSuccess ? 200 : 500, Data = result.IsSuccess, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
@@ -979,7 +979,7 @@ public class FileManagementService : IFileManagementService
     {
         var auth = await _repository.AuthoriseAsync(context, "FILE_TYPE_NT", fileTypeCode ?? "*");
         if (!auth.IsSuccess)
-            return new DataResult<List<FileTypeNtRecord>> { StatusCode = 403, ErrorCode = "UNAUTHORISED", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+            return new DataResult<List<FileTypeNtRecord>> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         return await _repository.GetFileTypeNtRecordsAsync(fileTypeCode);
     }
@@ -988,7 +988,7 @@ public class FileManagementService : IFileManagementService
     {
         var auth = await _repository.AuthoriseAsync(context, "FILE_TYPE_NT", fileTypeCode);
         if (!auth.IsSuccess)
-            return new DataResult<FileTypeNtRecord> { StatusCode = 403, ErrorCode = "UNAUTHORISED", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+            return new DataResult<FileTypeNtRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         return await _repository.GetFileTypeNtRecordAsync(fileTypeCode);
     }
@@ -997,7 +997,7 @@ public class FileManagementService : IFileManagementService
     {
         var auth = await _repository.AuthoriseAsync(context, "FILE_TYPE_NT", record.FileTypeCode);
         if (!auth.IsSuccess)
-            return new DataResult<FileTypeNtRecord> { StatusCode = 403, ErrorCode = "UNAUTHORISED", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+            return new DataResult<FileTypeNtRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         var existing = await _repository.GetFileTypeNtRecordAsync(record.FileTypeCode);
         RawCommandResult result;
@@ -1008,7 +1008,7 @@ public class FileManagementService : IFileManagementService
             result = await _repository.InsertFileTypeNtAsync(record);
 
         if (!result.IsSuccess)
-            return new DataResult<FileTypeNtRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "DATABASE_ERROR", ErrorMessage = result.ErrorMessage };
+            return new DataResult<FileTypeNtRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
 
         var saved = await _repository.GetFileTypeNtRecordAsync(record.FileTypeCode);
         return new DataResult<FileTypeNtRecord> { StatusCode = 200, Data = saved.Data };
@@ -1018,7 +1018,7 @@ public class FileManagementService : IFileManagementService
     {
         var auth = await _repository.AuthoriseAsync(context, "FILE_TYPE_NT", fileTypeCode);
         if (!auth.IsSuccess)
-            return new DataResult<bool> { StatusCode = 403, ErrorCode = "UNAUTHORISED", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+            return new DataResult<bool> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         var result = await _repository.DeleteFileTypeNtAsync(fileTypeCode);
         return new DataResult<bool> { StatusCode = result.IsSuccess ? 200 : 500, Data = result.IsSuccess, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };

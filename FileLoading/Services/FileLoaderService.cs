@@ -1285,10 +1285,12 @@ public class FileLoaderService : IFileLoaderService
     public async Task<DataResult<FileListResponse>> ListFilesAsync(
         string? fileTypeCode,
         string? ntCustNum,
-        int maxRecords,
+        int skipRecords,
+        int takeRecords,
+        string countRecords,
         SecurityContext securityContext)
     {
-        return await _repository.ListFilesAsync(fileTypeCode, ntCustNum, maxRecords, securityContext);
+        return await _repository.ListFilesAsync(fileTypeCode, ntCustNum, skipRecords, takeRecords, countRecords, securityContext);
     }
 
     public async Task<DataResult<FileTypeListResponse>> ListFileTypesAsync(SecurityContext securityContext)

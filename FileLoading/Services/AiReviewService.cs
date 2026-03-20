@@ -89,7 +89,7 @@ public class AiReviewService : IAiReviewService
             return new DataResult<AiReviewResponse>
             {
                 StatusCode = 404,
-                ErrorCode = "FILE_NOT_FOUND",
+                ErrorCode = "FileLoading.FileNotFound",
                 ErrorMessage = $"File content not found on disk for file {ntFileNum}."
             };
         }
@@ -179,7 +179,7 @@ public class AiReviewService : IAiReviewService
             return new DataResult<AiReviewResponse>
             {
                 StatusCode = 400,
-                ErrorCode = "VALIDATION_ERROR",
+                ErrorCode = "FileLoading.ValidationError",
                 ErrorMessage = "FileContent is required."
             };
         }
@@ -281,7 +281,7 @@ public class AiReviewService : IAiReviewService
             return new DataResult<ExampleFileRecord>
             {
                 StatusCode = 400,
-                ErrorCode = "VALIDATION_ERROR",
+                ErrorCode = "FileLoading.ValidationError",
                 ErrorMessage = "FilePath is required."
             };
         }
@@ -291,7 +291,7 @@ public class AiReviewService : IAiReviewService
             return new DataResult<ExampleFileRecord>
             {
                 StatusCode = 400,
-                ErrorCode = "EXAMPLE_FILE_NOT_FOUND",
+                ErrorCode = "FileLoading.ExampleFileNotFound",
                 ErrorMessage = $"Example file path does not exist: {request.FilePath}"
             };
         }
@@ -351,7 +351,7 @@ public class AiReviewService : IAiReviewService
             return new DataResult<AiDomainConfig>
             {
                 StatusCode = 400,
-                ErrorCode = "VALIDATION_ERROR",
+                ErrorCode = "FileLoading.ValidationError",
                 ErrorMessage = "ApiKey is required."
             };
         }
@@ -446,7 +446,7 @@ public class AiReviewService : IAiReviewService
             return new DataResult<AiDomainConfig>
             {
                 StatusCode = 400,
-                ErrorCode = "AI_NOT_CONFIGURED",
+                ErrorCode = "FileLoading.AiNotConfigured",
                 ErrorMessage = "AI review has not been configured. Use PUT /ai-review/config to set up your API key."
             };
         }
@@ -460,7 +460,7 @@ public class AiReviewService : IAiReviewService
             return new DataResult<AiDomainConfig>
             {
                 StatusCode = 400,
-                ErrorCode = "AI_REVIEW_DISABLED",
+                ErrorCode = "FileLoading.AiReviewDisabled",
                 ErrorMessage = "AI review is disabled."
             };
         }
@@ -470,7 +470,7 @@ public class AiReviewService : IAiReviewService
             return new DataResult<AiDomainConfig>
             {
                 StatusCode = 400,
-                ErrorCode = "AI_NOT_CONFIGURED",
+                ErrorCode = "FileLoading.AiNotConfigured",
                 ErrorMessage = "No API key configured. Use PUT /ai-review/config to set your Anthropic API key."
             };
         }
@@ -487,7 +487,7 @@ public class AiReviewService : IAiReviewService
             return new DataResult<AiDomainConfig>
             {
                 StatusCode = 429,
-                ErrorCode = "AI_RATE_LIMITED",
+                ErrorCode = "FileLoading.AiRateLimited",
                 ErrorMessage = $"Daily review limit reached ({domainConfig.ReviewsToday}/{domainConfig.MaxReviewsPerDay}). Resets at midnight."
             };
         }
@@ -903,7 +903,7 @@ Return ONLY the JSON object, no markdown fences or other text.";
             return new DataResult<(ClaudeReviewResult, AiReviewUsage)>
             {
                 StatusCode = 504,
-                ErrorCode = "AI_API_TIMEOUT",
+                ErrorCode = "FileLoading.AiApiTimeout",
                 ErrorMessage = "AI review timed out. Try again or reduce file complexity."
             };
         }
@@ -913,7 +913,7 @@ Return ONLY the JSON object, no markdown fences or other text.";
             return new DataResult<(ClaudeReviewResult, AiReviewUsage)>
             {
                 StatusCode = 502,
-                ErrorCode = "AI_API_ERROR",
+                ErrorCode = "FileLoading.AiApiError",
                 ErrorMessage = "Anthropic API returned an error. Try again later."
             };
         }
@@ -925,7 +925,7 @@ Return ONLY the JSON object, no markdown fences or other text.";
             return new DataResult<(ClaudeReviewResult, AiReviewUsage)>
             {
                 StatusCode = 502,
-                ErrorCode = "AI_API_AUTH_ERROR",
+                ErrorCode = "FileLoading.AiApiAuthError",
                 ErrorMessage = "The configured API key was rejected by Anthropic. Check your key in PUT /ai-review/config."
             };
         }
@@ -936,7 +936,7 @@ Return ONLY the JSON object, no markdown fences or other text.";
             return new DataResult<(ClaudeReviewResult, AiReviewUsage)>
             {
                 StatusCode = 502,
-                ErrorCode = "AI_API_ERROR",
+                ErrorCode = "FileLoading.AiApiError",
                 ErrorMessage = "Anthropic API returned an error. Try again later."
             };
         }
@@ -948,7 +948,7 @@ Return ONLY the JSON object, no markdown fences or other text.";
             return new DataResult<(ClaudeReviewResult, AiReviewUsage)>
             {
                 StatusCode = 502,
-                ErrorCode = "AI_API_ERROR",
+                ErrorCode = "FileLoading.AiApiError",
                 ErrorMessage = "Empty response from Anthropic API."
             };
         }

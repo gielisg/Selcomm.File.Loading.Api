@@ -218,7 +218,9 @@ public class FileStatusResponse
 public class FileListResponse
 {
     public List<FileStatusResponse> Items { get; set; } = new();
-    public int TotalCount { get; set; }
+
+    /// <summary>Total matching records (null if count not requested).</summary>
+    public int? Count { get; set; }
 }
 
 public class FileTypeListResponse

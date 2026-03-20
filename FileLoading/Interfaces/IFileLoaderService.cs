@@ -31,12 +31,16 @@ public interface IFileLoaderService
     /// </summary>
     /// <param name="fileTypeCode">Optional file type filter</param>
     /// <param name="ntCustNum">Optional customer number filter</param>
-    /// <param name="maxRecords">Maximum records to return</param>
+    /// <param name="skipRecords">Number of records to skip (default 0)</param>
+    /// <param name="takeRecords">Number of records to return (default 20, max 100)</param>
+    /// <param name="countRecords">Count flag: Y=yes, N=no, F=first page only</param>
     /// <param name="securityContext">Security context</param>
     Task<DataResult<FileListResponse>> ListFilesAsync(
         string? fileTypeCode,
         string? ntCustNum,
-        int maxRecords,
+        int skipRecords,
+        int takeRecords,
+        string countRecords,
         SecurityContext securityContext);
 
     /// <summary>

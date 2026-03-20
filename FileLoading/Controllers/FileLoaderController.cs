@@ -170,24 +170,27 @@ public class FileLoaderController : DbControllerBase<FileLoaderDbContext>
     }
 
     /// <summary>
-    /// List loaded files with filtering.
+    /// List loaded files with filtering and paging.
     /// </summary>
     /// <param name="fileTypeCode">Filter by file type code (e.g. CDR, CHG, SSSWHLSCDR)</param>
     /// <param name="ntCustNum">Filter by customer number</param>
-    /// <param name="maxRecords">Maximum records to return (default 100)</param>
-    /// <returns>List of files</returns>
+    /// <param name="skipRecords">Number of records to skip (default 0)</param>
+    /// <param name="takeRecords">Number of records to return (default 20, max 100)</param>
+    /// <param name="countRecords">Include total count: Y=yes, N=no, F=first page only (default F)</param>
+    /// <returns>Paged list of files</returns>
     [HttpGet("files")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_files")]
     [Tags("File Loading")]
     [ProducesResponseType(typeof(FileListResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> ListFiles(
         [FromQuery(Name = "fileTypeCode")] string? fileTypeCode = null,
         [FromQuery(Name = "ntCustNum")] string? ntCustNum = null,
-        [FromQuery(Name = "maxRecords")] int maxRecords = 100)
+        [FromQuery(Name = "skipRecords")] int skipRecords = 0,
+        [FromQuery(Name = "takeRecords")] int takeRecords = 20,
+        [FromQuery(Name = "countRecords")] string countRecords = "F")
     {
         var securityContext = CreateSecurityContext("get_api_v4_file_loading_files");
-        var result = await _fileLoaderService.ListFilesAsync(fileTypeCode, ntCustNum, maxRecords, securityContext);
+        var result = await _fileLoaderService.ListFilesAsync(fileTypeCode, ntCustNum, skipRecords, takeRecords, countRecords, securityContext);
 
         return HandleDataResult(result);
     }

@@ -30,16 +30,14 @@ public class FileLoaderRepository : IFileLoaderRepository
 
     public async Task<RawCommandResult> AuthoriseAsync(SecurityContext context, string entityType, string entityId)
     {
-        _logger.LogDebug("Calling sf_authorise: User={User}, Operation={Op}, Entity={Type}/{Id}",
-            context.UserCode, context.OperationId, entityType, entityId);
+        _logger.LogDebug("Calling sf_authorise: User={User}, Operation={Op}",
+            context.UserCode, context.OperationId);
 
         return _dbContext.ExecuteRawCommand(
-            "EXECUTE PROCEDURE sf_authorise(?, ?, ?, LIST{?, ?})",
+            "EXECUTE PROCEDURE sf_authorise(?, ?, ?)",
             ("@p1", context.UserCode, DbType.String, 64),
             ("@p2", context.RoleNarr, DbType.String, 64),
-            ("@p3", context.OperationId, DbType.String, 254),
-            ("@p4", entityType, DbType.String, 64),
-            ("@p5", entityId, DbType.String, 254)
+            ("@p3", context.OperationId, DbType.String, 254)
         );
     }
 
@@ -160,7 +158,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             return new DataResult<FileStatusResponse>
             {
                 StatusCode = 404,
-                ErrorCode = "NOT_FOUND",
+                ErrorCode = "FileLoading.FileNotFound",
                 ErrorMessage = $"File {ntFileNum} not found"
             };
         }
@@ -175,20 +173,24 @@ public class FileLoaderRepository : IFileLoaderRepository
     public async Task<DataResult<FileListResponse>> ListFilesAsync(
         string? fileTypeCode,
         string? ntCustNum,
-        int maxRecords,
+        int skipRecords,
+        int takeRecords,
+        string countRecords,
         SecurityContext securityContext)
     {
-        _logger.LogDebug("Listing files: Type={FileType}, Cust={CustNum}, Max={MaxRecords}",
-            fileTypeCode, ntCustNum, maxRecords);
+        _logger.LogDebug("Listing files: Type={FileType}, Cust={CustNum}, Skip={Skip}, Take={Take}, Count={Count}",
+            fileTypeCode, ntCustNum, skipRecords, takeRecords, countRecords);
 
         // Use ss_file_loading_nt_file_api via standard ExecuteJsonQueryAsync pattern
-        // Returns: StatusCode, Json ({"RecordCount": N, "Items": [...]}), ErrorCode, ErrorMessage
+        // Returns: StatusCode, Json ({"Count": N|null, "Items": [...]}), ErrorCode, ErrorMessage
         var jsonResult = await _dbContext.ExecuteJsonQueryAsync(
             "ss_file_loading_nt_file_api",
             securityContext,
             ("@p_file_type_code", (object?)fileTypeCode ?? DBNull.Value, DbType.String, 10),
             ("@p_nt_cust_num", (object?)ntCustNum ?? DBNull.Value, DbType.String, 10),
-            ("@p_max_records", maxRecords, DbType.Int32, null)
+            ("@p_skip_records", skipRecords, DbType.Int32, null),
+            ("@p_take_records", takeRecords, DbType.Int32, null),
+            ("@p_count_records", countRecords, DbType.StringFixedLength, 1)
         );
 
         if (!jsonResult.IsSuccess || string.IsNullOrEmpty(jsonResult.Json))
@@ -202,7 +204,13 @@ public class FileLoaderRepository : IFileLoaderRepository
         }
 
         var jsonDoc = JsonSerializer.Deserialize<JsonElement>(jsonResult.Json);
-        var recordCount = jsonDoc.GetProperty("RecordCount").GetInt32();
+
+        int? count = null;
+        if (jsonDoc.TryGetProperty("Count", out var countProp) && countProp.ValueKind != JsonValueKind.Null)
+        {
+            count = countProp.GetInt32();
+        }
+
         var itemsArray = jsonDoc.GetProperty("Items");
 
         var items = new List<FileStatusResponse>();
@@ -226,11 +234,11 @@ public class FileLoaderRepository : IFileLoaderRepository
 
         return new DataResult<FileListResponse>
         {
-            StatusCode = items.Count > 0 ? 200 : 204,
+            StatusCode = 200,
             Data = new FileListResponse
             {
                 Items = items,
-                TotalCount = recordCount
+                Count = count
             }
         };
     }
@@ -990,7 +998,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                 return new DataResult<ValidationSummaryForAI?>
                 {
                     StatusCode = 404,
-                    ErrorCode = "NOT_FOUND",
+                    ErrorCode = "FileLoading.FileNotFound",
                     ErrorMessage = $"No validation summary found for file {ntFileNum}"
                 };
             }
@@ -1012,7 +1020,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             return new DataResult<ValidationSummaryForAI?>
             {
                 StatusCode = 500,
-                ErrorCode = "DATABASE_ERROR",
+                ErrorCode = "FileLoading.DatabaseError",
                 ErrorMessage = ex.Message
             };
         }
@@ -1136,7 +1144,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             return new ValueResult<int>
             {
                 StatusCode = 500,
-                ErrorCode = "DATABASE_ERROR",
+                ErrorCode = "FileLoading.DatabaseError",
                 ErrorMessage = ex.Message
             };
         }
@@ -1244,7 +1252,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             return new DataResult<TransferSourceConfig>
             {
                 StatusCode = 404,
-                ErrorCode = "NOT_FOUND",
+                ErrorCode = "FileLoading.TransferSourceNotFound",
                 ErrorMessage = $"Transfer source '{sourceId}' not found"
             };
         }
@@ -1383,7 +1391,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             return new DataResult<FolderWorkflowConfig>
             {
                 StatusCode = 404,
-                ErrorCode = "NOT_FOUND",
+                ErrorCode = "FileLoading.FolderConfigNotFound",
                 ErrorMessage = "Folder configuration not found"
             };
         }
@@ -1479,7 +1487,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             return new ValueResult<int>
             {
                 StatusCode = 500,
-                ErrorCode = "DATABASE_ERROR",
+                ErrorCode = "FileLoading.DatabaseError",
                 ErrorMessage = result.ErrorMessage
             };
         }
@@ -1585,7 +1593,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             return new DataResult<FileTransferRecord>
             {
                 StatusCode = 404,
-                ErrorCode = "NOT_FOUND",
+                ErrorCode = "FileLoading.TransferRecordNotFound",
                 ErrorMessage = $"Transfer record {transferId} not found"
             };
         }
@@ -2604,7 +2612,7 @@ public class FileLoaderRepository : IFileLoaderRepository
 
         var record = result.Data?.FirstOrDefault(v => v.NetworkId == networkId);
         if (record == null)
-            return new DataResult<VendorRecord> { StatusCode = 404, ErrorCode = "NOT_FOUND", ErrorMessage = $"Vendor '{networkId}' not found" };
+            return new DataResult<VendorRecord> { StatusCode = 404, ErrorCode = "FileLoading.VendorNotFound", ErrorMessage = $"Vendor '{networkId}' not found" };
 
         return new DataResult<VendorRecord> { StatusCode = 200, Data = record };
     }
@@ -2669,7 +2677,7 @@ public class FileLoaderRepository : IFileLoaderRepository
 
         var record = result.Data?.FirstOrDefault(c => c.FileClassCode == fileClassCode);
         if (record == null)
-            return new DataResult<FileClassRecord> { StatusCode = 404, ErrorCode = "NOT_FOUND", ErrorMessage = $"File class '{fileClassCode}' not found" };
+            return new DataResult<FileClassRecord> { StatusCode = 404, ErrorCode = "FileLoading.FileClassNotFound", ErrorMessage = $"File class '{fileClassCode}' not found" };
 
         return new DataResult<FileClassRecord> { StatusCode = 200, Data = record };
     }
@@ -2743,7 +2751,7 @@ public class FileLoaderRepository : IFileLoaderRepository
 
         var record = result.Data?.FirstOrDefault(t => t.FileTypeCode == fileTypeCode);
         if (record == null)
-            return new DataResult<FileTypeRecord> { StatusCode = 404, ErrorCode = "NOT_FOUND", ErrorMessage = $"File type '{fileTypeCode}' not found" };
+            return new DataResult<FileTypeRecord> { StatusCode = 404, ErrorCode = "FileLoading.FileTypeRecordNotFound", ErrorMessage = $"File type '{fileTypeCode}' not found" };
 
         return new DataResult<FileTypeRecord> { StatusCode = 200, Data = record };
     }
@@ -2829,7 +2837,7 @@ public class FileLoaderRepository : IFileLoaderRepository
 
         var record = result.Data?.FirstOrDefault();
         if (record == null)
-            return new DataResult<FileTypeNtRecord> { StatusCode = 404, ErrorCode = "NOT_FOUND", ErrorMessage = $"File type NT '{fileTypeCode}' not found" };
+            return new DataResult<FileTypeNtRecord> { StatusCode = 404, ErrorCode = "FileLoading.FileTypeNtNotFound", ErrorMessage = $"File type NT '{fileTypeCode}' not found" };
 
         return new DataResult<FileTypeNtRecord> { StatusCode = 200, Data = record };
     }
@@ -2929,7 +2937,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             return new DataResult<AiReviewResponse>
             {
                 StatusCode = 404,
-                ErrorCode = "AI_REVIEW_NOT_FOUND",
+                ErrorCode = "FileLoading.AiReviewNotFound",
                 ErrorMessage = "No AI review found for this file. Use POST to trigger one."
             };
         }
@@ -3045,7 +3053,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             return new DataResult<ExampleFileRecord>
             {
                 StatusCode = 404,
-                ErrorCode = "NOT_FOUND",
+                ErrorCode = "FileLoading.ExampleFileNotFound",
                 ErrorMessage = $"No example file configured for file type '{fileTypeCode}'"
             };
         }
@@ -3140,7 +3148,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             return new DataResult<AiDomainConfig>
             {
                 StatusCode = 404,
-                ErrorCode = "AI_NOT_CONFIGURED",
+                ErrorCode = "FileLoading.AiNotConfigured",
                 ErrorMessage = "AI review has not been configured. Use PUT /ai-review/config to set up your API key."
             };
         }
@@ -3263,7 +3271,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             return new DataResult<FolderStorageConfig>
             {
                 StatusCode = 404,
-                ErrorCode = "NOT_FOUND",
+                ErrorCode = "FileLoading.FolderStorageNotFound",
                 ErrorMessage = "Folder storage configuration not found"
             };
         }
