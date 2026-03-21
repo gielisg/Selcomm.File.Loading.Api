@@ -1,0 +1,14 @@
+[
+  {
+    "Version": "4.0.0",
+    "ReleaseDate": "2026-03-21",
+    "Changes": [
+      "Initial V4 release of File Loading API",
+      "Converted from ntfileload.4gl legacy application",
+      "Support for CDR, CHG, EBL, SVC and other file classes",
+      "File transfer management with FTP/SFTP support",
+      "AI-powered file review capabilities",
+      "Dashboard and file management endpoints"
+    ]
+  }
+]

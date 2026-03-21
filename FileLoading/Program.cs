@@ -184,6 +184,9 @@ builder.Services.AddHttpClient("ClaudeApi", (sp, client) =>
 });
 builder.Services.AddScoped<IAiReviewService, AiReviewService>();
 
+// Register changelog service
+builder.Services.AddSingleton<IChangelogService, ChangelogService>();
+
 // Register Background Worker for scheduled transfers
 builder.Services.AddHostedService<FileTransferWorker>();
 
@@ -318,5 +321,37 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Raw markdown docs endpoint for gateway documentation portal
+app.MapGet("/api/v4/file-loading/docs/{docName}", (string docName) =>
+{
+    var allowedDocs = new HashSet<string> { "user-manual", "admin-manual" };
+    if (!allowedDocs.Contains(docName))
+    {
+        return Results.NotFound("Document not found. Valid options: user-manual, admin-manual");
+    }
+
+    var docPath = Path.Combine(AppContext.BaseDirectory, "documentation", $"{docName}.md");
+    if (!File.Exists(docPath))
+    {
+        docPath = Path.Combine(Directory.GetCurrentDirectory(), "documentation", $"{docName}.md");
+    }
+    if (!File.Exists(docPath))
+    {
+        return Results.NotFound($"Documentation file not found: {docName}.md");
+    }
+
+    var markdown = File.ReadAllText(docPath);
+    return Results.Content(markdown, "text/markdown");
+})
+.ExcludeFromDescription();
+
+// Changelog endpoint for gateway documentation portal
+app.MapGet("/api/v4/file-loading/changelog", async (IChangelogService changelogService) =>
+{
+    var changelog = await changelogService.GetChangelogAsync();
+    return Results.Ok(changelog);
+})
+.ExcludeFromDescription();
 
 app.Run();
