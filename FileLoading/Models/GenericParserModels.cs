@@ -72,6 +72,12 @@ public class GenericFileFormatConfig
     public string? CustomSpName { get; set; }
     public bool Active { get; set; } = true;
 
+    /// <summary>Created by user.</summary>
+    public string CreatedBy { get; set; } = string.Empty;
+
+    /// <summary>Updated by user.</summary>
+    public string UpdatedBy { get; set; } = string.Empty;
+
     /// <summary>Column mappings for this file type.</summary>
     public List<GenericColumnMapping> ColumnMappings { get; set; } = new();
 

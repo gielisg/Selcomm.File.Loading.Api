@@ -75,8 +75,14 @@ public class TransferSourceConfig
     /// <summary>Created timestamp.</summary>
     public DateTime CreatedAt { get; set; }
 
+    /// <summary>Created by user.</summary>
+    public string CreatedBy { get; set; } = string.Empty;
+
     /// <summary>Last updated timestamp.</summary>
-    public DateTime? UpdatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+
+    /// <summary>Updated by user.</summary>
+    public string UpdatedBy { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets the computed connection URL for display purposes.
@@ -212,8 +218,14 @@ public class FolderStorageConfig
     /// <summary>Created timestamp.</summary>
     public DateTime CreatedAt { get; set; }
 
+    /// <summary>Created by user.</summary>
+    public string CreatedBy { get; set; } = string.Empty;
+
     /// <summary>Last updated timestamp.</summary>
-    public DateTime? UpdatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+
+    /// <summary>Updated by user.</summary>
+    public string UpdatedBy { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -310,6 +322,9 @@ public class FolderDefaultsResponse
 
     /// <summary>Default skipped folder path.</summary>
     public string SkippedFolder { get; set; } = string.Empty;
+
+    /// <summary>Default example folder path.</summary>
+    public string ExampleFolder { get; set; } = string.Empty;
 }
 
 // ============================================
@@ -343,11 +358,20 @@ public class FolderWorkflowConfig
     /// <summary>Folder where skipped files are moved.</summary>
     public string SkippedFolder { get; set; } = string.Empty;
 
+    /// <summary>Folder where example files are stored.</summary>
+    public string ExampleFolder { get; set; } = string.Empty;
+
     /// <summary>Created timestamp.</summary>
     public DateTime CreatedAt { get; set; }
 
+    /// <summary>Created by user.</summary>
+    public string CreatedBy { get; set; } = string.Empty;
+
     /// <summary>Last updated timestamp.</summary>
-    public DateTime? UpdatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+
+    /// <summary>Updated by user.</summary>
+    public string UpdatedBy { get; set; } = string.Empty;
 }
 
 // ============================================

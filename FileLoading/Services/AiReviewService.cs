@@ -301,8 +301,8 @@ public class AiReviewService : IAiReviewService
             FileTypeCode = fileTypeCode,
             FilePath = request.FilePath,
             Description = request.Description,
-            UpdatedAt = DateTime.Now,
-            UpdatedBy = securityContext.UserCode
+            CreatedBy = securityContext.UserCode ?? "SYSTEM",
+            UpdatedBy = securityContext.UserCode ?? "SYSTEM"
         };
 
         var result = await _repository.UpsertExampleFileAsync(record);

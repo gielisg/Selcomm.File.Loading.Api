@@ -710,7 +710,9 @@ public class FileManagementService : IFileManagementService
             SheetIndex = request.SheetIndex,
             DateFormat = request.DateFormat,
             CustomSpName = request.CustomSpName,
-            Active = request.Active
+            Active = request.Active,
+            CreatedBy = context.UserCode ?? "SYSTEM",
+            UpdatedBy = context.UserCode ?? "SYSTEM"
         };
 
         var columnMappings = request.ColumnMappings.Select(m => new GenericColumnMapping

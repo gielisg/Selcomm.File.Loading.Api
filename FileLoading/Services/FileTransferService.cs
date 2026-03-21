@@ -632,7 +632,9 @@ public class FileTransferService : IFileTransferService
             CompressOnArchive = request.CompressOnArchive,
             Compression = request.Compression,
             CronSchedule = request.CronSchedule,
-            IsEnabled = request.IsEnabled
+            IsEnabled = request.IsEnabled,
+            CreatedBy = context.UserCode ?? "SYSTEM",
+            UpdatedBy = context.UserCode ?? "SYSTEM"
         };
 
         // Check if exists (SourceId > 0 means update)
@@ -699,6 +701,9 @@ public class FileTransferService : IFileTransferService
     public async Task<DataResult<FolderWorkflowConfig>> SaveFolderConfigAsync(
         FolderWorkflowConfig config, SecurityContext context)
     {
+        config.CreatedBy = context.UserCode ?? "SYSTEM";
+        config.UpdatedBy = context.UserCode ?? "SYSTEM";
+
         var result = await _repository.SaveFolderConfigAsync(config);
 
         if (!result.IsSuccess)
@@ -763,7 +768,9 @@ public class FileTransferService : IFileTransferService
             CertificatePath = request.CertificatePath,
             PrivateKeyPath = request.PrivateKeyPath,
             BasePath = request.BasePath,
-            TempLocalPath = request.TempLocalPath
+            TempLocalPath = request.TempLocalPath,
+            CreatedBy = context.UserCode ?? "SYSTEM",
+            UpdatedBy = context.UserCode ?? "SYSTEM"
         };
 
         // If password is masked, keep existing encrypted password
@@ -856,7 +863,8 @@ public class FileTransferService : IFileTransferService
             ProcessingFolder = $"{basePath}/{typePath}/processing",
             ProcessedFolder = $"{basePath}/{typePath}/processed",
             ErrorsFolder = $"{basePath}/{typePath}/errors",
-            SkippedFolder = $"{basePath}/{typePath}/skipped"
+            SkippedFolder = $"{basePath}/{typePath}/skipped",
+            ExampleFolder = $"{basePath}/{typePath}/example"
         };
 
         return Task.FromResult(new DataResult<FolderDefaultsResponse>
@@ -892,7 +900,8 @@ public class FileTransferService : IFileTransferService
             ["Processing"] = folderConfig.ProcessingFolder,
             ["Processed"] = folderConfig.ProcessedFolder,
             ["Errors"] = folderConfig.ErrorsFolder,
-            ["Skipped"] = folderConfig.SkippedFolder
+            ["Skipped"] = folderConfig.SkippedFolder,
+            ["Example"] = folderConfig.ExampleFolder
         };
 
         // Check storage mode
