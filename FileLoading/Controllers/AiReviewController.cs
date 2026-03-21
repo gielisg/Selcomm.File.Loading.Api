@@ -55,16 +55,24 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
         [FromRoute(Name = "nt-file-num")] int ntFileNum,
         [FromBody] AiReviewRequest? request = null)
     {
-        _logger.LogInformation("AI review requested for file {NtFileNum}", ntFileNum);
+        try
+        {
+            _logger.LogInformation("AI review requested for file {NtFileNum}", ntFileNum);
 
-        var securityContext = CreateSecurityContext("post_api_v4_file_loading_ai_review_file");
-        var result = await _aiReviewService.ReviewFileAsync(ntFileNum, request, securityContext);
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_ai_review_file");
+            var result = await _aiReviewService.ReviewFileAsync(ntFileNum, request, securityContext);
 
-        if (result.IsSuccess)
-            return Ok(result.Data);
+            if (result.IsSuccess)
+                return Ok(result.Data);
 
-        return StatusCode(result.StatusCode,
-            new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+            return StatusCode(result.StatusCode,
+                new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error triggering AI review for file {NtFileNum}", ntFileNum);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -78,14 +86,22 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetCachedAiReview([FromRoute(Name = "nt-file-num")] int ntFileNum)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_ai_review_file");
-        var result = await _aiReviewService.GetCachedReviewAsync(ntFileNum);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_ai_review_file");
+            var result = await _aiReviewService.GetCachedReviewAsync(ntFileNum);
 
-        if (result.IsSuccess)
-            return Ok(result.Data);
+            if (result.IsSuccess)
+                return Ok(result.Data);
 
-        return StatusCode(result.StatusCode,
-            new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+            return StatusCode(result.StatusCode,
+                new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting cached AI review for file {NtFileNum}", ntFileNum);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     // ============================================
@@ -106,17 +122,25 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status504GatewayTimeout)]
     public async Task<IActionResult> ReviewContent([FromBody] AiContentReviewRequest request)
     {
-        _logger.LogInformation("AI content review requested, type={FileType}, length={Length}",
-            request.FileTypeCode, request.FileContent?.Length ?? 0);
+        try
+        {
+            _logger.LogInformation("AI content review requested, type={FileType}, length={Length}",
+                request.FileTypeCode, request.FileContent?.Length ?? 0);
 
-        var securityContext = CreateSecurityContext("post_api_v4_file_loading_ai_review_content");
-        var result = await _aiReviewService.ReviewContentAsync(request, securityContext);
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_ai_review_content");
+            var result = await _aiReviewService.ReviewContentAsync(request, securityContext);
 
-        if (result.IsSuccess)
-            return Ok(result.Data);
+            if (result.IsSuccess)
+                return Ok(result.Data);
 
-        return StatusCode(result.StatusCode,
-            new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+            return StatusCode(result.StatusCode,
+                new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error reviewing content for file type {FileTypeCode}", request.FileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -139,39 +163,47 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
         [FromQuery(Name = "fileTypeCode")] string? fileTypeCode = null,
         [FromQuery(Name = "focusAreas")] string? focusAreas = null)
     {
-        if (file == null || file.Length == 0)
+        try
         {
-            return BadRequest(new ErrorResponse("No file provided.", "VALIDATION_ERROR"));
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new ErrorResponse("No file provided.", "VALIDATION_ERROR"));
+            }
+
+            _logger.LogInformation("AI upload review requested: {FileName}, size={Size}, type={FileType}",
+                file.FileName, file.Length, fileTypeCode);
+
+            // Read file content into string
+            string fileContent;
+            using (var reader = new StreamReader(file.OpenReadStream()))
+            {
+                fileContent = await reader.ReadToEndAsync();
+            }
+
+            var request = new AiContentReviewRequest
+            {
+                FileContent = fileContent,
+                FileTypeCode = fileTypeCode,
+                FileName = file.FileName,
+                FocusAreas = string.IsNullOrWhiteSpace(focusAreas)
+                    ? null
+                    : focusAreas.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList()
+            };
+
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_ai_review_upload");
+            var result = await _aiReviewService.ReviewContentAsync(request, securityContext);
+
+            if (result.IsSuccess)
+                return Ok(result.Data);
+
+            return StatusCode(result.StatusCode,
+                new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
         }
-
-        _logger.LogInformation("AI upload review requested: {FileName}, size={Size}, type={FileType}",
-            file.FileName, file.Length, fileTypeCode);
-
-        // Read file content into string
-        string fileContent;
-        using (var reader = new StreamReader(file.OpenReadStream()))
+        catch (Exception ex)
         {
-            fileContent = await reader.ReadToEndAsync();
+            _logger.LogError(ex, "Error uploading and reviewing file {FileName}", file?.FileName);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
-
-        var request = new AiContentReviewRequest
-        {
-            FileContent = fileContent,
-            FileTypeCode = fileTypeCode,
-            FileName = file.FileName,
-            FocusAreas = string.IsNullOrWhiteSpace(focusAreas)
-                ? null
-                : focusAreas.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList()
-        };
-
-        var securityContext = CreateSecurityContext("post_api_v4_file_loading_ai_review_upload");
-        var result = await _aiReviewService.ReviewContentAsync(request, securityContext);
-
-        if (result.IsSuccess)
-            return Ok(result.Data);
-
-        return StatusCode(result.StatusCode,
-            new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
     }
 
     // ============================================
@@ -187,9 +219,17 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(List<ExampleFileRecord>), StatusCodes.Status200OK)]
     public async Task<IActionResult> ListExampleFiles()
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_ai_review_example_files");
-        var result = await _aiReviewService.ListExampleFilesAsync();
-        return HandleDataResult(result);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_ai_review_example_files");
+            var result = await _aiReviewService.ListExampleFilesAsync();
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error listing example files");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -203,13 +243,21 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetExampleFile([FromRoute(Name = "file-type-code")] string fileTypeCode)
     {
-        var result = await _aiReviewService.GetExampleFileAsync(fileTypeCode);
+        try
+        {
+            var result = await _aiReviewService.GetExampleFileAsync(fileTypeCode);
 
-        if (result.IsSuccess)
-            return Ok(result.Data);
+            if (result.IsSuccess)
+                return Ok(result.Data);
 
-        return StatusCode(result.StatusCode,
-            new ErrorResponse(result.ErrorMessage ?? "Not found", result.ErrorCode));
+            return StatusCode(result.StatusCode,
+                new ErrorResponse(result.ErrorMessage ?? "Not found", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting example file for type {FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -226,14 +274,22 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
         [FromRoute(Name = "file-type-code")] string fileTypeCode,
         [FromBody] ExampleFileRequest request)
     {
-        var securityContext = CreateSecurityContext("put_api_v4_file_loading_ai_review_example_file");
-        var result = await _aiReviewService.SaveExampleFileAsync(fileTypeCode, request, securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("put_api_v4_file_loading_ai_review_example_file");
+            var result = await _aiReviewService.SaveExampleFileAsync(fileTypeCode, request, securityContext);
 
-        if (result.IsSuccess)
-            return Ok(result.Data);
+            if (result.IsSuccess)
+                return Ok(result.Data);
 
-        return StatusCode(result.StatusCode,
-            new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+            return StatusCode(result.StatusCode,
+                new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving example file for type {FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -246,13 +302,21 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> DeleteExampleFile([FromRoute(Name = "file-type-code")] string fileTypeCode)
     {
-        var result = await _aiReviewService.DeleteExampleFileAsync(fileTypeCode);
+        try
+        {
+            var result = await _aiReviewService.DeleteExampleFileAsync(fileTypeCode);
 
-        if (result.IsSuccess)
-            return Ok(new { Message = $"Example file for '{fileTypeCode}' deleted." });
+            if (result.IsSuccess)
+                return Ok(new { Message = $"Example file for '{fileTypeCode}' deleted." });
 
-        return StatusCode(result.StatusCode,
-            new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+            return StatusCode(result.StatusCode,
+                new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting example file for type {FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     // ============================================
@@ -269,15 +333,23 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetDomainConfig()
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_ai_review_config");
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_ai_review_config");
 
-        var result = await _aiReviewService.GetDomainConfigAsync();
+            var result = await _aiReviewService.GetDomainConfigAsync();
 
-        if (result.IsSuccess)
-            return Ok(result.Data);
+            if (result.IsSuccess)
+                return Ok(result.Data);
 
-        return StatusCode(result.StatusCode,
-            new ErrorResponse(result.ErrorMessage ?? "Not found", result.ErrorCode));
+            return StatusCode(result.StatusCode,
+                new ErrorResponse(result.ErrorMessage ?? "Not found", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting domain AI config");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -291,15 +363,23 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> SaveDomainConfig([FromBody] AiDomainConfigRequest request)
     {
-        var securityContext = CreateSecurityContext("put_api_v4_file_loading_ai_review_config");
+        try
+        {
+            var securityContext = CreateSecurityContext("put_api_v4_file_loading_ai_review_config");
 
-        var result = await _aiReviewService.SaveDomainConfigAsync(request, securityContext);
+            var result = await _aiReviewService.SaveDomainConfigAsync(request, securityContext);
 
-        if (result.IsSuccess)
-            return Ok(result.Data);
+            if (result.IsSuccess)
+                return Ok(result.Data);
 
-        return StatusCode(result.StatusCode,
-            new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+            return StatusCode(result.StatusCode,
+                new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving domain AI config");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -311,15 +391,23 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> DeleteDomainConfig()
     {
-        var securityContext = CreateSecurityContext("delete_api_v4_file_loading_ai_review_config");
+        try
+        {
+            var securityContext = CreateSecurityContext("delete_api_v4_file_loading_ai_review_config");
 
-        var result = await _aiReviewService.DeleteDomainConfigAsync();
+            var result = await _aiReviewService.DeleteDomainConfigAsync();
 
-        if (result.IsSuccess)
-            return Ok(new { Message = "AI config deleted." });
+            if (result.IsSuccess)
+                return Ok(new { Message = "AI config deleted." });
 
-        return StatusCode(result.StatusCode,
-            new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+            return StatusCode(result.StatusCode,
+                new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting domain AI config");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -331,14 +419,22 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(AiConfigStatusResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetConfigStatus()
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_ai_review_config_status");
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_ai_review_config_status");
 
-        var result = await _aiReviewService.GetConfigStatusAsync();
+            var result = await _aiReviewService.GetConfigStatusAsync();
 
-        if (result.IsSuccess)
-            return Ok(result.Data);
+            if (result.IsSuccess)
+                return Ok(result.Data);
 
-        return StatusCode(result.StatusCode,
-            new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+            return StatusCode(result.StatusCode,
+                new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting AI config status");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 }

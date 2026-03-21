@@ -101,21 +101,29 @@ public class FileLoaderController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> LoadFile([FromBody] LoadFileRequest request)
     {
-        _logger.LogInformation("Loading file: {FileName}, Type: {FileType}",
-            request.FileName, request.FileType);
-
-        var securityContext = CreateSecurityContext("post_api_v4_file_loading_load");
-        var result = await _fileLoaderService.LoadFileAsync(request, securityContext);
-
-        if (result.StatusCode == 200 || result.StatusCode == 202)
+        try
         {
-            return AcceptedAtAction(
-                nameof(GetFileStatus),
-                new { ntFileNum = result.Data?.NtFileNum },
-                result.Data);
-        }
+            _logger.LogInformation("Loading file: {FileName}, Type: {FileType}",
+                request.FileName, request.FileType);
 
-        return StatusCode(result.StatusCode, new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_load");
+            var result = await _fileLoaderService.LoadFileAsync(request, securityContext);
+
+            if (result.StatusCode == 200 || result.StatusCode == 202)
+            {
+                return AcceptedAtAction(
+                    nameof(GetFileStatus),
+                    new { ntFileNum = result.Data?.NtFileNum },
+                    result.Data);
+            }
+
+            return StatusCode(result.StatusCode, new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading file {FileName}, Type: {FileType}", request.FileName, request.FileType);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -134,21 +142,29 @@ public class FileLoaderController : DbControllerBase<FileLoaderDbContext>
         IFormFile file,
         [FromQuery(Name = "fileType")] string fileType)
     {
-        _logger.LogInformation("Uploading file: {FileName}, Type: {FileType}",
-            file.FileName, fileType);
-
-        var securityContext = CreateSecurityContext("post_api_v4_file_loading_upload");
-        var result = await _fileLoaderService.UploadFileAsync(file, fileType, securityContext);
-
-        if (result.StatusCode == 200 || result.StatusCode == 202)
+        try
         {
-            return AcceptedAtAction(
-                nameof(GetFileStatus),
-                new { ntFileNum = result.Data?.NtFileNum },
-                result.Data);
-        }
+            _logger.LogInformation("Uploading file: {FileName}, Type: {FileType}",
+                file.FileName, fileType);
 
-        return StatusCode(result.StatusCode, new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_upload");
+            var result = await _fileLoaderService.UploadFileAsync(file, fileType, securityContext);
+
+            if (result.StatusCode == 200 || result.StatusCode == 202)
+            {
+                return AcceptedAtAction(
+                    nameof(GetFileStatus),
+                    new { ntFileNum = result.Data?.NtFileNum },
+                    result.Data);
+            }
+
+            return StatusCode(result.StatusCode, new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error uploading file {FileName}, Type: {FileType}", file.FileName, fileType);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -163,10 +179,18 @@ public class FileLoaderController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetFileStatus([FromRoute(Name = "nt-file-num")] int ntFileNum)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_files_nt_file_num");
-        var result = await _fileLoaderService.GetFileStatusAsync(ntFileNum, securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_files_nt_file_num");
+            var result = await _fileLoaderService.GetFileStatusAsync(ntFileNum, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting file status for NtFileNum {NtFileNum}", ntFileNum);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -189,10 +213,18 @@ public class FileLoaderController : DbControllerBase<FileLoaderDbContext>
         [FromQuery(Name = "takeRecords")] int takeRecords = 20,
         [FromQuery(Name = "countRecords")] string countRecords = "F")
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_files");
-        var result = await _fileLoaderService.ListFilesAsync(fileTypeCode, ntCustNum, skipRecords, takeRecords, countRecords, securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_files");
+            var result = await _fileLoaderService.ListFilesAsync(fileTypeCode, ntCustNum, skipRecords, takeRecords, countRecords, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error listing files with FileTypeCode: {FileTypeCode}, NtCustNum: {NtCustNum}", fileTypeCode, ntCustNum);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -205,10 +237,18 @@ public class FileLoaderController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(FileTypeListResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> ListFileTypes()
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_file_types");
-        var result = await _fileLoaderService.ListFileTypesAsync(securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_file_types");
+            var result = await _fileLoaderService.ListFileTypesAsync(securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error listing file types");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -223,12 +263,20 @@ public class FileLoaderController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> ReprocessFile([FromRoute(Name = "nt-file-num")] int ntFileNum)
     {
-        _logger.LogInformation("Reprocessing file {NtFileNum}", ntFileNum);
+        try
+        {
+            _logger.LogInformation("Reprocessing file {NtFileNum}", ntFileNum);
 
-        var securityContext = CreateSecurityContext("post_api_v4_file_loading_files_nt_file_num_reprocess");
-        var result = await _fileLoaderService.ReprocessFileAsync(ntFileNum, securityContext);
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_files_nt_file_num_reprocess");
+            var result = await _fileLoaderService.ReprocessFileAsync(ntFileNum, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error reprocessing file {NtFileNum}", ntFileNum);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     private IActionResult HandleDataResult<T>(DataResult<T> result)

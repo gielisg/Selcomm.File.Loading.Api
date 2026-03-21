@@ -2069,11 +2069,16 @@ components:
           type: string
           format: date-time
           description: Created timestamp
+        CreatedBy:
+          type: string
+          description: User who created the record
         UpdatedAt:
           type: string
           format: date-time
-          nullable: true
           description: Last updated timestamp
+        UpdatedBy:
+          type: string
+          description: User who last updated the record
         ConnectionUrl:
           type: string
           description: Computed connection URL for display
@@ -2308,15 +2313,24 @@ components:
           type: string
           description: Folder where skipped files are moved
           example: "/data/domain1/Skipped"
+        ExampleFolder:
+          type: string
+          description: Folder where example files are stored for AI review comparison
+          example: "/data/domain1/Example"
         CreatedAt:
           type: string
           format: date-time
           description: Created timestamp
+        CreatedBy:
+          type: string
+          description: User who created the record
         UpdatedAt:
           type: string
           format: date-time
-          nullable: true
           description: Last updated timestamp
+        UpdatedBy:
+          type: string
+          description: User who last updated the record
 
     # --- Activity Log ---
     FileActivityLog:

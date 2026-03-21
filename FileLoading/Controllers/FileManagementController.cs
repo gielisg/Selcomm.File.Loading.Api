@@ -52,10 +52,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     public async Task<IActionResult> GetDashboard(
         [FromQuery(Name = "fileType")] string? fileType = null)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_dashboard");
-        var result = await _managementService.GetDashboardAsync(fileType, securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_dashboard");
+            var result = await _managementService.GetDashboardAsync(fileType, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting dashboard for fileType={FileType}", fileType);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     // ============================================
@@ -71,22 +79,30 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(FileListWithStatusResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> ListFiles([FromQuery] FileListFilterRequest request)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_manager_files");
-
-        var filter = new FileListFilter
+        try
         {
-            FileTypeCode = request.FileType,
-            CurrentFolder = request.Folder,
-            Status = request.Status,
-            FromDate = request.FromDate,
-            ToDate = request.ToDate,
-            FileNameSearch = request.Search,
-            MaxRecords = request.MaxRecords
-        };
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_manager_files");
 
-        var result = await _managementService.ListFilesAsync(filter, securityContext);
+            var filter = new FileListFilter
+            {
+                FileTypeCode = request.FileType,
+                CurrentFolder = request.Folder,
+                Status = request.Status,
+                FromDate = request.FromDate,
+                ToDate = request.ToDate,
+                FileNameSearch = request.Search,
+                MaxRecords = request.MaxRecords
+            };
 
-        return HandleDataResult(result);
+            var result = await _managementService.ListFilesAsync(filter, securityContext);
+
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error listing files");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -100,10 +116,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetFileDetails([FromRoute(Name = "transfer-id")] int transferId)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_manager_files_transfer_id");
-        var result = await _managementService.GetFileDetailsAsync(transferId, securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_manager_files_transfer_id");
+            var result = await _managementService.GetFileDetailsAsync(transferId, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting file details for transferId={TransferId}", transferId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     // ============================================
@@ -121,12 +145,20 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> FetchFromSource([FromRoute(Name = "source-id")] int sourceId)
     {
-        _logger.LogInformation("Fetching files from source: {SourceId}", sourceId);
+        try
+        {
+            _logger.LogInformation("Fetching files from source: {SourceId}", sourceId);
 
-        var securityContext = CreateSecurityContext("post_api_v4_file_loading_transfers_source_id_fetch");
-        var result = await _transferService.FetchFilesFromSourceAsync(sourceId, securityContext);
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_transfers_source_id_fetch");
+            var result = await _transferService.FetchFilesFromSourceAsync(sourceId, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching files from source sourceId={SourceId}", sourceId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -140,12 +172,20 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> ProcessFile([FromRoute(Name = "transfer-id")] int transferId)
     {
-        _logger.LogInformation("Processing file: {TransferId}", transferId);
+        try
+        {
+            _logger.LogInformation("Processing file: {TransferId}", transferId);
 
-        var securityContext = CreateSecurityContext("post_api_v4_file_loading_manager_files_transfer_id_process");
-        var result = await _managementService.ProcessFileAsync(transferId, securityContext);
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_manager_files_transfer_id_process");
+            var result = await _managementService.ProcessFileAsync(transferId, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing file transferId={TransferId}", transferId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -159,12 +199,20 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> RetryProcessing([FromRoute(Name = "transfer-id")] int transferId)
     {
-        _logger.LogInformation("Retrying file: {TransferId}", transferId);
+        try
+        {
+            _logger.LogInformation("Retrying file: {TransferId}", transferId);
 
-        var securityContext = CreateSecurityContext("post_api_v4_file_loading_manager_files_transfer_id_retry");
-        var result = await _managementService.RetryProcessingAsync(transferId, securityContext);
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_manager_files_transfer_id_retry");
+            var result = await _managementService.RetryProcessingAsync(transferId, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrying processing for transferId={TransferId}", transferId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -183,12 +231,20 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         [FromQuery] string folder,
         [FromQuery] string? reason = null)
     {
-        _logger.LogInformation("Moving file {TransferId} to {Folder}", transferId, folder);
+        try
+        {
+            _logger.LogInformation("Moving file {TransferId} to {Folder}", transferId, folder);
 
-        var securityContext = CreateSecurityContext("post_api_v4_file_loading_manager_files_transfer_id_move");
-        var result = await _managementService.MoveFileAsync(transferId, folder, reason, securityContext);
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_manager_files_transfer_id_move");
+            var result = await _managementService.MoveFileAsync(transferId, folder, reason, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error moving file transferId={TransferId} to folder={Folder}", transferId, folder);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -202,12 +258,20 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UnloadFile([FromRoute(Name = "nt-file-num")] int ntFileNum)
     {
-        _logger.LogInformation("Unloading file: {NtFileNum}", ntFileNum);
+        try
+        {
+            _logger.LogInformation("Unloading file: {NtFileNum}", ntFileNum);
 
-        var securityContext = CreateSecurityContext("post_api_v4_file_loading_manager_files_nt_file_num_unload");
-        var result = await _managementService.UnloadFileAsync(ntFileNum, securityContext);
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_manager_files_nt_file_num_unload");
+            var result = await _managementService.UnloadFileAsync(ntFileNum, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error unloading file ntFileNum={NtFileNum}", ntFileNum);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -226,12 +290,20 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         [FromQuery(Name = "skipTo")] int skipToSeq,
         [FromQuery] string? reason = null)
     {
-        _logger.LogInformation("Skipping sequence for file {NtFileNum} to {Seq}", ntFileNum, skipToSeq);
+        try
+        {
+            _logger.LogInformation("Skipping sequence for file {NtFileNum} to {Seq}", ntFileNum, skipToSeq);
 
-        var securityContext = CreateSecurityContext("post_api_v4_file_loading_manager_files_nt_file_num_skip_sequence");
-        var result = await _managementService.ForceSequenceSkipAsync(ntFileNum, skipToSeq, reason, securityContext);
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_manager_files_nt_file_num_skip_sequence");
+            var result = await _managementService.ForceSequenceSkipAsync(ntFileNum, skipToSeq, reason, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error skipping sequence for ntFileNum={NtFileNum} to seq={SkipToSeq}", ntFileNum, skipToSeq);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -245,16 +317,24 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DownloadFile([FromRoute(Name = "transfer-id")] int transferId)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_manager_files_transfer_id_download");
-        var result = await _managementService.DownloadFileAsync(transferId, securityContext);
-
-        if (!result.IsSuccess || result.Data == null)
+        try
         {
-            return StatusCode(result.StatusCode,
-                new ErrorResponse(result.ErrorMessage ?? "Download failed", result.ErrorCode));
-        }
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_manager_files_transfer_id_download");
+            var result = await _managementService.DownloadFileAsync(transferId, securityContext);
 
-        return File(result.Data.Stream, result.Data.ContentType, result.Data.FileName);
+            if (!result.IsSuccess || result.Data == null)
+            {
+                return StatusCode(result.StatusCode,
+                    new ErrorResponse(result.ErrorMessage ?? "Download failed", result.ErrorCode));
+            }
+
+            return File(result.Data.Stream, result.Data.ContentType, result.Data.FileName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error downloading file transferId={TransferId}", transferId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -268,12 +348,20 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteFile([FromRoute(Name = "transfer-id")] int transferId)
     {
-        _logger.LogInformation("Deleting file: {TransferId}", transferId);
+        try
+        {
+            _logger.LogInformation("Deleting file: {TransferId}", transferId);
 
-        var securityContext = CreateSecurityContext("delete_api_v4_file_loading_manager_files_transfer_id");
-        var result = await _managementService.DeleteFileAsync(transferId, securityContext);
+            var securityContext = CreateSecurityContext("delete_api_v4_file_loading_manager_files_transfer_id");
+            var result = await _managementService.DeleteFileAsync(transferId, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting file transferId={TransferId}", transferId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     // ============================================
@@ -295,10 +383,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         [FromQuery(Name = "transferId")] int? transferId = null,
         [FromQuery(Name = "maxRecords")] int maxRecords = 100)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_activity");
-        var result = await _managementService.GetActivityLogAsync(ntFileNum, transferId, maxRecords, securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_activity");
+            var result = await _managementService.GetActivityLogAsync(ntFileNum, transferId, maxRecords, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting activity log for ntFileNum={NtFileNum}, transferId={TransferId}", ntFileNum, transferId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     // ============================================
@@ -316,10 +412,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetValidationSummary([FromRoute(Name = "nt-file-num")] int ntFileNum)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_files_nt_file_num_validation_summary");
-        var result = await _managementService.GetValidationSummaryAsync(ntFileNum, securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_files_nt_file_num_validation_summary");
+            var result = await _managementService.GetValidationSummaryAsync(ntFileNum, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting validation summary for ntFileNum={NtFileNum}", ntFileNum);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     // ============================================
@@ -339,10 +443,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         [FromQuery(Name = "fileType")] string? fileType = null,
         [FromQuery(Name = "maxRecords")] int maxRecords = 100)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_exceptions_errors");
-        var result = await _managementService.GetFilesWithErrorsAsync(fileType, maxRecords, securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_exceptions_errors");
+            var result = await _managementService.GetFilesWithErrorsAsync(fileType, maxRecords, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting files with errors for fileType={FileType}", fileType);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -358,10 +470,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         [FromQuery(Name = "fileType")] string? fileType = null,
         [FromQuery(Name = "maxRecords")] int maxRecords = 100)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_exceptions_skipped");
-        var result = await _managementService.GetSkippedFilesAsync(fileType, maxRecords, securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_exceptions_skipped");
+            var result = await _managementService.GetSkippedFilesAsync(fileType, maxRecords, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting skipped files for fileType={FileType}", fileType);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     // ============================================
@@ -377,10 +497,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(List<TransferSourceConfig>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetTransferSources()
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_sources");
-        var result = await _transferService.GetSourceConfigsAsync(securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_sources");
+            var result = await _transferService.GetSourceConfigsAsync(securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting transfer sources");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -394,10 +522,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetTransferSource([FromRoute(Name = "source-id")] int sourceId)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_sources_source_id");
-        var result = await _transferService.GetSourceConfigAsync(sourceId, securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_sources_source_id");
+            var result = await _transferService.GetSourceConfigAsync(sourceId, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting transfer source sourceId={SourceId}", sourceId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -413,12 +549,20 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         [FromRoute(Name = "source-id")] int sourceId,
         [FromBody] TransferSourceRequest request)
     {
-        request.SourceId = sourceId;
+        try
+        {
+            request.SourceId = sourceId;
 
-        var securityContext = CreateSecurityContext("put_api_v4_file_loading_sources_source_id");
-        var result = await _transferService.SaveSourceConfigAsync(request, securityContext);
+            var securityContext = CreateSecurityContext("put_api_v4_file_loading_sources_source_id");
+            var result = await _transferService.SaveSourceConfigAsync(request, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving transfer source sourceId={SourceId}", sourceId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -432,10 +576,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteTransferSource([FromRoute(Name = "source-id")] int sourceId)
     {
-        var securityContext = CreateSecurityContext("delete_api_v4_file_loading_sources_source_id");
-        var result = await _transferService.DeleteSourceConfigAsync(sourceId, securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("delete_api_v4_file_loading_sources_source_id");
+            var result = await _transferService.DeleteSourceConfigAsync(sourceId, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting transfer source sourceId={SourceId}", sourceId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -449,15 +601,23 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> TestSourceConnection([FromRoute(Name = "source-id")] int sourceId)
     {
-        var securityContext = CreateSecurityContext("post_api_v4_file_loading_sources_source_id_test");
-        var result = await _transferService.TestConnectionAsync(sourceId, securityContext);
-
-        if (!result.IsSuccess || !result.Data)
+        try
         {
-            return BadRequest(new ErrorResponse(result.ErrorMessage ?? "Connection test failed", result.ErrorCode));
-        }
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_sources_source_id_test");
+            var result = await _transferService.TestConnectionAsync(sourceId, securityContext);
 
-        return Ok(new { Success = true, Message = "Connection successful" });
+            if (!result.IsSuccess || !result.Data)
+            {
+                return BadRequest(new ErrorResponse(result.ErrorMessage ?? "Connection test failed", result.ErrorCode));
+            }
+
+            return Ok(new { Success = true, Message = "Connection successful" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error testing source connection sourceId={SourceId}", sourceId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -471,15 +631,23 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> TestSourceConnectionWithConfig([FromBody] TransferSourceRequest request)
     {
-        var securityContext = CreateSecurityContext("post_api_v4_file_loading_sources_test");
-        var result = await _transferService.TestConnectionAsync(request, securityContext);
-
-        if (!result.IsSuccess || !result.Data)
+        try
         {
-            return BadRequest(new ErrorResponse(result.ErrorMessage ?? "Connection test failed", result.ErrorCode));
-        }
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_sources_test");
+            var result = await _transferService.TestConnectionAsync(request, securityContext);
 
-        return Ok(new { Success = true, Message = "Connection successful" });
+            if (!result.IsSuccess || !result.Data)
+            {
+                return BadRequest(new ErrorResponse(result.ErrorMessage ?? "Connection test failed", result.ErrorCode));
+            }
+
+            return Ok(new { Success = true, Message = "Connection successful" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error testing source connection with config");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     // ============================================
@@ -496,10 +664,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(List<GenericFileFormatConfig>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetParserConfigs([FromQuery] bool? active = null)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_parsers");
-        var result = await _managementService.GetParserConfigsAsync(active, securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_parsers");
+            var result = await _managementService.GetParserConfigsAsync(active, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting parser configs");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -513,10 +689,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetParserConfig([FromRoute(Name = "file-type-code")] string fileTypeCode)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_parsers_file_type_code");
-        var result = await _managementService.GetParserConfigAsync(fileTypeCode, securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_parsers_file_type_code");
+            var result = await _managementService.GetParserConfigAsync(fileTypeCode, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting parser config for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -532,12 +716,20 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         [FromRoute(Name = "file-type-code")] string fileTypeCode,
         [FromBody] GenericParserConfigRequest request)
     {
-        request.FileTypeCode = fileTypeCode;
+        try
+        {
+            request.FileTypeCode = fileTypeCode;
 
-        var securityContext = CreateSecurityContext("put_api_v4_file_loading_parsers_file_type_code");
-        var result = await _managementService.SaveParserConfigAsync(request, securityContext);
+            var securityContext = CreateSecurityContext("put_api_v4_file_loading_parsers_file_type_code");
+            var result = await _managementService.SaveParserConfigAsync(request, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving parser config for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -551,10 +743,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteParserConfig([FromRoute(Name = "file-type-code")] string fileTypeCode)
     {
-        var securityContext = CreateSecurityContext("delete_api_v4_file_loading_parsers_file_type_code");
-        var result = await _managementService.DeleteParserConfigAsync(fileTypeCode, securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("delete_api_v4_file_loading_parsers_file_type_code");
+            var result = await _managementService.DeleteParserConfigAsync(fileTypeCode, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting parser config for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     // ============================================
@@ -573,10 +773,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     public async Task<IActionResult> GetFolderConfig(
         [FromQuery(Name = "fileType")] string? fileType = null)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_folders");
-        var result = await _transferService.GetFolderConfigAsync(fileType, securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_folders");
+            var result = await _transferService.GetFolderConfigAsync(fileType, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting folder config for fileType={FileType}", fileType);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -589,16 +797,24 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(FolderWorkflowConfig), StatusCodes.Status200OK)]
     public async Task<IActionResult> SaveFolderConfig([FromBody] FolderWorkflowConfig config)
     {
-        var securityContext = CreateSecurityContext("put_api_v4_file_loading_folders");
-        var result = await _transferService.SaveFolderConfigAsync(config, securityContext);
-
-        if (result.IsSuccess)
+        try
         {
-            // Auto-create folders on save
-            await _transferService.CreateFoldersAsync(config.FileTypeCode, securityContext);
-        }
+            var securityContext = CreateSecurityContext("put_api_v4_file_loading_folders");
+            var result = await _transferService.SaveFolderConfigAsync(config, securityContext);
 
-        return HandleDataResult(result);
+            if (result.IsSuccess)
+            {
+                // Auto-create folders on save
+                await _transferService.CreateFoldersAsync(config.FileTypeCode, securityContext);
+            }
+
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving folder config for fileTypeCode={FileTypeCode}", config.FileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -612,14 +828,22 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     public async Task<IActionResult> GetFolderDefaults(
         [FromQuery(Name = "fileType")] string? fileType = null)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_folders_defaults");
-        var result = await _transferService.GetDefaultFolderPathsAsync(fileType, securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_folders_defaults");
+            var result = await _transferService.GetDefaultFolderPathsAsync(fileType, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting folder defaults for fileType={FileType}", fileType);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
-    /// Create all 5 workflow folders for a file-type (local or FTP based on storage config).
+    /// Create all 6 workflow folders for a file-type (local or FTP based on storage config).
     /// </summary>
     /// <param name="fileType">File type code</param>
     [HttpPost("folders/create")]
@@ -629,10 +853,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     public async Task<IActionResult> CreateFolders(
         [FromQuery(Name = "fileType")] string? fileType = null)
     {
-        var securityContext = CreateSecurityContext("post_api_v4_file_loading_folders_create");
-        var result = await _transferService.CreateFoldersAsync(fileType, securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_folders_create");
+            var result = await _transferService.CreateFoldersAsync(fileType, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating folders for fileType={FileType}", fileType);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     // ============================================
@@ -649,10 +881,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetFolderStorage()
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_folder_storage");
-        var result = await _transferService.GetFolderStorageAsync(securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_folder_storage");
+            var result = await _transferService.GetFolderStorageAsync(securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting folder storage config");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -665,10 +905,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(FolderStorageConfig), StatusCodes.Status200OK)]
     public async Task<IActionResult> SaveFolderStorage([FromBody] FolderStorageRequest request)
     {
-        var securityContext = CreateSecurityContext("put_api_v4_file_loading_folder_storage");
-        var result = await _transferService.SaveFolderStorageAsync(request, securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("put_api_v4_file_loading_folder_storage");
+            var result = await _transferService.SaveFolderStorageAsync(request, securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving folder storage config");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -681,10 +929,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteFolderStorage()
     {
-        var securityContext = CreateSecurityContext("delete_api_v4_file_loading_folder_storage");
-        var result = await _transferService.DeleteFolderStorageAsync(securityContext);
+        try
+        {
+            var securityContext = CreateSecurityContext("delete_api_v4_file_loading_folder_storage");
+            var result = await _transferService.DeleteFolderStorageAsync(securityContext);
 
-        return HandleDataResult(result);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting folder storage config");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -698,15 +954,23 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> TestFolderStorage([FromBody] FolderStorageRequest request)
     {
-        var securityContext = CreateSecurityContext("post_api_v4_file_loading_folder_storage_test");
-        var result = await _transferService.TestFolderStorageAsync(request, securityContext);
-
-        if (!result.IsSuccess || !result.Data)
+        try
         {
-            return BadRequest(new ErrorResponse(result.ErrorMessage ?? "Connection test failed", result.ErrorCode));
-        }
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_folder_storage_test");
+            var result = await _transferService.TestFolderStorageAsync(request, securityContext);
 
-        return Ok(new { Success = true, Message = "Connection successful" });
+            if (!result.IsSuccess || !result.Data)
+            {
+                return BadRequest(new ErrorResponse(result.ErrorMessage ?? "Connection test failed", result.ErrorCode));
+            }
+
+            return Ok(new { Success = true, Message = "Connection successful" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error testing folder storage connection");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     // ============================================
@@ -722,9 +986,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(List<VendorRecord>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetVendors()
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_vendors");
-        var result = await _managementService.GetVendorsAsync(securityContext);
-        return HandleDataResult(result);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_vendors");
+            var result = await _managementService.GetVendorsAsync(securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting vendors");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -738,9 +1010,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetVendor([FromRoute(Name = "network-id")] string networkId)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_vendors_network_id");
-        var result = await _managementService.GetVendorAsync(networkId, securityContext);
-        return HandleDataResult(result);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_vendors_network_id");
+            var result = await _managementService.GetVendorAsync(networkId, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting vendor networkId={NetworkId}", networkId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -756,10 +1036,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         [FromRoute(Name = "network-id")] string networkId,
         [FromBody] VendorRecord record)
     {
-        record.NetworkId = networkId;
-        var securityContext = CreateSecurityContext("put_api_v4_file_loading_vendors_network_id");
-        var result = await _managementService.SaveVendorAsync(record, securityContext);
-        return HandleDataResult(result);
+        try
+        {
+            record.NetworkId = networkId;
+            var securityContext = CreateSecurityContext("put_api_v4_file_loading_vendors_network_id");
+            var result = await _managementService.SaveVendorAsync(record, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving vendor networkId={NetworkId}", networkId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -773,9 +1061,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteVendor([FromRoute(Name = "network-id")] string networkId)
     {
-        var securityContext = CreateSecurityContext("delete_api_v4_file_loading_vendors_network_id");
-        var result = await _managementService.DeleteVendorAsync(networkId, securityContext);
-        return HandleDataResult(result);
+        try
+        {
+            var securityContext = CreateSecurityContext("delete_api_v4_file_loading_vendors_network_id");
+            var result = await _managementService.DeleteVendorAsync(networkId, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting vendor networkId={NetworkId}", networkId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     // ============================================
@@ -791,9 +1087,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(List<FileClassRecord>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetFileClasses()
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_file_classes");
-        var result = await _managementService.GetFileClassesAsync(securityContext);
-        return HandleDataResult(result);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_file_classes");
+            var result = await _managementService.GetFileClassesAsync(securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting file classes");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -807,9 +1111,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetFileClass([FromRoute(Name = "file-class-code")] string fileClassCode)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_file_classes_file_class_code");
-        var result = await _managementService.GetFileClassAsync(fileClassCode, securityContext);
-        return HandleDataResult(result);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_file_classes_file_class_code");
+            var result = await _managementService.GetFileClassAsync(fileClassCode, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting file class fileClassCode={FileClassCode}", fileClassCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -825,10 +1137,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         [FromRoute(Name = "file-class-code")] string fileClassCode,
         [FromBody] FileClassRecord record)
     {
-        record.FileClassCode = fileClassCode;
-        var securityContext = CreateSecurityContext("put_api_v4_file_loading_file_classes_file_class_code");
-        var result = await _managementService.SaveFileClassAsync(record, securityContext);
-        return HandleDataResult(result);
+        try
+        {
+            record.FileClassCode = fileClassCode;
+            var securityContext = CreateSecurityContext("put_api_v4_file_loading_file_classes_file_class_code");
+            var result = await _managementService.SaveFileClassAsync(record, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving file class fileClassCode={FileClassCode}", fileClassCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -842,9 +1162,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteFileClass([FromRoute(Name = "file-class-code")] string fileClassCode)
     {
-        var securityContext = CreateSecurityContext("delete_api_v4_file_loading_file_classes_file_class_code");
-        var result = await _managementService.DeleteFileClassAsync(fileClassCode, securityContext);
-        return HandleDataResult(result);
+        try
+        {
+            var securityContext = CreateSecurityContext("delete_api_v4_file_loading_file_classes_file_class_code");
+            var result = await _managementService.DeleteFileClassAsync(fileClassCode, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting file class fileClassCode={FileClassCode}", fileClassCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     // ============================================
@@ -860,9 +1188,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(typeof(List<FileTypeRecord>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetFileTypes()
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_manager_file_types");
-        var result = await _managementService.GetFileTypesAsync(securityContext);
-        return HandleDataResult(result);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_manager_file_types");
+            var result = await _managementService.GetFileTypesAsync(securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting file types");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -876,9 +1212,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetFileType([FromRoute(Name = "file-type-code")] string fileTypeCode)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_file_types_file_type_code");
-        var result = await _managementService.GetFileTypeAsync(fileTypeCode, securityContext);
-        return HandleDataResult(result);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_file_types_file_type_code");
+            var result = await _managementService.GetFileTypeAsync(fileTypeCode, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting file type fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -894,10 +1238,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         [FromRoute(Name = "file-type-code")] string fileTypeCode,
         [FromBody] FileTypeRecord record)
     {
-        record.FileTypeCode = fileTypeCode;
-        var securityContext = CreateSecurityContext("put_api_v4_file_loading_file_types_file_type_code");
-        var result = await _managementService.SaveFileTypeAsync(record, securityContext);
-        return HandleDataResult(result);
+        try
+        {
+            record.FileTypeCode = fileTypeCode;
+            var securityContext = CreateSecurityContext("put_api_v4_file_loading_file_types_file_type_code");
+            var result = await _managementService.SaveFileTypeAsync(record, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving file type fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -911,9 +1263,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteFileType([FromRoute(Name = "file-type-code")] string fileTypeCode)
     {
-        var securityContext = CreateSecurityContext("delete_api_v4_file_loading_file_types_file_type_code");
-        var result = await _managementService.DeleteFileTypeAsync(fileTypeCode, securityContext);
-        return HandleDataResult(result);
+        try
+        {
+            var securityContext = CreateSecurityContext("delete_api_v4_file_loading_file_types_file_type_code");
+            var result = await _managementService.DeleteFileTypeAsync(fileTypeCode, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting file type fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     // ============================================
@@ -931,9 +1291,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     public async Task<IActionResult> GetFileTypeNtRecords(
         [FromQuery(Name = "fileType")] string? fileTypeCode = null)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_file_types_nt");
-        var result = await _managementService.GetFileTypeNtRecordsAsync(fileTypeCode, securityContext);
-        return HandleDataResult(result);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_file_types_nt");
+            var result = await _managementService.GetFileTypeNtRecordsAsync(fileTypeCode, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting file type NT records for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -947,9 +1315,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetFileTypeNt([FromRoute(Name = "file-type-code")] string fileTypeCode)
     {
-        var securityContext = CreateSecurityContext("get_api_v4_file_loading_file_types_nt_file_type_code");
-        var result = await _managementService.GetFileTypeNtAsync(fileTypeCode, securityContext);
-        return HandleDataResult(result);
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_file_types_nt_file_type_code");
+            var result = await _managementService.GetFileTypeNtAsync(fileTypeCode, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting file type NT for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -965,10 +1341,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         [FromRoute(Name = "file-type-code")] string fileTypeCode,
         [FromBody] FileTypeNtRecord record)
     {
-        record.FileTypeCode = fileTypeCode;
-        var securityContext = CreateSecurityContext("put_api_v4_file_loading_file_types_nt_file_type_code");
-        var result = await _managementService.SaveFileTypeNtAsync(record, securityContext);
-        return HandleDataResult(result);
+        try
+        {
+            record.FileTypeCode = fileTypeCode;
+            var securityContext = CreateSecurityContext("put_api_v4_file_loading_file_types_nt_file_type_code");
+            var result = await _managementService.SaveFileTypeNtAsync(record, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving file type NT for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -982,9 +1366,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteFileTypeNt([FromRoute(Name = "file-type-code")] string fileTypeCode)
     {
-        var securityContext = CreateSecurityContext("delete_api_v4_file_loading_file_types_nt_file_type_code");
-        var result = await _managementService.DeleteFileTypeNtAsync(fileTypeCode, securityContext);
-        return HandleDataResult(result);
+        try
+        {
+            var securityContext = CreateSecurityContext("delete_api_v4_file_loading_file_types_nt_file_type_code");
+            var result = await _managementService.DeleteFileTypeNtAsync(fileTypeCode, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting file type NT for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 
     // ============================================
