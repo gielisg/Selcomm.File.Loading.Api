@@ -2817,8 +2817,9 @@ public class FileLoaderRepository : IFileLoaderRepository
 
     public async Task<DataResult<List<FileTypeNtRecord>>> GetFileTypeNtRecordsAsync(string? fileTypeCode = null)
     {
-        var sql = @"SELECT ftn.file_type_code, ftn.nt_cust_num, ftn.nt_file_name,
-                           ftn.skip_hdr, ftn.skip_tlr, ft.file_type_narr
+        var sql = @"SELECT ftn.file_type_code, ftn.nt_cust_num, ftn.last_seq,
+                           ftn.default_bus_unit, ftn.plan_code, ftn.expected_freq,
+                           ftn.freq_files, ft.file_type_narr
                     FROM file_type_nt ftn
                     LEFT OUTER JOIN file_type ft ON ftn.file_type_code = ft.file_type_code";
 
@@ -2837,10 +2838,12 @@ public class FileLoaderRepository : IFileLoaderRepository
             {
                 FileTypeCode = reader.GetString(0).Trim(),
                 NtCustNum = reader.IsDBNull(1) ? string.Empty : reader.GetString(1).Trim(),
-                NtFileName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2).Trim(),
-                SkipHdr = reader.IsDBNull(3) ? 0 : reader.GetInt32(3),
-                SkipTlr = reader.IsDBNull(4) ? 0 : reader.GetInt32(4),
-                FileTypeNarr = reader.IsDBNull(5) ? null : reader.GetString(5).Trim()
+                LastSeq = reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
+                DefaultBusUnit = reader.IsDBNull(3) ? null : reader.GetString(3).Trim(),
+                PlanCode = reader.IsDBNull(4) ? null : (int?)reader.GetInt32(4),
+                ExpectedFreq = reader.IsDBNull(5) ? null : reader.GetString(5).Trim(),
+                FreqFiles = reader.IsDBNull(6) ? null : (int?)reader.GetInt32(6),
+                FileTypeNarr = reader.IsDBNull(7) ? null : reader.GetString(7).Trim()
             },
             parameters
         );
@@ -2870,24 +2873,37 @@ public class FileLoaderRepository : IFileLoaderRepository
     public async Task<RawCommandResult> InsertFileTypeNtAsync(FileTypeNtRecord record)
     {
         return _dbContext.ExecuteRawCommand(
-            "INSERT INTO file_type_nt (file_type_code, nt_cust_num, nt_file_name, skip_hdr, skip_tlr) VALUES (?, ?, ?, ?, ?)",
+            @"INSERT INTO file_type_nt (file_type_code, nt_cust_num, last_seq,
+                default_bus_unit, plan_code, expected_freq, freq_files,
+                created_tm, created_by, last_updated, updated_by)
+              VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT, ?, CURRENT, ?)",
             ("@p1", record.FileTypeCode, DbType.String, 10),
-            ("@p2", record.NtCustNum, DbType.String, 32),
-            ("@p3", record.NtFileName, DbType.String, 128),
-            ("@p4", record.SkipHdr, DbType.Int32, null),
-            ("@p5", record.SkipTlr, DbType.Int32, null)
+            ("@p2", record.NtCustNum, DbType.String, 10),
+            ("@p3", record.LastSeq, DbType.Int32, null),
+            ("@p4", record.DefaultBusUnit, DbType.String, 2),
+            ("@p5", record.PlanCode, DbType.Int32, null),
+            ("@p6", record.ExpectedFreq, DbType.String, 1),
+            ("@p7", record.FreqFiles, DbType.Int32, null),
+            ("@p8", record.CreatedBy, DbType.String, 18),
+            ("@p9", record.UpdatedBy, DbType.String, 18)
         );
     }
 
     public async Task<RawCommandResult> UpdateFileTypeNtAsync(FileTypeNtRecord record)
     {
         return _dbContext.ExecuteRawCommand(
-            "UPDATE file_type_nt SET nt_cust_num = ?, nt_file_name = ?, skip_hdr = ?, skip_tlr = ? WHERE file_type_code = ?",
-            ("@p1", record.NtCustNum, DbType.String, 32),
-            ("@p2", record.NtFileName, DbType.String, 128),
-            ("@p3", record.SkipHdr, DbType.Int32, null),
-            ("@p4", record.SkipTlr, DbType.Int32, null),
-            ("@p5", record.FileTypeCode, DbType.String, 10)
+            @"UPDATE file_type_nt SET nt_cust_num = ?, last_seq = ?,
+                default_bus_unit = ?, plan_code = ?, expected_freq = ?, freq_files = ?,
+                last_updated = CURRENT, updated_by = ?
+              WHERE file_type_code = ?",
+            ("@p1", record.NtCustNum, DbType.String, 10),
+            ("@p2", record.LastSeq, DbType.Int32, null),
+            ("@p3", record.DefaultBusUnit, DbType.String, 2),
+            ("@p4", record.PlanCode, DbType.Int32, null),
+            ("@p5", record.ExpectedFreq, DbType.String, 1),
+            ("@p6", record.FreqFiles, DbType.Int32, null),
+            ("@p7", record.UpdatedBy, DbType.String, 18),
+            ("@p8", record.FileTypeCode, DbType.String, 10)
         );
     }
 
@@ -3144,7 +3160,7 @@ public class FileLoaderRepository : IFileLoaderRepository
         var result = _dbContext.ExecuteRawQuery<AiDomainConfig>(
             @"SELECT config_id, api_key, model, enabled, max_reviews_day, max_output_tokens,
                      reviews_today, reviews_reset_dt, created_tm, created_by, last_updated, updated_by
-              FROM ntfl_ai_domain_config LIMIT 1",
+              FROM ntfl_ai_domain_config",
             reader => new AiDomainConfig
             {
                 ConfigId = reader.GetInt32(0),
@@ -3259,8 +3275,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                            auth_type, username, password_encrypted, certificate_path,
                            private_key_path, base_path, temp_local_path,
                            created_tm, created_by, last_updated, updated_by
-                    FROM ntfl_folder_storage
-                    LIMIT 1";
+                    FROM ntfl_folder_storage";
 
         var result = _dbContext.ExecuteRawQuery(
             sql,
@@ -3299,9 +3314,7 @@ public class FileLoaderRepository : IFileLoaderRepository
         {
             return new DataResult<FolderStorageConfig>
             {
-                StatusCode = 404,
-                ErrorCode = "FileLoading.FolderStorageNotFound",
-                ErrorMessage = "Folder storage configuration not found"
+                StatusCode = 204
             };
         }
 

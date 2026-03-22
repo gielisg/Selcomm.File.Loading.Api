@@ -789,30 +789,32 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
 
     /// <summary>
     /// Create or update folder workflow configuration. Auto-creates folders on save.
+    /// Only the user-configurable suffix portion of each path is accepted;
+    /// the base path is prepended server-side from configuration.
     /// </summary>
-    /// <param name="config">Folder configuration</param>
+    /// <param name="request">Folder configuration with suffix paths</param>
     [HttpPut("folders")]
     [SwaggerOperation(OperationId = "put_api_v4_file_loading_folders")]
     [Tags("Folder Configuration")]
     [ProducesResponseType(typeof(FolderWorkflowConfig), StatusCodes.Status200OK)]
-    public async Task<IActionResult> SaveFolderConfig([FromBody] FolderWorkflowConfig config)
+    public async Task<IActionResult> SaveFolderConfig([FromBody] FolderWorkflowRequest request)
     {
         try
         {
             var securityContext = CreateSecurityContext("put_api_v4_file_loading_folders");
-            var result = await _transferService.SaveFolderConfigAsync(config, securityContext);
+            var result = await _transferService.SaveFolderConfigAsync(request, securityContext);
 
             if (result.IsSuccess)
             {
                 // Auto-create folders on save
-                await _transferService.CreateFoldersAsync(config.FileTypeCode, securityContext);
+                await _transferService.CreateFoldersAsync(request.FileTypeCode, securityContext);
             }
 
             return HandleDataResult(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error saving folder config for fileTypeCode={FileTypeCode}", config.FileTypeCode);
+            _logger.LogError(ex, "Error saving folder config for fileTypeCode={FileTypeCode}", request.FileTypeCode);
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }

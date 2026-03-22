@@ -54,17 +54,29 @@ public class FileTypeNtRecord
     /// <summary>Network customer number.</summary>
     public string NtCustNum { get; set; } = string.Empty;
 
-    /// <summary>File name pattern.</summary>
-    public string NtFileName { get; set; } = string.Empty;
+    /// <summary>Last sequence number processed.</summary>
+    public int LastSeq { get; set; }
 
-    /// <summary>Number of header rows to skip.</summary>
-    public int SkipHdr { get; set; }
+    /// <summary>Default business unit code.</summary>
+    public string? DefaultBusUnit { get; set; }
 
-    /// <summary>Number of trailer rows to skip.</summary>
-    public int SkipTlr { get; set; }
+    /// <summary>Plan code.</summary>
+    public int? PlanCode { get; set; }
+
+    /// <summary>Expected frequency (W=Weekly, M=Monthly).</summary>
+    public string? ExpectedFreq { get; set; }
+
+    /// <summary>Frequency files count.</summary>
+    public int? FreqFiles { get; set; }
 
     /// <summary>File type description (populated by JOIN, read-only).</summary>
     public string? FileTypeNarr { get; set; }
+
+    /// <summary>Created by user.</summary>
+    public string CreatedBy { get; set; } = string.Empty;
+
+    /// <summary>Updated by user.</summary>
+    public string UpdatedBy { get; set; } = string.Empty;
 }
 
 /// <summary>

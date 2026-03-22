@@ -160,7 +160,7 @@ public interface IFileTransferService
     /// <param name="context">Security context</param>
     /// <returns>Saved folder configuration</returns>
     Task<DataResult<FolderWorkflowConfig>> SaveFolderConfigAsync(
-        FolderWorkflowConfig config,
+        FolderWorkflowRequest request,
         SecurityContext context);
 
     // ============================================

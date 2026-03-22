@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Selcomm.Data.Common;
 using FileLoading.Interfaces;
@@ -17,6 +18,7 @@ public class FileManagementService : IFileManagementService
     private readonly IFileLoaderRepository _repository;
     private readonly IFileLoaderService _fileLoaderService;
     private readonly IFileTransferService _transferService;
+    private readonly IConfiguration _configuration;
     private readonly CompressionHelper _compressionHelper;
     private readonly ILogger<FileManagementService> _logger;
 
@@ -24,12 +26,14 @@ public class FileManagementService : IFileManagementService
         IFileLoaderRepository repository,
         IFileLoaderService fileLoaderService,
         IFileTransferService transferService,
+        IConfiguration configuration,
         CompressionHelper compressionHelper,
         ILogger<FileManagementService> logger)
     {
         _repository = repository;
         _fileLoaderService = fileLoaderService;
         _transferService = transferService;
+        _configuration = configuration;
         _compressionHelper = compressionHelper;
         _logger = logger;
     }
@@ -949,15 +953,32 @@ public class FileManagementService : IFileManagementService
             return new DataResult<FileTypeRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         var existing = await _repository.GetFileTypeRecordAsync(record.FileTypeCode);
+        var isNew = !existing.IsSuccess || existing.Data == null;
         RawCommandResult result;
 
-        if (existing.IsSuccess && existing.Data != null)
+        if (!isNew)
             result = await _repository.UpdateFileTypeAsync(record);
         else
             result = await _repository.InsertFileTypeAsync(record);
 
         if (!result.IsSuccess)
             return new DataResult<FileTypeRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
+
+        // Auto-create folder config and local folders for new file types
+        if (isNew)
+        {
+            var folderRequest = new FolderWorkflowRequest { FileTypeCode = record.FileTypeCode };
+            var folderSaveResult = await _transferService.SaveFolderConfigAsync(folderRequest, context);
+            if (folderSaveResult.IsSuccess)
+            {
+                await _transferService.CreateFoldersAsync(record.FileTypeCode, context);
+                _logger.LogInformation("Auto-created folder config and directories for new file type {FileTypeCode}", record.FileTypeCode);
+            }
+            else
+            {
+                _logger.LogWarning("Failed to auto-create folder config for file type {FileTypeCode}: {Error}", record.FileTypeCode, folderSaveResult.ErrorMessage);
+            }
+        }
 
         var saved = await _repository.GetFileTypeRecordAsync(record.FileTypeCode);
         return new DataResult<FileTypeRecord> { StatusCode = 200, Data = saved.Data };
@@ -969,8 +990,49 @@ public class FileManagementService : IFileManagementService
         if (!auth.IsSuccess)
             return new DataResult<bool> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
+        // Check if local folders contain files and warn
+        var rootBase = _configuration["LocalStorage:BasePath"] ?? "/var/www";
+        var domain = context.Domain ?? "default";
+        var basePath = $"{rootBase}/{domain}/files/{fileTypeCode}";
+        var foldersWithFiles = new List<string>();
+
+        try
+        {
+            if (Directory.Exists(basePath))
+            {
+                var folderNames = new[] { "transfer", "processing", "processed", "errors", "skipped", "example" };
+                foreach (var folder in folderNames)
+                {
+                    var folderPath = $"{basePath}/{folder}";
+                    if (Directory.Exists(folderPath) && Directory.EnumerateFileSystemEntries(folderPath).Any())
+                    {
+                        foldersWithFiles.Add(folder);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not check folders for file type {FileTypeCode}", fileTypeCode);
+        }
+
         var result = await _repository.DeleteFileTypeAsync(fileTypeCode);
-        return new DataResult<bool> { StatusCode = result.IsSuccess ? 200 : 500, Data = result.IsSuccess, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
+        if (!result.IsSuccess)
+            return new DataResult<bool> { StatusCode = 500, Data = false, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
+
+        // Return success with warning about non-empty folders
+        if (foldersWithFiles.Count > 0)
+        {
+            return new DataResult<bool>
+            {
+                StatusCode = 200,
+                Data = true,
+                ErrorCode = "FileLoading.FoldersNotEmpty",
+                ErrorMessage = $"File type deleted but the following folders still contain files and were not removed: {string.Join(", ", foldersWithFiles)}. Path: {basePath}"
+            };
+        }
+
+        return new DataResult<bool> { StatusCode = 200, Data = true };
     }
 
     // ============================================
@@ -1000,6 +1062,9 @@ public class FileManagementService : IFileManagementService
         var auth = await _repository.AuthoriseAsync(context, "FILE_TYPE_NT", record.FileTypeCode);
         if (!auth.IsSuccess)
             return new DataResult<FileTypeNtRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        record.CreatedBy = context.UserCode ?? "SYSTEM";
+        record.UpdatedBy = context.UserCode ?? "SYSTEM";
 
         var existing = await _repository.GetFileTypeNtRecordAsync(record.FileTypeCode);
         RawCommandResult result;

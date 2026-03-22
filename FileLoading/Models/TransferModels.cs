@@ -308,6 +308,9 @@ public class FolderDefaultsResponse
     /// <summary>File type code.</summary>
     public string? FileTypeCode { get; set; }
 
+    /// <summary>Base path prefix (non-editable by users).</summary>
+    public string BasePath { get; set; } = string.Empty;
+
     /// <summary>Default transfer folder path.</summary>
     public string TransferFolder { get; set; } = string.Empty;
 
@@ -325,6 +328,35 @@ public class FolderDefaultsResponse
 
     /// <summary>Default example folder path.</summary>
     public string ExampleFolder { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Request to create or update folder workflow configuration.
+/// For Local storage: only FileTypeCode is needed — paths are auto-generated from config.
+/// For FTP storage: full folder paths on the FTP server are accepted.
+/// </summary>
+public class FolderWorkflowRequest
+{
+    /// <summary>File type code (null = default for domain).</summary>
+    public string? FileTypeCode { get; set; }
+
+    /// <summary>Transfer folder path on FTP server (ignored for Local storage).</summary>
+    public string? TransferFolder { get; set; }
+
+    /// <summary>Processing folder path on FTP server (ignored for Local storage).</summary>
+    public string? ProcessingFolder { get; set; }
+
+    /// <summary>Processed folder path on FTP server (ignored for Local storage).</summary>
+    public string? ProcessedFolder { get; set; }
+
+    /// <summary>Errors folder path on FTP server (ignored for Local storage).</summary>
+    public string? ErrorsFolder { get; set; }
+
+    /// <summary>Skipped folder path on FTP server (ignored for Local storage).</summary>
+    public string? SkippedFolder { get; set; }
+
+    /// <summary>Example folder path on FTP server (ignored for Local storage).</summary>
+    public string? ExampleFolder { get; set; }
 }
 
 // ============================================

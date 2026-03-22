@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Selcomm.Data.Common;
 using FileLoading.Interfaces;
@@ -18,6 +19,7 @@ public class FileTransferService : IFileTransferService
     private readonly IFileLoaderRepository _repository;
     private readonly ITransferClientFactory _clientFactory;
     private readonly CompressionHelper _compressionHelper;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<FileTransferService> _logger;
 
     // Encryption key for password storage (should be from config in production)
@@ -27,11 +29,13 @@ public class FileTransferService : IFileTransferService
         IFileLoaderRepository repository,
         ITransferClientFactory clientFactory,
         CompressionHelper compressionHelper,
+        IConfiguration configuration,
         ILogger<FileTransferService> logger)
     {
         _repository = repository;
         _clientFactory = clientFactory;
         _compressionHelper = compressionHelper;
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -699,8 +703,73 @@ public class FileTransferService : IFileTransferService
     }
 
     public async Task<DataResult<FolderWorkflowConfig>> SaveFolderConfigAsync(
-        FolderWorkflowConfig config, SecurityContext context)
+        FolderWorkflowRequest request, SecurityContext context)
     {
+        // Determine storage mode
+        var storageResult = await _repository.GetFolderStorageAsync();
+        var storageMode = storageResult.IsSuccess && storageResult.Data != null
+            ? storageResult.Data.StorageMode
+            : StorageMode.Local;
+
+        var typePath = string.IsNullOrEmpty(request.FileTypeCode) ? "default" : request.FileTypeCode;
+        FolderWorkflowConfig config;
+
+        if (storageMode == StorageMode.Local)
+        {
+            // Local: paths are fully derived from config — not user-configurable
+            var rootBase = _configuration["LocalStorage:BasePath"] ?? "/var/www";
+            var domain = context.Domain ?? "default";
+            var basePath = $"{rootBase}/{domain}/files";
+
+            config = new FolderWorkflowConfig
+            {
+                FileTypeCode = request.FileTypeCode,
+                TransferFolder = $"{basePath}/{typePath}/transfer",
+                ProcessingFolder = $"{basePath}/{typePath}/processing",
+                ProcessedFolder = $"{basePath}/{typePath}/processed",
+                ErrorsFolder = $"{basePath}/{typePath}/errors",
+                SkippedFolder = $"{basePath}/{typePath}/skipped",
+                ExampleFolder = $"{basePath}/{typePath}/example"
+            };
+        }
+        else
+        {
+            // FTP: user provides full paths on their FTP server
+            var folderPaths = new[]
+            {
+                (Name: "TransferFolder", Path: request.TransferFolder),
+                (Name: "ProcessingFolder", Path: request.ProcessingFolder),
+                (Name: "ProcessedFolder", Path: request.ProcessedFolder),
+                (Name: "ErrorsFolder", Path: request.ErrorsFolder),
+                (Name: "SkippedFolder", Path: request.SkippedFolder),
+                (Name: "ExampleFolder", Path: request.ExampleFolder)
+            };
+
+            foreach (var folder in folderPaths)
+            {
+                if (string.IsNullOrWhiteSpace(folder.Path))
+                {
+                    return new DataResult<FolderWorkflowConfig>
+                    {
+                        StatusCode = 400,
+                        ErrorCode = "FileLoading.InvalidFolderPath",
+                        ErrorMessage = $"{folder.Name} is required for FTP storage mode"
+                    };
+                }
+            }
+
+            config = new FolderWorkflowConfig
+            {
+                FileTypeCode = request.FileTypeCode,
+                TransferFolder = request.TransferFolder!,
+                ProcessingFolder = request.ProcessingFolder!,
+                ProcessedFolder = request.ProcessedFolder!,
+                ErrorsFolder = request.ErrorsFolder!,
+                SkippedFolder = request.SkippedFolder!,
+                ExampleFolder = request.ExampleFolder!
+            };
+        }
+
         config.CreatedBy = context.UserCode ?? "SYSTEM";
         config.UpdatedBy = context.UserCode ?? "SYSTEM";
 
@@ -853,12 +922,14 @@ public class FileTransferService : IFileTransferService
         string? fileType, SecurityContext context)
     {
         var domain = context.Domain ?? "default";
-        var basePath = $"/var/www/{domain}/files";
+        var rootBase = _configuration["LocalStorage:BasePath"] ?? "/var/www";
+        var basePath = $"{rootBase}/{domain}/files";
         var typePath = string.IsNullOrEmpty(fileType) ? "default" : fileType;
 
         var defaults = new FolderDefaultsResponse
         {
             FileTypeCode = fileType,
+            BasePath = basePath,
             TransferFolder = $"{basePath}/{typePath}/transfer",
             ProcessingFolder = $"{basePath}/{typePath}/processing",
             ProcessedFolder = $"{basePath}/{typePath}/processed",
