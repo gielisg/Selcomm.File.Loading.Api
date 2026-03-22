@@ -14,7 +14,7 @@ public class FileClassRecord
     public string FileClassCode { get; set; } = string.Empty;
 
     /// <summary>File class description.</summary>
-    public string FileClassNarr { get; set; } = string.Empty;
+    public string FileClass { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -27,7 +27,7 @@ public class FileTypeRecord
     public string FileTypeCode { get; set; } = string.Empty;
 
     /// <summary>File type description.</summary>
-    public string FileTypeNarr { get; set; } = string.Empty;
+    public string FileType { get; set; } = string.Empty;
 
     /// <summary>File class code (FK to file_class).</summary>
     public string FileClassCode { get; set; } = string.Empty;
@@ -36,10 +36,13 @@ public class FileTypeRecord
     public string? NetworkId { get; set; }
 
     /// <summary>File class description (populated by JOIN, read-only).</summary>
-    public string? FileClassNarr { get; set; }
+    public string? FileClass { get; set; }
 
     /// <summary>Network/vendor name (populated by JOIN, read-only).</summary>
-    public string? NetworkNarr { get; set; }
+    public string? Network { get; set; }
+
+    /// <summary>Updated by user (audit, not returned in GET).</summary>
+    public string? UpdatedBy { get; set; }
 }
 
 /// <summary>
@@ -70,7 +73,7 @@ public class FileTypeNtRecord
     public int? FreqFiles { get; set; }
 
     /// <summary>File type description (populated by JOIN, read-only).</summary>
-    public string? FileTypeNarr { get; set; }
+    public string? FileType { get; set; }
 
     /// <summary>Created by user.</summary>
     public string CreatedBy { get; set; } = string.Empty;
@@ -88,5 +91,5 @@ public class VendorRecord
     public string NetworkId { get; set; } = string.Empty;
 
     /// <summary>Network/vendor name.</summary>
-    public string NetworkNarr { get; set; } = string.Empty;
+    public string Network { get; set; } = string.Empty;
 }

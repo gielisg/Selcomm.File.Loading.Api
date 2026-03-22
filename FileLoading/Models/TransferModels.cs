@@ -716,11 +716,11 @@ public class FileWithStatus
     /// <summary>Current folder.</summary>
     public string CurrentFolder { get; set; } = string.Empty;
 
-    /// <summary>Transfer status.</summary>
-    public TransferStatus Status { get; set; }
+    /// <summary>Transfer status ID.</summary>
+    public TransferStatus StatusId { get; set; }
 
     /// <summary>Status description.</summary>
-    public string StatusDescription { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
 
     /// <summary>File size in bytes.</summary>
     public long? FileSize { get; set; }

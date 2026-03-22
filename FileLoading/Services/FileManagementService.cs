@@ -532,8 +532,8 @@ public class FileManagementService : IFileManagementService
                 FileName = transfer.FileName,
                 FileTypeCode = sourceResult.Data?.FileTypeCode,
                 CurrentFolder = transfer.CurrentFolder ?? "",
-                Status = transfer.Status,
-                StatusDescription = GetStatusDescription(transfer.Status),
+                StatusId = transfer.Status,
+                Status = GetStatus(transfer.Status),
                 FileSize = transfer.FileSize,
                 CreatedAt = transfer.CreatedAt,
                 CompletedAt = transfer.CompletedAt,
@@ -650,7 +650,7 @@ public class FileManagementService : IFileManagementService
         return null;
     }
 
-    private static string GetStatusDescription(TransferStatus status) => status switch
+    private static string GetStatus(TransferStatus status) => status switch
     {
         TransferStatus.Pending => "Pending",
         TransferStatus.Downloading => "Downloading",
@@ -691,9 +691,48 @@ public class FileManagementService : IFileManagementService
         };
     }
 
-    public async Task<DataResult<GenericFileFormatConfig>> SaveParserConfigAsync(GenericParserConfigRequest request, SecurityContext context)
+    public async Task<DataResult<GenericFileFormatConfig>> CreateParserConfigAsync(GenericParserConfigRequest request, SecurityContext context)
     {
-        // Map request to domain model
+        var existing = await _repository.GetGenericFileFormatConfigAsync(request.FileTypeCode);
+        if (existing != null)
+            return new DataResult<GenericFileFormatConfig> { StatusCode = 409, ErrorCode = "FileLoading.AlreadyExists", ErrorMessage = $"Parser config for '{request.FileTypeCode}' already exists" };
+
+        var (config, columnMappings) = MapParserRequest(request, context);
+
+        var result = await _repository.InsertGenericFileFormatConfigAsync(config);
+        if (!result.IsSuccess)
+            return new DataResult<GenericFileFormatConfig> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
+
+        if (columnMappings.Count > 0)
+            await _repository.InsertColumnMappingsBatchAsync(columnMappings);
+
+        var saved = await _repository.GetGenericFileFormatConfigAsync(request.FileTypeCode);
+        return new DataResult<GenericFileFormatConfig> { StatusCode = 201, Data = saved };
+    }
+
+    public async Task<DataResult<GenericFileFormatConfig>> UpdateParserConfigAsync(string fileTypeCode, GenericParserConfigRequest request, SecurityContext context)
+    {
+        var existing = await _repository.GetGenericFileFormatConfigAsync(fileTypeCode);
+        if (existing == null)
+            return new DataResult<GenericFileFormatConfig> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = $"Parser config for '{fileTypeCode}' not found" };
+
+        request.FileTypeCode = fileTypeCode;
+        var (config, columnMappings) = MapParserRequest(request, context);
+
+        var result = await _repository.UpdateGenericFileFormatConfigAsync(config);
+        if (!result.IsSuccess)
+            return new DataResult<GenericFileFormatConfig> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
+
+        await _repository.DeleteColumnMappingsAsync(fileTypeCode);
+        if (columnMappings.Count > 0)
+            await _repository.InsertColumnMappingsBatchAsync(columnMappings);
+
+        var saved = await _repository.GetGenericFileFormatConfigAsync(fileTypeCode);
+        return new DataResult<GenericFileFormatConfig> { StatusCode = 200, Data = saved };
+    }
+
+    private (GenericFileFormatConfig config, List<GenericColumnMapping> mappings) MapParserRequest(GenericParserConfigRequest request, SecurityContext context)
+    {
         var config = new GenericFileFormatConfig
         {
             FileTypeCode = request.FileTypeCode,
@@ -719,7 +758,7 @@ public class FileManagementService : IFileManagementService
             UpdatedBy = context.UserCode ?? "SYSTEM"
         };
 
-        var columnMappings = request.ColumnMappings.Select(m => new GenericColumnMapping
+        var mappings = request.ColumnMappings.Select(m => new GenericColumnMapping
         {
             FileTypeCode = request.FileTypeCode,
             ColumnIndex = m.ColumnIndex,
@@ -733,46 +772,7 @@ public class FileManagementService : IFileManagementService
             MaxLength = m.MaxLength
         }).ToList();
 
-        // Check if exists
-        var existing = await _repository.GetGenericFileFormatConfigAsync(request.FileTypeCode);
-        RawCommandResult result;
-
-        if (existing != null)
-        {
-            result = await _repository.UpdateGenericFileFormatConfigAsync(config);
-            if (result.IsSuccess)
-            {
-                await _repository.DeleteColumnMappingsAsync(request.FileTypeCode);
-                if (columnMappings.Count > 0)
-                    await _repository.InsertColumnMappingsBatchAsync(columnMappings);
-            }
-        }
-        else
-        {
-            result = await _repository.InsertGenericFileFormatConfigAsync(config);
-            if (result.IsSuccess && columnMappings.Count > 0)
-            {
-                await _repository.InsertColumnMappingsBatchAsync(columnMappings);
-            }
-        }
-
-        if (!result.IsSuccess)
-        {
-            return new DataResult<GenericFileFormatConfig>
-            {
-                StatusCode = 500,
-                ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError",
-                ErrorMessage = result.ErrorMessage
-            };
-        }
-
-        // Re-read from DB to confirm
-        var saved = await _repository.GetGenericFileFormatConfigAsync(request.FileTypeCode);
-        return new DataResult<GenericFileFormatConfig>
-        {
-            StatusCode = 200,
-            Data = saved
-        };
+        return (config, mappings);
     }
 
     public async Task<DataResult<bool>> DeleteParserConfigAsync(string fileTypeCode, SecurityContext context)
@@ -840,24 +840,40 @@ public class FileManagementService : IFileManagementService
         return await _repository.GetVendorAsync(networkId);
     }
 
-    public async Task<DataResult<VendorRecord>> SaveVendorAsync(VendorRecord record, SecurityContext context)
+    public async Task<DataResult<VendorRecord>> CreateVendorAsync(VendorRecord record, SecurityContext context)
     {
         var auth = await _repository.AuthoriseAsync(context, "VENDOR", record.NetworkId);
         if (!auth.IsSuccess)
             return new DataResult<VendorRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         var existing = await _repository.GetVendorAsync(record.NetworkId);
-        RawCommandResult result;
-
         if (existing.IsSuccess && existing.Data != null)
-            result = await _repository.UpdateVendorAsync(record);
-        else
-            result = await _repository.InsertVendorAsync(record);
+            return new DataResult<VendorRecord> { StatusCode = 409, ErrorCode = "FileLoading.AlreadyExists", ErrorMessage = $"Vendor '{record.NetworkId}' already exists" };
 
+        var result = await _repository.InsertVendorAsync(record);
         if (!result.IsSuccess)
             return new DataResult<VendorRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
 
         var saved = await _repository.GetVendorAsync(record.NetworkId);
+        return new DataResult<VendorRecord> { StatusCode = 201, Data = saved.Data };
+    }
+
+    public async Task<DataResult<VendorRecord>> UpdateVendorAsync(string networkId, VendorRecord record, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "VENDOR", networkId);
+        if (!auth.IsSuccess)
+            return new DataResult<VendorRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        var existing = await _repository.GetVendorAsync(networkId);
+        if (!existing.IsSuccess || existing.Data == null)
+            return new DataResult<VendorRecord> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = $"Vendor '{networkId}' not found" };
+
+        record.NetworkId = networkId;
+        var result = await _repository.UpdateVendorAsync(record);
+        if (!result.IsSuccess)
+            return new DataResult<VendorRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
+
+        var saved = await _repository.GetVendorAsync(networkId);
         return new DataResult<VendorRecord> { StatusCode = 200, Data = saved.Data };
     }
 
@@ -893,24 +909,40 @@ public class FileManagementService : IFileManagementService
         return await _repository.GetFileClassAsync(fileClassCode);
     }
 
-    public async Task<DataResult<FileClassRecord>> SaveFileClassAsync(FileClassRecord record, SecurityContext context)
+    public async Task<DataResult<FileClassRecord>> CreateFileClassAsync(FileClassRecord record, SecurityContext context)
     {
         var auth = await _repository.AuthoriseAsync(context, "FILE_CLASS", record.FileClassCode);
         if (!auth.IsSuccess)
             return new DataResult<FileClassRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
         var existing = await _repository.GetFileClassAsync(record.FileClassCode);
-        RawCommandResult result;
-
         if (existing.IsSuccess && existing.Data != null)
-            result = await _repository.UpdateFileClassAsync(record);
-        else
-            result = await _repository.InsertFileClassAsync(record);
+            return new DataResult<FileClassRecord> { StatusCode = 409, ErrorCode = "FileLoading.AlreadyExists", ErrorMessage = $"File class '{record.FileClassCode}' already exists" };
 
+        var result = await _repository.InsertFileClassAsync(record);
         if (!result.IsSuccess)
             return new DataResult<FileClassRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
 
         var saved = await _repository.GetFileClassAsync(record.FileClassCode);
+        return new DataResult<FileClassRecord> { StatusCode = 201, Data = saved.Data };
+    }
+
+    public async Task<DataResult<FileClassRecord>> UpdateFileClassAsync(string fileClassCode, FileClassRecord record, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "FILE_CLASS", fileClassCode);
+        if (!auth.IsSuccess)
+            return new DataResult<FileClassRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        var existing = await _repository.GetFileClassAsync(fileClassCode);
+        if (!existing.IsSuccess || existing.Data == null)
+            return new DataResult<FileClassRecord> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = $"File class '{fileClassCode}' not found" };
+
+        record.FileClassCode = fileClassCode;
+        var result = await _repository.UpdateFileClassAsync(record);
+        if (!result.IsSuccess)
+            return new DataResult<FileClassRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
+
+        var saved = await _repository.GetFileClassAsync(fileClassCode);
         return new DataResult<FileClassRecord> { StatusCode = 200, Data = saved.Data };
     }
 
@@ -946,41 +978,59 @@ public class FileManagementService : IFileManagementService
         return await _repository.GetFileTypeRecordAsync(fileTypeCode);
     }
 
-    public async Task<DataResult<FileTypeRecord>> SaveFileTypeAsync(FileTypeRecord record, SecurityContext context)
+    public async Task<DataResult<FileTypeRecord>> CreateFileTypeAsync(FileTypeRecord record, SecurityContext context)
     {
         var auth = await _repository.AuthoriseAsync(context, "FILE_TYPE", record.FileTypeCode);
         if (!auth.IsSuccess)
             return new DataResult<FileTypeRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
 
+        if (string.IsNullOrWhiteSpace(record.NetworkId))
+            return new DataResult<FileTypeRecord> { StatusCode = 400, ErrorCode = "FileLoading.ValidationError", ErrorMessage = "Vendor is required" };
+
         var existing = await _repository.GetFileTypeRecordAsync(record.FileTypeCode);
-        var isNew = !existing.IsSuccess || existing.Data == null;
-        RawCommandResult result;
+        if (existing.IsSuccess && existing.Data != null)
+            return new DataResult<FileTypeRecord> { StatusCode = 409, ErrorCode = "FileLoading.AlreadyExists", ErrorMessage = $"File type '{record.FileTypeCode}' already exists" };
 
-        if (!isNew)
-            result = await _repository.UpdateFileTypeAsync(record);
-        else
-            result = await _repository.InsertFileTypeAsync(record);
-
+        var result = await _repository.InsertFileTypeAsync(record);
         if (!result.IsSuccess)
             return new DataResult<FileTypeRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
 
         // Auto-create folder config and local folders for new file types
-        if (isNew)
+        var folderRequest = new FolderWorkflowRequest { FileTypeCode = record.FileTypeCode };
+        var folderSaveResult = await _transferService.SaveFolderConfigAsync(folderRequest, context);
+        if (folderSaveResult.IsSuccess)
         {
-            var folderRequest = new FolderWorkflowRequest { FileTypeCode = record.FileTypeCode };
-            var folderSaveResult = await _transferService.SaveFolderConfigAsync(folderRequest, context);
-            if (folderSaveResult.IsSuccess)
-            {
-                await _transferService.CreateFoldersAsync(record.FileTypeCode, context);
-                _logger.LogInformation("Auto-created folder config and directories for new file type {FileTypeCode}", record.FileTypeCode);
-            }
-            else
-            {
-                _logger.LogWarning("Failed to auto-create folder config for file type {FileTypeCode}: {Error}", record.FileTypeCode, folderSaveResult.ErrorMessage);
-            }
+            await _transferService.CreateFoldersAsync(record.FileTypeCode, context);
+            _logger.LogInformation("Auto-created folder config and directories for new file type {FileTypeCode}", record.FileTypeCode);
+        }
+        else
+        {
+            _logger.LogWarning("Failed to auto-create folder config for file type {FileTypeCode}: {Error}", record.FileTypeCode, folderSaveResult.ErrorMessage);
         }
 
         var saved = await _repository.GetFileTypeRecordAsync(record.FileTypeCode);
+        return new DataResult<FileTypeRecord> { StatusCode = 201, Data = saved.Data };
+    }
+
+    public async Task<DataResult<FileTypeRecord>> UpdateFileTypeAsync(string fileTypeCode, FileTypeRecord record, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "FILE_TYPE", fileTypeCode);
+        if (!auth.IsSuccess)
+            return new DataResult<FileTypeRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        if (string.IsNullOrWhiteSpace(record.NetworkId))
+            return new DataResult<FileTypeRecord> { StatusCode = 400, ErrorCode = "FileLoading.ValidationError", ErrorMessage = "Vendor is required" };
+
+        var existing = await _repository.GetFileTypeRecordAsync(fileTypeCode);
+        if (!existing.IsSuccess || existing.Data == null)
+            return new DataResult<FileTypeRecord> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = $"File type '{fileTypeCode}' not found" };
+
+        record.FileTypeCode = fileTypeCode;
+        var result = await _repository.UpdateFileTypeAsync(record);
+        if (!result.IsSuccess)
+            return new DataResult<FileTypeRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
+
+        var saved = await _repository.GetFileTypeRecordAsync(fileTypeCode);
         return new DataResult<FileTypeRecord> { StatusCode = 200, Data = saved.Data };
     }
 
@@ -1057,7 +1107,7 @@ public class FileManagementService : IFileManagementService
         return await _repository.GetFileTypeNtRecordAsync(fileTypeCode);
     }
 
-    public async Task<DataResult<FileTypeNtRecord>> SaveFileTypeNtAsync(FileTypeNtRecord record, SecurityContext context)
+    public async Task<DataResult<FileTypeNtRecord>> CreateFileTypeNtAsync(FileTypeNtRecord record, SecurityContext context)
     {
         var auth = await _repository.AuthoriseAsync(context, "FILE_TYPE_NT", record.FileTypeCode);
         if (!auth.IsSuccess)
@@ -1067,17 +1117,36 @@ public class FileManagementService : IFileManagementService
         record.UpdatedBy = context.UserCode ?? "SYSTEM";
 
         var existing = await _repository.GetFileTypeNtRecordAsync(record.FileTypeCode);
-        RawCommandResult result;
-
         if (existing.IsSuccess && existing.Data != null)
-            result = await _repository.UpdateFileTypeNtAsync(record);
-        else
-            result = await _repository.InsertFileTypeNtAsync(record);
+            return new DataResult<FileTypeNtRecord> { StatusCode = 409, ErrorCode = "FileLoading.AlreadyExists", ErrorMessage = $"File type NT '{record.FileTypeCode}' already exists" };
 
+        var result = await _repository.InsertFileTypeNtAsync(record);
         if (!result.IsSuccess)
             return new DataResult<FileTypeNtRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
 
         var saved = await _repository.GetFileTypeNtRecordAsync(record.FileTypeCode);
+        return new DataResult<FileTypeNtRecord> { StatusCode = 201, Data = saved.Data };
+    }
+
+    public async Task<DataResult<FileTypeNtRecord>> UpdateFileTypeNtAsync(string fileTypeCode, FileTypeNtRecord record, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "FILE_TYPE_NT", fileTypeCode);
+        if (!auth.IsSuccess)
+            return new DataResult<FileTypeNtRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        record.CreatedBy = context.UserCode ?? "SYSTEM";
+        record.UpdatedBy = context.UserCode ?? "SYSTEM";
+
+        var existing = await _repository.GetFileTypeNtRecordAsync(fileTypeCode);
+        if (!existing.IsSuccess || existing.Data == null)
+            return new DataResult<FileTypeNtRecord> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = $"File type NT '{fileTypeCode}' not found" };
+
+        record.FileTypeCode = fileTypeCode;
+        var result = await _repository.UpdateFileTypeNtAsync(record);
+        if (!result.IsSuccess)
+            return new DataResult<FileTypeNtRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
+
+        var saved = await _repository.GetFileTypeNtRecordAsync(fileTypeCode);
         return new DataResult<FileTypeNtRecord> { StatusCode = 200, Data = saved.Data };
     }
 

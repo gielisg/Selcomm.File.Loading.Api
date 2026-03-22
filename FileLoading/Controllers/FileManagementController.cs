@@ -706,28 +706,51 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// <summary>
     /// Create or update a generic parser configuration.
     /// </summary>
+    /// <param name="request">Parser configuration with column mappings</param>
+    [HttpPost("parsers")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_parsers")]
+    [Tags("Parser Configuration")]
+    [ProducesResponseType(typeof(GenericFileFormatConfig), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CreateParserConfig(
+        [FromBody] GenericParserConfigRequest request)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_parsers");
+            var result = await _managementService.CreateParserConfigAsync(request, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating parser config for fileTypeCode={FileTypeCode}", request.FileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Update an existing parser configuration.
+    /// </summary>
     /// <param name="fileTypeCode">File type code</param>
     /// <param name="request">Parser configuration with column mappings</param>
-    [HttpPut("parsers/{file-type-code}")]
-    [SwaggerOperation(OperationId = "put_api_v4_file_loading_parsers_file_type_code")]
+    [HttpPatch("parsers/{file-type-code}")]
+    [SwaggerOperation(OperationId = "patch_api_v4_file_loading_parsers_file_type_code")]
     [Tags("Parser Configuration")]
     [ProducesResponseType(typeof(GenericFileFormatConfig), StatusCodes.Status200OK)]
-    public async Task<IActionResult> SaveParserConfig(
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateParserConfig(
         [FromRoute(Name = "file-type-code")] string fileTypeCode,
         [FromBody] GenericParserConfigRequest request)
     {
         try
         {
-            request.FileTypeCode = fileTypeCode;
-
-            var securityContext = CreateSecurityContext("put_api_v4_file_loading_parsers_file_type_code");
-            var result = await _managementService.SaveParserConfigAsync(request, securityContext);
-
+            var securityContext = CreateSecurityContext("patch_api_v4_file_loading_parsers_file_type_code");
+            var result = await _managementService.UpdateParserConfigAsync(fileTypeCode, request, securityContext);
             return HandleDataResult(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error saving parser config for fileTypeCode={FileTypeCode}", fileTypeCode);
+            _logger.LogError(ex, "Error updating parser config for fileTypeCode={FileTypeCode}", fileTypeCode);
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }
@@ -1028,26 +1051,51 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// <summary>
     /// Create or update a vendor.
     /// </summary>
-    /// <param name="networkId">Network ID (CHAR(2))</param>
     /// <param name="record">Vendor record</param>
-    [HttpPut("vendors/{network-id}")]
-    [SwaggerOperation(OperationId = "put_api_v4_file_loading_vendors_network_id")]
+    [HttpPost("vendors")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_vendors")]
+    [Tags("Vendors")]
+    [ProducesResponseType(typeof(VendorRecord), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CreateVendor(
+        [FromBody] VendorRecord record)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_vendors");
+            var result = await _managementService.CreateVendorAsync(record, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating vendor networkId={NetworkId}", record.NetworkId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Update an existing vendor.
+    /// </summary>
+    /// <param name="networkId">Network ID</param>
+    /// <param name="record">Vendor record</param>
+    [HttpPatch("vendors/{network-id}")]
+    [SwaggerOperation(OperationId = "patch_api_v4_file_loading_vendors_network_id")]
     [Tags("Vendors")]
     [ProducesResponseType(typeof(VendorRecord), StatusCodes.Status200OK)]
-    public async Task<IActionResult> SaveVendor(
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateVendor(
         [FromRoute(Name = "network-id")] string networkId,
         [FromBody] VendorRecord record)
     {
         try
         {
-            record.NetworkId = networkId;
-            var securityContext = CreateSecurityContext("put_api_v4_file_loading_vendors_network_id");
-            var result = await _managementService.SaveVendorAsync(record, securityContext);
+            var securityContext = CreateSecurityContext("patch_api_v4_file_loading_vendors_network_id");
+            var result = await _managementService.UpdateVendorAsync(networkId, record, securityContext);
             return HandleDataResult(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error saving vendor networkId={NetworkId}", networkId);
+            _logger.LogError(ex, "Error updating vendor networkId={NetworkId}", networkId);
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }
@@ -1129,26 +1177,51 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// <summary>
     /// Create or update a file class.
     /// </summary>
+    /// <param name="record">File class record</param>
+    [HttpPost("file-classes")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_file_classes")]
+    [Tags("File Classes")]
+    [ProducesResponseType(typeof(FileClassRecord), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CreateFileClass(
+        [FromBody] FileClassRecord record)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_file_classes");
+            var result = await _managementService.CreateFileClassAsync(record, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating file class fileClassCode={FileClassCode}", record.FileClassCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Update an existing file class.
+    /// </summary>
     /// <param name="fileClassCode">File class code</param>
     /// <param name="record">File class record</param>
-    [HttpPut("file-classes/{file-class-code}")]
-    [SwaggerOperation(OperationId = "put_api_v4_file_loading_file_classes_file_class_code")]
+    [HttpPatch("file-classes/{file-class-code}")]
+    [SwaggerOperation(OperationId = "patch_api_v4_file_loading_file_classes_file_class_code")]
     [Tags("File Classes")]
     [ProducesResponseType(typeof(FileClassRecord), StatusCodes.Status200OK)]
-    public async Task<IActionResult> SaveFileClass(
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateFileClass(
         [FromRoute(Name = "file-class-code")] string fileClassCode,
         [FromBody] FileClassRecord record)
     {
         try
         {
-            record.FileClassCode = fileClassCode;
-            var securityContext = CreateSecurityContext("put_api_v4_file_loading_file_classes_file_class_code");
-            var result = await _managementService.SaveFileClassAsync(record, securityContext);
+            var securityContext = CreateSecurityContext("patch_api_v4_file_loading_file_classes_file_class_code");
+            var result = await _managementService.UpdateFileClassAsync(fileClassCode, record, securityContext);
             return HandleDataResult(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error saving file class fileClassCode={FileClassCode}", fileClassCode);
+            _logger.LogError(ex, "Error updating file class fileClassCode={FileClassCode}", fileClassCode);
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }
@@ -1232,24 +1305,50 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// </summary>
     /// <param name="fileTypeCode">File type code</param>
     /// <param name="record">File type record</param>
-    [HttpPut("file-types/{file-type-code}")]
-    [SwaggerOperation(OperationId = "put_api_v4_file_loading_file_types_file_type_code")]
+    [HttpPost("file-types")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_file_types")]
+    [Tags("File Types")]
+    [ProducesResponseType(typeof(FileTypeRecord), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CreateFileType(
+        [FromBody] FileTypeRecord record)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_file_types");
+            var result = await _managementService.CreateFileTypeAsync(record, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating file type fileTypeCode={FileTypeCode}", record.FileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Update an existing file type.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <param name="record">File type record</param>
+    [HttpPatch("file-types/{file-type-code}")]
+    [SwaggerOperation(OperationId = "patch_api_v4_file_loading_file_types_file_type_code")]
     [Tags("File Types")]
     [ProducesResponseType(typeof(FileTypeRecord), StatusCodes.Status200OK)]
-    public async Task<IActionResult> SaveFileType(
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateFileType(
         [FromRoute(Name = "file-type-code")] string fileTypeCode,
         [FromBody] FileTypeRecord record)
     {
         try
         {
-            record.FileTypeCode = fileTypeCode;
-            var securityContext = CreateSecurityContext("put_api_v4_file_loading_file_types_file_type_code");
-            var result = await _managementService.SaveFileTypeAsync(record, securityContext);
+            var securityContext = CreateSecurityContext("patch_api_v4_file_loading_file_types_file_type_code");
+            var result = await _managementService.UpdateFileTypeAsync(fileTypeCode, record, securityContext);
             return HandleDataResult(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error saving file type fileTypeCode={FileTypeCode}", fileTypeCode);
+            _logger.LogError(ex, "Error updating file type fileTypeCode={FileTypeCode}", fileTypeCode);
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }
@@ -1335,24 +1434,50 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// </summary>
     /// <param name="fileTypeCode">File type code</param>
     /// <param name="record">File type NT record</param>
-    [HttpPut("file-types-nt/{file-type-code}")]
-    [SwaggerOperation(OperationId = "put_api_v4_file_loading_file_types_nt_file_type_code")]
+    [HttpPost("file-types-nt")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_file_types_nt")]
+    [Tags("File Types NT")]
+    [ProducesResponseType(typeof(FileTypeNtRecord), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CreateFileTypeNt(
+        [FromBody] FileTypeNtRecord record)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_file_types_nt");
+            var result = await _managementService.CreateFileTypeNtAsync(record, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating file type NT for fileTypeCode={FileTypeCode}", record.FileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Update an existing file type NT record.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <param name="record">File type NT record</param>
+    [HttpPatch("file-types-nt/{file-type-code}")]
+    [SwaggerOperation(OperationId = "patch_api_v4_file_loading_file_types_nt_file_type_code")]
     [Tags("File Types NT")]
     [ProducesResponseType(typeof(FileTypeNtRecord), StatusCodes.Status200OK)]
-    public async Task<IActionResult> SaveFileTypeNt(
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateFileTypeNt(
         [FromRoute(Name = "file-type-code")] string fileTypeCode,
         [FromBody] FileTypeNtRecord record)
     {
         try
         {
-            record.FileTypeCode = fileTypeCode;
-            var securityContext = CreateSecurityContext("put_api_v4_file_loading_file_types_nt_file_type_code");
-            var result = await _managementService.SaveFileTypeNtAsync(record, securityContext);
+            var securityContext = CreateSecurityContext("patch_api_v4_file_loading_file_types_nt_file_type_code");
+            var result = await _managementService.UpdateFileTypeNtAsync(fileTypeCode, record, securityContext);
             return HandleDataResult(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error saving file type NT for fileTypeCode={FileTypeCode}", fileTypeCode);
+            _logger.LogError(ex, "Error updating file type NT for fileTypeCode={FileTypeCode}", fileTypeCode);
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }

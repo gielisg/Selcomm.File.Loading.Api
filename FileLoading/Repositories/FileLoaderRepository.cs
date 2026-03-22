@@ -133,7 +133,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                 NtFileDate = reader.IsDBNull(4) ? null : reader.GetDateTime(4),
                 NtFileSeq = reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
                 StatusId = reader.IsDBNull(6) ? 0 : reader.GetInt32(6),
-                StatusDescription = reader.IsDBNull(9) ? string.Empty : reader.GetString(9).Trim(),
+                Status = reader.IsDBNull(9) ? string.Empty : reader.GetString(9).Trim(),
                 TotalRecords = reader.IsDBNull(10) ? null : reader.GetInt32(10),
                 TotalCost = reader.IsDBNull(11) ? null : reader.GetDecimal(11),
                 EarliestCall = reader.IsDBNull(12) ? null : reader.GetDateTime(12),
@@ -225,7 +225,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                 NtFileDate = item.TryGetProperty("NtFileDate", out var v5) && v5.ValueKind != JsonValueKind.Null ? DateTime.Parse(v5.GetString()!) : null,
                 NtFileSeq = item.TryGetProperty("NtFileSeq", out var v6) ? v6.GetInt32() : 0,
                 StatusId = item.TryGetProperty("StatusId", out var v7) ? v7.GetInt32() : 0,
-                StatusDescription = item.TryGetProperty("StatusNarr", out var v8) ? v8.GetString()?.Trim() ?? string.Empty : string.Empty,
+                Status = item.TryGetProperty("StatusNarr", out var v8) ? v8.GetString()?.Trim() ?? string.Empty : string.Empty,
                 TotalRecords = item.TryGetProperty("NtTotRec", out var v9) && v9.ValueKind != JsonValueKind.Null ? v9.GetInt32() : null,
                 TotalCost = item.TryGetProperty("NtTotCost", out var v10) && v10.ValueKind != JsonValueKind.Null ? v10.GetDecimal() : null,
                 CreatedTm = item.TryGetProperty("CreatedTm", out var v11) && v11.ValueKind != JsonValueKind.Null ? DateTime.Parse(v11.GetString()!) : null
@@ -781,17 +781,23 @@ public class FileLoaderRepository : IFileLoaderRepository
 
     public async Task<DataResult<FileTypeListResponse>> GetFileTypesAsync(SecurityContext securityContext)
     {
-        var sql = @"SELECT file_type_code, file_class_code, file_type_narr
-                    FROM file_type ORDER BY file_type_code";
+        var sql = @"SELECT ft.file_type_code, ft.file_class_code, ft.file_type_narr,
+                           fc.file_class_narr, ft.network_id, n.network_narr
+                    FROM file_type ft
+                    LEFT OUTER JOIN file_class fc ON ft.file_class_code = fc.file_class_code
+                    LEFT OUTER JOIN networks n ON ft.network_id = n.network_id
+                    ORDER BY ft.file_type_code";
 
         var result = _dbContext.ExecuteRawQuery<FileTypeInfo>(
             sql,
             reader => new FileTypeInfo
             {
-                Code = reader.GetString(0).Trim(),
+                FileTypeCode = reader.GetString(0).Trim(),
                 FileClassCode = reader.IsDBNull(1) ? string.Empty : reader.GetString(1).Trim(),
-                Description = reader.IsDBNull(2) ? string.Empty : reader.GetString(2).Trim(),
-                FileClassDescription = reader.IsDBNull(1) ? string.Empty : reader.GetString(1).Trim()
+                FileType = reader.IsDBNull(2) ? string.Empty : reader.GetString(2).Trim(),
+                FileClass = reader.IsDBNull(3) ? string.Empty : reader.GetString(3).Trim(),
+                NetworkId = reader.IsDBNull(4) ? null : reader.GetString(4).Trim(),
+                Network = reader.IsDBNull(5) ? null : reader.GetString(5).Trim()
             }
         );
 
@@ -1755,8 +1761,8 @@ public class FileLoaderRepository : IFileLoaderRepository
                 TransferId = reader.GetInt32(0),
                 NtFileNum = reader.IsDBNull(1) ? null : reader.GetInt32(1),
                 FileName = reader.GetString(2).Trim(),
-                Status = (TransferStatus)reader.GetInt32(3),
-                StatusDescription = GetStatusDescription((TransferStatus)reader.GetInt32(3)),
+                StatusId = (TransferStatus)reader.GetInt32(3),
+                Status = GetStatus((TransferStatus)reader.GetInt32(3)),
                 CurrentFolder = reader.IsDBNull(4) ? string.Empty : reader.GetString(4).Trim(),
                 FileSize = reader.IsDBNull(5) ? null : reader.GetInt64(5),
                 CreatedAt = reader.IsDBNull(6) ? DateTime.Now : reader.GetDateTime(6),
@@ -2591,7 +2597,7 @@ public class FileLoaderRepository : IFileLoaderRepository
         _ => CompressionMethod.GZip
     };
 
-    private static string GetStatusDescription(TransferStatus status) => status switch
+    private static string GetStatus(TransferStatus status) => status switch
     {
         TransferStatus.Pending => "Pending",
         TransferStatus.Downloading => "Downloading",
@@ -2616,7 +2622,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             reader => new VendorRecord
             {
                 NetworkId = reader.GetString(0).Trim(),
-                NetworkNarr = reader.IsDBNull(1) ? string.Empty : reader.GetString(1).Trim()
+                Network = reader.IsDBNull(1) ? string.Empty : reader.GetString(1).Trim()
             }
         );
 
@@ -2647,7 +2653,7 @@ public class FileLoaderRepository : IFileLoaderRepository
         return _dbContext.ExecuteRawCommand(
             "INSERT INTO networks (network_id, network_narr) VALUES (?, ?)",
             ("@p1", record.NetworkId, DbType.String, 2),
-            ("@p2", record.NetworkNarr, DbType.String, 64)
+            ("@p2", record.Network, DbType.String, 64)
         );
     }
 
@@ -2655,7 +2661,7 @@ public class FileLoaderRepository : IFileLoaderRepository
     {
         return _dbContext.ExecuteRawCommand(
             "UPDATE networks SET network_narr = ? WHERE network_id = ?",
-            ("@p1", record.NetworkNarr, DbType.String, 64),
+            ("@p1", record.Network, DbType.String, 64),
             ("@p2", record.NetworkId, DbType.String, 2)
         );
     }
@@ -2681,7 +2687,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             reader => new FileClassRecord
             {
                 FileClassCode = reader.GetString(0).Trim(),
-                FileClassNarr = reader.IsDBNull(1) ? string.Empty : reader.GetString(1).Trim()
+                FileClass = reader.IsDBNull(1) ? string.Empty : reader.GetString(1).Trim()
             }
         );
 
@@ -2712,7 +2718,7 @@ public class FileLoaderRepository : IFileLoaderRepository
         return _dbContext.ExecuteRawCommand(
             "INSERT INTO file_class (file_class_code, file_class_narr) VALUES (?, ?)",
             ("@p1", record.FileClassCode, DbType.String, 10),
-            ("@p2", record.FileClassNarr, DbType.String, 64)
+            ("@p2", record.FileClass, DbType.String, 64)
         );
     }
 
@@ -2720,7 +2726,7 @@ public class FileLoaderRepository : IFileLoaderRepository
     {
         return _dbContext.ExecuteRawCommand(
             "UPDATE file_class SET file_class_narr = ? WHERE file_class_code = ?",
-            ("@p1", record.FileClassNarr, DbType.String, 64),
+            ("@p1", record.FileClass, DbType.String, 64),
             ("@p2", record.FileClassCode, DbType.String, 10)
         );
     }
@@ -2751,11 +2757,11 @@ public class FileLoaderRepository : IFileLoaderRepository
             reader => new FileTypeRecord
             {
                 FileTypeCode = reader.GetString(0).Trim(),
-                FileTypeNarr = reader.IsDBNull(1) ? string.Empty : reader.GetString(1).Trim(),
+                FileType = reader.IsDBNull(1) ? string.Empty : reader.GetString(1).Trim(),
                 FileClassCode = reader.IsDBNull(2) ? string.Empty : reader.GetString(2).Trim(),
                 NetworkId = reader.IsDBNull(3) ? null : reader.GetString(3).Trim(),
-                FileClassNarr = reader.IsDBNull(4) ? null : reader.GetString(4).Trim(),
-                NetworkNarr = reader.IsDBNull(5) ? null : reader.GetString(5).Trim()
+                FileClass = reader.IsDBNull(4) ? null : reader.GetString(4).Trim(),
+                Network = reader.IsDBNull(5) ? null : reader.GetString(5).Trim()
             }
         );
 
@@ -2784,10 +2790,11 @@ public class FileLoaderRepository : IFileLoaderRepository
     public async Task<RawCommandResult> InsertFileTypeAsync(FileTypeRecord record)
     {
         return _dbContext.ExecuteRawCommand(
-            "INSERT INTO file_type (file_type_code, file_type_narr, file_class_code, network_id) VALUES (?, ?, ?, ?)",
+            @"INSERT INTO file_type (file_type_code, file_type_narr, file_class_code, network_id, comp_dll)
+              VALUES (?, ?, ?, ?, 'none')",
             ("@p1", record.FileTypeCode, DbType.String, 10),
-            ("@p2", record.FileTypeNarr, DbType.String, 64),
-            ("@p3", record.FileClassCode, DbType.String, 10),
+            ("@p2", record.FileType, DbType.String, 32),
+            ("@p3", record.FileClassCode, DbType.String, 3),
             ("@p4", record.NetworkId, DbType.String, 2)
         );
     }
@@ -2796,8 +2803,8 @@ public class FileLoaderRepository : IFileLoaderRepository
     {
         return _dbContext.ExecuteRawCommand(
             "UPDATE file_type SET file_type_narr = ?, file_class_code = ?, network_id = ? WHERE file_type_code = ?",
-            ("@p1", record.FileTypeNarr, DbType.String, 64),
-            ("@p2", record.FileClassCode, DbType.String, 10),
+            ("@p1", record.FileType, DbType.String, 32),
+            ("@p2", record.FileClassCode, DbType.String, 3),
             ("@p3", record.NetworkId, DbType.String, 2),
             ("@p4", record.FileTypeCode, DbType.String, 10)
         );
@@ -2843,7 +2850,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                 PlanCode = reader.IsDBNull(4) ? null : (int?)reader.GetInt32(4),
                 ExpectedFreq = reader.IsDBNull(5) ? null : reader.GetString(5).Trim(),
                 FreqFiles = reader.IsDBNull(6) ? null : (int?)reader.GetInt32(6),
-                FileTypeNarr = reader.IsDBNull(7) ? null : reader.GetString(7).Trim()
+                FileType = reader.IsDBNull(7) ? null : reader.GetString(7).Trim()
             },
             parameters
         );

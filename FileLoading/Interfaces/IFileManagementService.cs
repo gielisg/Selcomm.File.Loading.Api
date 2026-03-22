@@ -220,7 +220,8 @@ public interface IFileManagementService
     /// </summary>
     /// <param name="request">Parser config request</param>
     /// <param name="context">Security context</param>
-    Task<DataResult<GenericFileFormatConfig>> SaveParserConfigAsync(GenericParserConfigRequest request, SecurityContext context);
+    Task<DataResult<GenericFileFormatConfig>> CreateParserConfigAsync(GenericParserConfigRequest request, SecurityContext context);
+    Task<DataResult<GenericFileFormatConfig>> UpdateParserConfigAsync(string fileTypeCode, GenericParserConfigRequest request, SecurityContext context);
 
     /// <summary>
     /// Delete a generic parser configuration and its column mappings.
@@ -235,7 +236,8 @@ public interface IFileManagementService
 
     Task<DataResult<List<VendorRecord>>> GetVendorsAsync(SecurityContext context);
     Task<DataResult<VendorRecord>> GetVendorAsync(string networkId, SecurityContext context);
-    Task<DataResult<VendorRecord>> SaveVendorAsync(VendorRecord record, SecurityContext context);
+    Task<DataResult<VendorRecord>> CreateVendorAsync(VendorRecord record, SecurityContext context);
+    Task<DataResult<VendorRecord>> UpdateVendorAsync(string networkId, VendorRecord record, SecurityContext context);
     Task<DataResult<bool>> DeleteVendorAsync(string networkId, SecurityContext context);
 
     // ============================================
@@ -244,7 +246,8 @@ public interface IFileManagementService
 
     Task<DataResult<List<FileClassRecord>>> GetFileClassesAsync(SecurityContext context);
     Task<DataResult<FileClassRecord>> GetFileClassAsync(string fileClassCode, SecurityContext context);
-    Task<DataResult<FileClassRecord>> SaveFileClassAsync(FileClassRecord record, SecurityContext context);
+    Task<DataResult<FileClassRecord>> CreateFileClassAsync(FileClassRecord record, SecurityContext context);
+    Task<DataResult<FileClassRecord>> UpdateFileClassAsync(string fileClassCode, FileClassRecord record, SecurityContext context);
     Task<DataResult<bool>> DeleteFileClassAsync(string fileClassCode, SecurityContext context);
 
     // ============================================
@@ -253,7 +256,8 @@ public interface IFileManagementService
 
     Task<DataResult<List<FileTypeRecord>>> GetFileTypesAsync(SecurityContext context);
     Task<DataResult<FileTypeRecord>> GetFileTypeAsync(string fileTypeCode, SecurityContext context);
-    Task<DataResult<FileTypeRecord>> SaveFileTypeAsync(FileTypeRecord record, SecurityContext context);
+    Task<DataResult<FileTypeRecord>> CreateFileTypeAsync(FileTypeRecord record, SecurityContext context);
+    Task<DataResult<FileTypeRecord>> UpdateFileTypeAsync(string fileTypeCode, FileTypeRecord record, SecurityContext context);
     Task<DataResult<bool>> DeleteFileTypeAsync(string fileTypeCode, SecurityContext context);
 
     // ============================================
@@ -262,7 +266,8 @@ public interface IFileManagementService
 
     Task<DataResult<List<FileTypeNtRecord>>> GetFileTypeNtRecordsAsync(string? fileTypeCode, SecurityContext context);
     Task<DataResult<FileTypeNtRecord>> GetFileTypeNtAsync(string fileTypeCode, SecurityContext context);
-    Task<DataResult<FileTypeNtRecord>> SaveFileTypeNtAsync(FileTypeNtRecord record, SecurityContext context);
+    Task<DataResult<FileTypeNtRecord>> CreateFileTypeNtAsync(FileTypeNtRecord record, SecurityContext context);
+    Task<DataResult<FileTypeNtRecord>> UpdateFileTypeNtAsync(string fileTypeCode, FileTypeNtRecord record, SecurityContext context);
     Task<DataResult<bool>> DeleteFileTypeNtAsync(string fileTypeCode, SecurityContext context);
 }
 

@@ -101,7 +101,7 @@ public class FileLoaderService : IFileLoaderService
 
             // Get file class code for determining which table to insert into
             var fileTypesResult = await _repository.GetFileTypesAsync(securityContext);
-            var fileTypeInfo = fileTypesResult.Data?.Items.FirstOrDefault(t => t.Code == request.FileType);
+            var fileTypeInfo = fileTypesResult.Data?.Items.FirstOrDefault(t => t.FileTypeCode == request.FileType);
             var fileClassCode = fileTypeInfo?.FileClassCode ?? "CDR";
 
             // Step 2-4: Process file synchronously (parse all, then insert if valid)

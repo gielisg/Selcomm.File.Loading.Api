@@ -194,7 +194,7 @@ public class FileStatusResponse
     public int StatusId { get; set; }
 
     /// <summary>Status description.</summary>
-    public string StatusDescription { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
 
     /// <summary>File date.</summary>
     public DateTime? NtFileDate { get; set; }
@@ -231,28 +231,22 @@ public class FileTypeListResponse
 public class FileTypeInfo
 {
     /// <summary>File type code.</summary>
-    public string Code { get; set; } = string.Empty;
+    public string FileTypeCode { get; set; } = string.Empty;
 
     /// <summary>File type description.</summary>
-    public string Description { get; set; } = string.Empty;
+    public string FileType { get; set; } = string.Empty;
 
     /// <summary>File class code (CDR, CHG, etc.).</summary>
     public string FileClassCode { get; set; } = string.Empty;
 
     /// <summary>File class description.</summary>
-    public string FileClassDescription { get; set; } = string.Empty;
+    public string FileClass { get; set; } = string.Empty;
 
-    /// <summary>Network customer number.</summary>
-    public string NtCustNum { get; set; } = string.Empty;
+    /// <summary>Network/vendor ID.</summary>
+    public string? NetworkId { get; set; }
 
-    /// <summary>File name pattern.</summary>
-    public string NtFileName { get; set; } = string.Empty;
-
-    /// <summary>Skip header records count.</summary>
-    public int? SkipHdr { get; set; }
-
-    /// <summary>Skip trailer records count.</summary>
-    public int? SkipTlr { get; set; }
+    /// <summary>Network/vendor name.</summary>
+    public string? Network { get; set; }
 }
 
 // ============================================

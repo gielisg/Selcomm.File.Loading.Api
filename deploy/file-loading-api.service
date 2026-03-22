@@ -37,6 +37,7 @@ RestrictNamespaces=true
 
 ReadWritePaths=/var/log/file-loading-api
 ReadWritePaths=/var/www/api/v4/file_loading_api/logs
+ReadWritePaths=/var/www
 
 TimeoutStartSec=30
 TimeoutStopSec=30
