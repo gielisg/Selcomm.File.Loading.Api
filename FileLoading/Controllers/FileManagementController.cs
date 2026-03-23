@@ -45,10 +45,15 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Get dashboard summary data including file counts by folder and transfer source statuses.
     /// </summary>
     /// <param name="fileType">Filter by file type code</param>
+    /// <response code="200">Dashboard data returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("dashboard")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_dashboard")]
     [Tags("File Management")]
     [ProducesResponseType(typeof(FileManagementDashboard), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetDashboard(
         [FromQuery(Name = "fileType")] string? fileType = null)
     {
@@ -71,12 +76,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     // ============================================
 
     /// <summary>
-    /// List files in the transfer workflow with filtering. Supports domain, file-type, folder, status, date range, and filename search filters.
+    /// List files in the transfer workflow with filtering.
     /// </summary>
+    /// <param name="request">Filter parameters including file type, folder, status, date range, and filename search</param>
+    /// <response code="200">File list returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("manager/files")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_manager_files")]
     [Tags("File Management")]
     [ProducesResponseType(typeof(FileListWithStatusResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> ListFiles([FromQuery] FileListFilterRequest request)
     {
         try
@@ -109,11 +120,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Get file details by transfer-id (the workflow tracking key).
     /// </summary>
     /// <param name="transferId">Transfer record ID</param>
+    /// <response code="200">File details returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Transfer record not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("manager/files/{transfer-id}")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_manager_files_transfer_id")]
     [Tags("File Management")]
     [ProducesResponseType(typeof(FileWithStatus), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetFileDetails([FromRoute(Name = "transfer-id")] int transferId)
     {
         try
@@ -138,11 +155,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Fetch files from a transfer source (SFTP/FTP/FileSystem).
     /// </summary>
     /// <param name="sourceId">Transfer source ID (auto-generated integer)</param>
+    /// <response code="200">Files fetched successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Transfer source not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpPost("transfers/{source-id}/fetch")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_transfers_source_id_fetch")]
     [Tags("Transfer Operations")]
     [ProducesResponseType(typeof(TransferFetchResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> FetchFromSource([FromRoute(Name = "source-id")] int sourceId)
     {
         try
@@ -165,11 +188,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Process a file from the transfer workflow.
     /// </summary>
     /// <param name="transferId">Transfer record ID</param>
+    /// <response code="200">File processed successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Transfer record not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpPost("manager/files/{transfer-id}/process")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_manager_files_transfer_id_process")]
     [Tags("File Management")]
     [ProducesResponseType(typeof(FileLoadResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> ProcessFile([FromRoute(Name = "transfer-id")] int transferId)
     {
         try
@@ -192,11 +221,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Retry processing a failed file.
     /// </summary>
     /// <param name="transferId">Transfer record ID</param>
+    /// <response code="200">File reprocessed successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Transfer record not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpPost("manager/files/{transfer-id}/retry")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_manager_files_transfer_id_retry")]
     [Tags("File Management")]
     [ProducesResponseType(typeof(FileLoadResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> RetryProcessing([FromRoute(Name = "transfer-id")] int transferId)
     {
         try
@@ -221,11 +256,19 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// <param name="transferId">Transfer record ID</param>
     /// <param name="folder">Target folder name</param>
     /// <param name="reason">Optional reason for the move</param>
+    /// <response code="200">File moved successfully</response>
+    /// <response code="400">Invalid folder name</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Transfer record not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpPost("manager/files/{transfer-id}/move")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_manager_files_transfer_id_move")]
     [Tags("File Management")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> MoveFile(
         [FromRoute(Name = "transfer-id")] int transferId,
         [FromQuery] string folder,
@@ -248,14 +291,20 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     }
 
     /// <summary>
-    /// Unload a loaded file (reverse the load operation). Uses nt-file-num because it operates on the database record created at load time.
+    /// Unload a loaded file (reverse the load operation).
     /// </summary>
     /// <param name="ntFileNum">File number (nt_file_num) — the database record key</param>
+    /// <response code="200">File unloaded successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">File record not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpPost("manager/files/{nt-file-num}/unload")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_manager_files_nt_file_num_unload")]
     [Tags("File Management")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> UnloadFile([FromRoute(Name = "nt-file-num")] int ntFileNum)
     {
         try
@@ -275,16 +324,22 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     }
 
     /// <summary>
-    /// Force skip a sequence number. Uses nt-file-num because it operates on the database record created at load time.
+    /// Force skip a sequence number.
     /// </summary>
     /// <param name="ntFileNum">File number (nt_file_num) — the database record key</param>
     /// <param name="skipToSeq">Sequence number to skip to</param>
     /// <param name="reason">Optional reason for skipping</param>
+    /// <response code="200">Sequence skipped successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">File record not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpPost("manager/files/{nt-file-num}/skip-sequence")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_manager_files_nt_file_num_skip_sequence")]
     [Tags("File Management")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> ForceSequenceSkip(
         [FromRoute(Name = "nt-file-num")] int ntFileNum,
         [FromQuery(Name = "skipTo")] int skipToSeq,
@@ -310,11 +365,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Download a file to browser.
     /// </summary>
     /// <param name="transferId">Transfer record ID</param>
+    /// <response code="200">File content returned as download</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Transfer record not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("manager/files/{transfer-id}/download")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_manager_files_transfer_id_download")]
     [Tags("File Management")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> DownloadFile([FromRoute(Name = "transfer-id")] int transferId)
     {
         try
@@ -341,11 +402,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Delete a file from the workflow.
     /// </summary>
     /// <param name="transferId">Transfer record ID</param>
+    /// <response code="200">File deleted successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Transfer record not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpDelete("manager/files/{transfer-id}")]
     [SwaggerOperation(OperationId = "delete_api_v4_file_loading_manager_files_transfer_id")]
     [Tags("File Management")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> DeleteFile([FromRoute(Name = "transfer-id")] int transferId)
     {
         try
@@ -374,10 +441,15 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// <param name="ntFileNum">Filter by file number</param>
     /// <param name="transferId">Filter by transfer record ID</param>
     /// <param name="maxRecords">Maximum records to return (default 100)</param>
+    /// <response code="200">Activity log entries returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("activity")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_activity")]
     [Tags("Activity Log")]
     [ProducesResponseType(typeof(List<FileActivityLog>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetActivityLog(
         [FromQuery(Name = "ntFileNum")] int? ntFileNum = null,
         [FromQuery(Name = "transferId")] int? transferId = null,
@@ -405,11 +477,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Get AI-friendly validation summary for a loaded file.
     /// </summary>
     /// <param name="ntFileNum">File number (nt_file_num)</param>
+    /// <response code="200">Validation summary returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">File record not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("files/{nt-file-num}/validation-summary")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_files_nt_file_num_validation_summary")]
     [Tags("Validation")]
     [ProducesResponseType(typeof(ValidationSummaryForAI), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetValidationSummary([FromRoute(Name = "nt-file-num")] int ntFileNum)
     {
         try
@@ -435,10 +513,15 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// </summary>
     /// <param name="fileType">Filter by file type code</param>
     /// <param name="maxRecords">Maximum records to return (default 100)</param>
+    /// <response code="200">Error files returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("exceptions/errors")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_exceptions_errors")]
     [Tags("Exceptions")]
     [ProducesResponseType(typeof(List<FileWithStatus>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetFilesWithErrors(
         [FromQuery(Name = "fileType")] string? fileType = null,
         [FromQuery(Name = "maxRecords")] int maxRecords = 100)
@@ -462,10 +545,15 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// </summary>
     /// <param name="fileType">Filter by file type code</param>
     /// <param name="maxRecords">Maximum records to return (default 100)</param>
+    /// <response code="200">Skipped files returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("exceptions/skipped")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_exceptions_skipped")]
     [Tags("Exceptions")]
     [ProducesResponseType(typeof(List<FileWithStatus>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetSkippedFiles(
         [FromQuery(Name = "fileType")] string? fileType = null,
         [FromQuery(Name = "maxRecords")] int maxRecords = 100)
@@ -491,10 +579,15 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// <summary>
     /// List all transfer source configurations.
     /// </summary>
+    /// <response code="200">Transfer sources returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("sources")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_sources")]
     [Tags("Transfer Sources")]
     [ProducesResponseType(typeof(List<TransferSourceConfig>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetTransferSources()
     {
         try
@@ -515,11 +608,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Get a specific transfer source configuration.
     /// </summary>
     /// <param name="sourceId">Source ID (auto-generated integer)</param>
+    /// <response code="200">Transfer source returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Transfer source not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("sources/{source-id}")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_sources_source_id")]
     [Tags("Transfer Sources")]
     [ProducesResponseType(typeof(TransferSourceConfig), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetTransferSource([FromRoute(Name = "source-id")] int sourceId)
     {
         try
@@ -541,10 +640,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// </summary>
     /// <param name="sourceId">Source ID (0 for create, existing ID for update)</param>
     /// <param name="request">Transfer source configuration</param>
+    /// <response code="200">Transfer source saved successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpPut("sources/{source-id}")]
     [SwaggerOperation(OperationId = "put_api_v4_file_loading_sources_source_id")]
     [Tags("Transfer Sources")]
     [ProducesResponseType(typeof(TransferSourceConfig), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> SaveTransferSource(
         [FromRoute(Name = "source-id")] int sourceId,
         [FromBody] TransferSourceRequest request)
@@ -569,11 +675,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Delete a transfer source configuration.
     /// </summary>
     /// <param name="sourceId">Source ID</param>
+    /// <response code="200">Transfer source deleted successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Transfer source not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpDelete("sources/{source-id}")]
     [SwaggerOperation(OperationId = "delete_api_v4_file_loading_sources_source_id")]
     [Tags("Transfer Sources")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> DeleteTransferSource([FromRoute(Name = "source-id")] int sourceId)
     {
         try
@@ -594,11 +706,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Test connection to a saved transfer source.
     /// </summary>
     /// <param name="sourceId">Source ID</param>
+    /// <response code="200">Connection test successful</response>
+    /// <response code="400">Connection test failed</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpPost("sources/{source-id}/test")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_sources_source_id_test")]
     [Tags("Transfer Sources")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> TestSourceConnection([FromRoute(Name = "source-id")] int sourceId)
     {
         try
@@ -624,11 +742,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Test connection with provided configuration (without saving).
     /// </summary>
     /// <param name="request">Transfer source configuration to test</param>
+    /// <response code="200">Connection test successful</response>
+    /// <response code="400">Connection test failed</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpPost("sources/test")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_sources_test")]
     [Tags("Transfer Sources")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> TestSourceConnectionWithConfig([FromBody] TransferSourceRequest request)
     {
         try
@@ -658,10 +782,15 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// List all generic parser configurations.
     /// </summary>
     /// <param name="active">Filter by active status</param>
+    /// <response code="200">Parser configurations returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("parsers")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_parsers")]
     [Tags("Parser Configuration")]
     [ProducesResponseType(typeof(List<GenericFileFormatConfig>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetParserConfigs([FromQuery] bool? active = null)
     {
         try
@@ -682,11 +811,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Get a specific generic parser configuration with column mappings.
     /// </summary>
     /// <param name="fileTypeCode">File type code</param>
+    /// <response code="200">Parser configuration returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Parser configuration not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("parsers/{file-type-code}")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_parsers_file_type_code")]
     [Tags("Parser Configuration")]
     [ProducesResponseType(typeof(GenericFileFormatConfig), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetParserConfig([FromRoute(Name = "file-type-code")] string fileTypeCode)
     {
         try
@@ -704,14 +839,22 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     }
 
     /// <summary>
-    /// Create or update a generic parser configuration.
+    /// Create a new generic parser configuration.
     /// </summary>
     /// <param name="request">Parser configuration with column mappings</param>
+    /// <response code="201">Parser configuration created successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="409">Parser configuration already exists for this file type code</response>
+    /// <response code="500">Internal server error</response>
     [HttpPost("parsers")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_parsers")]
     [Tags("Parser Configuration")]
     [ProducesResponseType(typeof(GenericFileFormatConfig), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> CreateParserConfig(
         [FromBody] GenericParserConfigRequest request)
     {
@@ -733,11 +876,19 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// </summary>
     /// <param name="fileTypeCode">File type code</param>
     /// <param name="request">Parser configuration with column mappings</param>
+    /// <response code="200">Parser configuration updated successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Parser configuration not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpPatch("parsers/{file-type-code}")]
     [SwaggerOperation(OperationId = "patch_api_v4_file_loading_parsers_file_type_code")]
     [Tags("Parser Configuration")]
     [ProducesResponseType(typeof(GenericFileFormatConfig), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> UpdateParserConfig(
         [FromRoute(Name = "file-type-code")] string fileTypeCode,
         [FromBody] GenericParserConfigRequest request)
@@ -759,11 +910,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Delete a generic parser configuration and its column mappings.
     /// </summary>
     /// <param name="fileTypeCode">File type code</param>
+    /// <response code="200">Parser configuration deleted successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Parser configuration not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpDelete("parsers/{file-type-code}")]
     [SwaggerOperation(OperationId = "delete_api_v4_file_loading_parsers_file_type_code")]
     [Tags("Parser Configuration")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> DeleteParserConfig([FromRoute(Name = "file-type-code")] string fileTypeCode)
     {
         try
@@ -788,11 +945,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Get folder workflow configuration. Falls back to default if file-type specific config not found.
     /// </summary>
     /// <param name="fileType">File type code (optional — falls back to default)</param>
+    /// <response code="200">Folder configuration returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Folder configuration not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("folders")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_folders")]
     [Tags("Folder Configuration")]
     [ProducesResponseType(typeof(FolderWorkflowConfig), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetFolderConfig(
         [FromQuery(Name = "fileType")] string? fileType = null)
     {
@@ -811,33 +974,39 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     }
 
     /// <summary>
-    /// Create or update folder workflow configuration. Auto-creates folders on save.
-    /// Only the user-configurable suffix portion of each path is accepted;
-    /// the base path is prepended server-side from configuration.
+    /// Create or update folder workflow configuration. Paths are derived from file type and current storage mode. Auto-creates folders on save.
     /// </summary>
-    /// <param name="request">Folder configuration with suffix paths</param>
-    [HttpPut("folders")]
-    [SwaggerOperation(OperationId = "put_api_v4_file_loading_folders")]
+    /// <param name="fileType">File type code</param>
+    /// <response code="200">Folder configuration saved successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPatch("folders")]
+    [SwaggerOperation(OperationId = "patch_api_v4_file_loading_folders")]
     [Tags("Folder Configuration")]
     [ProducesResponseType(typeof(FolderWorkflowConfig), StatusCodes.Status200OK)]
-    public async Task<IActionResult> SaveFolderConfig([FromBody] FolderWorkflowRequest request)
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> SaveFolderConfig(
+        [FromQuery(Name = "fileType")] string? fileType = null)
     {
         try
         {
-            var securityContext = CreateSecurityContext("put_api_v4_file_loading_folders");
-            var result = await _transferService.SaveFolderConfigAsync(request, securityContext);
+            var securityContext = CreateSecurityContext("patch_api_v4_file_loading_folders");
+            var result = await _transferService.SaveFolderConfigAsync(fileType, securityContext);
 
             if (result.IsSuccess)
             {
                 // Auto-create folders on save
-                await _transferService.CreateFoldersAsync(request.FileTypeCode, securityContext);
+                await _transferService.CreateFoldersAsync(fileType, securityContext);
             }
 
             return HandleDataResult(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error saving folder config for fileTypeCode={FileTypeCode}", request.FileTypeCode);
+            _logger.LogError(ex, "Error saving folder config for fileTypeCode={FileTypeCode}", fileType);
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }
@@ -846,10 +1015,15 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Get default folder paths for a file-type combination.
     /// </summary>
     /// <param name="fileType">File type code</param>
+    /// <response code="200">Folder defaults returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("folders/defaults")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_folders_defaults")]
     [Tags("Folder Configuration")]
     [ProducesResponseType(typeof(FolderDefaultsResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetFolderDefaults(
         [FromQuery(Name = "fileType")] string? fileType = null)
     {
@@ -871,10 +1045,15 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Create all 6 workflow folders for a file-type (local or FTP based on storage config).
     /// </summary>
     /// <param name="fileType">File type code</param>
+    /// <response code="200">Folders created successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpPost("folders/create")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_folders_create")]
     [Tags("Folder Configuration")]
     [ProducesResponseType(typeof(FolderCreateResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> CreateFolders(
         [FromQuery(Name = "fileType")] string? fileType = null)
     {
@@ -893,96 +1072,242 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     }
 
     // ============================================
-    // Folder Storage Configuration
+    // FTP Servers
     // ============================================
 
     /// <summary>
-    /// Get folder storage configuration. Returns 404 if no config exists (interpreted as LOCAL mode).
+    /// List all FTP server entities.
     /// </summary>
-    [HttpGet("folder-storage")]
-    [SwaggerOperation(OperationId = "get_api_v4_file_loading_folder_storage")]
-    [Tags("Folder Configuration")]
-    [ProducesResponseType(typeof(FolderStorageConfig), StatusCodes.Status200OK)]
+    /// <response code="200">FTP servers returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("ftp-servers")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_ftp_servers")]
+    [Tags("FTP Servers")]
+    [ProducesResponseType(typeof(List<FtpServer>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetFtpServers()
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_ftp_servers");
+            var result = await _transferService.GetFtpServersAsync(securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting FTP servers");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Get a specific FTP server entity.
+    /// </summary>
+    /// <param name="serverId">FTP server ID</param>
+    /// <response code="200">FTP server returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">FTP server not found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("ftp-servers/{serverId}")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_ftp_servers_by_id")]
+    [Tags("FTP Servers")]
+    [ProducesResponseType(typeof(FtpServer), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetFolderStorage()
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetFtpServer([FromRoute] int serverId)
     {
         try
         {
-            var securityContext = CreateSecurityContext("get_api_v4_file_loading_folder_storage");
-            var result = await _transferService.GetFolderStorageAsync(securityContext);
-
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_ftp_servers_by_id");
+            var result = await _transferService.GetFtpServerAsync(serverId, securityContext);
             return HandleDataResult(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting folder storage config");
+            _logger.LogError(ex, "Error getting FTP server {ServerId}", serverId);
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }
 
     /// <summary>
-    /// Save folder storage configuration (local/FTP mode + FTP details).
+    /// Create a new FTP server entity. Not activated automatically.
     /// </summary>
-    /// <param name="request">Storage configuration</param>
-    [HttpPut("folder-storage")]
-    [SwaggerOperation(OperationId = "put_api_v4_file_loading_folder_storage")]
-    [Tags("Folder Configuration")]
-    [ProducesResponseType(typeof(FolderStorageConfig), StatusCodes.Status200OK)]
-    public async Task<IActionResult> SaveFolderStorage([FromBody] FolderStorageRequest request)
+    /// <param name="request">FTP server configuration</param>
+    /// <response code="201">FTP server created successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPost("ftp-servers")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_ftp_servers")]
+    [Tags("FTP Servers")]
+    [ProducesResponseType(typeof(FtpServer), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> CreateFtpServer([FromBody] FtpServerRequest request)
     {
         try
         {
-            var securityContext = CreateSecurityContext("put_api_v4_file_loading_folder_storage");
-            var result = await _transferService.SaveFolderStorageAsync(request, securityContext);
-
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_ftp_servers");
+            var result = await _transferService.CreateFtpServerAsync(request, securityContext);
             return HandleDataResult(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error saving folder storage config");
+            _logger.LogError(ex, "Error creating FTP server");
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }
 
     /// <summary>
-    /// Delete folder storage configuration (revert to local defaults).
+    /// Update an FTP server entity. Immutable fields blocked if server is locked (referenced by transfers).
     /// </summary>
-    [HttpDelete("folder-storage")]
-    [SwaggerOperation(OperationId = "delete_api_v4_file_loading_folder_storage")]
-    [Tags("Folder Configuration")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    /// <param name="serverId">FTP server ID</param>
+    /// <param name="request">Updated FTP server configuration</param>
+    /// <response code="200">FTP server updated successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">FTP server not found</response>
+    /// <response code="409">Server is locked — immutable fields cannot be changed</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPatch("ftp-servers/{serverId}")]
+    [SwaggerOperation(OperationId = "patch_api_v4_file_loading_ftp_servers")]
+    [Tags("FTP Servers")]
+    [ProducesResponseType(typeof(FtpServer), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> DeleteFolderStorage()
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> UpdateFtpServer([FromRoute] int serverId, [FromBody] FtpServerRequest request)
     {
         try
         {
-            var securityContext = CreateSecurityContext("delete_api_v4_file_loading_folder_storage");
-            var result = await _transferService.DeleteFolderStorageAsync(securityContext);
-
+            var securityContext = CreateSecurityContext("patch_api_v4_file_loading_ftp_servers");
+            var result = await _transferService.UpdateFtpServerAsync(serverId, request, securityContext);
             return HandleDataResult(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error deleting folder storage config");
+            _logger.LogError(ex, "Error updating FTP server {ServerId}", serverId);
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }
 
     /// <summary>
-    /// Test FTP connection with provided storage configuration (without saving).
+    /// Delete an FTP server entity. Blocked if server is locked (referenced by transfers).
     /// </summary>
-    /// <param name="request">Storage configuration to test</param>
-    [HttpPost("folder-storage/test")]
-    [SwaggerOperation(OperationId = "post_api_v4_file_loading_folder_storage_test")]
-    [Tags("Folder Configuration")]
+    /// <param name="serverId">FTP server ID</param>
+    /// <response code="200">FTP server deleted successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">FTP server not found</response>
+    /// <response code="409">Server is locked — cannot delete</response>
+    /// <response code="500">Internal server error</response>
+    [HttpDelete("ftp-servers/{serverId}")]
+    [SwaggerOperation(OperationId = "delete_api_v4_file_loading_ftp_servers")]
+    [Tags("FTP Servers")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> TestFolderStorage([FromBody] FolderStorageRequest request)
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DeleteFtpServer([FromRoute] int serverId)
     {
         try
         {
-            var securityContext = CreateSecurityContext("post_api_v4_file_loading_folder_storage_test");
-            var result = await _transferService.TestFolderStorageAsync(request, securityContext);
+            var securityContext = CreateSecurityContext("delete_api_v4_file_loading_ftp_servers");
+            var result = await _transferService.DeleteFtpServerAsync(serverId, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting FTP server {ServerId}", serverId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Activate an FTP server as the current storage destination. Deactivates all other servers.
+    /// </summary>
+    /// <param name="serverId">FTP server ID</param>
+    /// <response code="200">FTP server activated successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">FTP server not found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPost("ftp-servers/{serverId}/activate")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_ftp_servers_activate")]
+    [Tags("FTP Servers")]
+    [ProducesResponseType(typeof(FtpServer), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> ActivateFtpServer([FromRoute] int serverId)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_ftp_servers_activate");
+            var result = await _transferService.ActivateFtpServerAsync(serverId, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error activating FTP server {ServerId}", serverId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Deactivate an FTP server, reverting the domain to local storage mode.
+    /// </summary>
+    /// <param name="serverId">FTP server ID</param>
+    /// <response code="200">FTP server deactivated successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPost("ftp-servers/{serverId}/deactivate")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_ftp_servers_deactivate")]
+    [Tags("FTP Servers")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DeactivateFtpServer([FromRoute] int serverId)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_ftp_servers_deactivate");
+            var result = await _transferService.DeactivateFtpServerAsync(serverId, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deactivating FTP server {ServerId}", serverId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Test FTP connection with provided configuration (without saving).
+    /// </summary>
+    /// <param name="request">FTP server configuration to test</param>
+    /// <response code="200">Connection test successful</response>
+    /// <response code="400">Connection test failed</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPost("ftp-servers/test")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_ftp_servers_test")]
+    [Tags("FTP Servers")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> TestFtpConnection([FromBody] FtpServerRequest request)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_ftp_servers_test");
+            var result = await _transferService.TestFtpConnectionAsync(request, securityContext);
 
             if (!result.IsSuccess || !result.Data)
             {
@@ -993,7 +1318,7 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error testing folder storage connection");
+            _logger.LogError(ex, "Error testing FTP connection");
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }
@@ -1005,10 +1330,15 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// <summary>
     /// List all vendors (networks table).
     /// </summary>
+    /// <response code="200">Vendors returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("vendors")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_vendors")]
     [Tags("Vendors")]
     [ProducesResponseType(typeof(List<VendorRecord>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetVendors()
     {
         try
@@ -1028,11 +1358,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Get a specific vendor.
     /// </summary>
     /// <param name="networkId">Network ID (CHAR(2))</param>
+    /// <response code="200">Vendor returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Vendor not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("vendors/{network-id}")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_vendors_network_id")]
     [Tags("Vendors")]
     [ProducesResponseType(typeof(VendorRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetVendor([FromRoute(Name = "network-id")] string networkId)
     {
         try
@@ -1049,14 +1385,22 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     }
 
     /// <summary>
-    /// Create or update a vendor.
+    /// Create a new vendor.
     /// </summary>
     /// <param name="record">Vendor record</param>
+    /// <response code="201">Vendor created successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="409">Vendor already exists with this network ID</response>
+    /// <response code="500">Internal server error</response>
     [HttpPost("vendors")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_vendors")]
     [Tags("Vendors")]
     [ProducesResponseType(typeof(VendorRecord), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> CreateVendor(
         [FromBody] VendorRecord record)
     {
@@ -1078,11 +1422,19 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// </summary>
     /// <param name="networkId">Network ID</param>
     /// <param name="record">Vendor record</param>
+    /// <response code="200">Vendor updated successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Vendor not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpPatch("vendors/{network-id}")]
     [SwaggerOperation(OperationId = "patch_api_v4_file_loading_vendors_network_id")]
     [Tags("Vendors")]
     [ProducesResponseType(typeof(VendorRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> UpdateVendor(
         [FromRoute(Name = "network-id")] string networkId,
         [FromBody] VendorRecord record)
@@ -1104,11 +1456,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Delete a vendor.
     /// </summary>
     /// <param name="networkId">Network ID (CHAR(2))</param>
+    /// <response code="200">Vendor deleted successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Vendor not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpDelete("vendors/{network-id}")]
     [SwaggerOperation(OperationId = "delete_api_v4_file_loading_vendors_network_id")]
     [Tags("Vendors")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> DeleteVendor([FromRoute(Name = "network-id")] string networkId)
     {
         try
@@ -1131,10 +1489,15 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// <summary>
     /// List all file classes (e.g. CDR, CHG). A file class groups related file types.
     /// </summary>
+    /// <response code="200">File classes returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("file-classes")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_file_classes")]
     [Tags("File Classes")]
     [ProducesResponseType(typeof(List<FileClassRecord>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetFileClasses()
     {
         try
@@ -1154,11 +1517,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Get a specific file class.
     /// </summary>
     /// <param name="fileClassCode">File class code (e.g. CDR, CHG)</param>
+    /// <response code="200">File class returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">File class not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("file-classes/{file-class-code}")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_file_classes_file_class_code")]
     [Tags("File Classes")]
     [ProducesResponseType(typeof(FileClassRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetFileClass([FromRoute(Name = "file-class-code")] string fileClassCode)
     {
         try
@@ -1175,14 +1544,22 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     }
 
     /// <summary>
-    /// Create or update a file class.
+    /// Create a new file class.
     /// </summary>
     /// <param name="record">File class record</param>
+    /// <response code="201">File class created successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="409">File class already exists with this code</response>
+    /// <response code="500">Internal server error</response>
     [HttpPost("file-classes")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_file_classes")]
     [Tags("File Classes")]
     [ProducesResponseType(typeof(FileClassRecord), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> CreateFileClass(
         [FromBody] FileClassRecord record)
     {
@@ -1204,11 +1581,19 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// </summary>
     /// <param name="fileClassCode">File class code</param>
     /// <param name="record">File class record</param>
+    /// <response code="200">File class updated successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">File class not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpPatch("file-classes/{file-class-code}")]
     [SwaggerOperation(OperationId = "patch_api_v4_file_loading_file_classes_file_class_code")]
     [Tags("File Classes")]
     [ProducesResponseType(typeof(FileClassRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> UpdateFileClass(
         [FromRoute(Name = "file-class-code")] string fileClassCode,
         [FromBody] FileClassRecord record)
@@ -1230,11 +1615,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Delete a file class.
     /// </summary>
     /// <param name="fileClassCode">File class code</param>
+    /// <response code="200">File class deleted successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">File class not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpDelete("file-classes/{file-class-code}")]
     [SwaggerOperation(OperationId = "delete_api_v4_file_loading_file_classes_file_class_code")]
     [Tags("File Classes")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> DeleteFileClass([FromRoute(Name = "file-class-code")] string fileClassCode)
     {
         try
@@ -1257,10 +1648,15 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// <summary>
     /// List all file types. Each file type belongs to a file class and optionally a vendor.
     /// </summary>
+    /// <response code="200">File types returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("manager/file-types")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_manager_file_types")]
     [Tags("File Types")]
     [ProducesResponseType(typeof(List<FileTypeRecord>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetFileTypes()
     {
         try
@@ -1280,11 +1676,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Get a specific file type.
     /// </summary>
     /// <param name="fileTypeCode">File type code (e.g. TEL_GSM, SSSWHLSCDR)</param>
+    /// <response code="200">File type returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">File type not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("file-types/{file-type-code}")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_file_types_file_type_code")]
     [Tags("File Types")]
     [ProducesResponseType(typeof(FileTypeRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetFileType([FromRoute(Name = "file-type-code")] string fileTypeCode)
     {
         try
@@ -1301,15 +1703,22 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     }
 
     /// <summary>
-    /// Create or update a file type.
+    /// Create a new file type.
     /// </summary>
-    /// <param name="fileTypeCode">File type code</param>
     /// <param name="record">File type record</param>
+    /// <response code="201">File type created successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="409">File type already exists with this code</response>
+    /// <response code="500">Internal server error</response>
     [HttpPost("file-types")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_file_types")]
     [Tags("File Types")]
     [ProducesResponseType(typeof(FileTypeRecord), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> CreateFileType(
         [FromBody] FileTypeRecord record)
     {
@@ -1331,11 +1740,19 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// </summary>
     /// <param name="fileTypeCode">File type code</param>
     /// <param name="record">File type record</param>
+    /// <response code="200">File type updated successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">File type not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpPatch("file-types/{file-type-code}")]
     [SwaggerOperation(OperationId = "patch_api_v4_file_loading_file_types_file_type_code")]
     [Tags("File Types")]
     [ProducesResponseType(typeof(FileTypeRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> UpdateFileType(
         [FromRoute(Name = "file-type-code")] string fileTypeCode,
         [FromBody] FileTypeRecord record)
@@ -1357,11 +1774,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Delete a file type.
     /// </summary>
     /// <param name="fileTypeCode">File type code</param>
+    /// <response code="200">File type deleted successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">File type not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpDelete("file-types/{file-type-code}")]
     [SwaggerOperation(OperationId = "delete_api_v4_file_loading_file_types_file_type_code")]
     [Tags("File Types")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> DeleteFileType([FromRoute(Name = "file-type-code")] string fileTypeCode)
     {
         try
@@ -1382,13 +1805,18 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     // ============================================
 
     /// <summary>
-    /// List file type NT records. NT records map a file type to a customer number, filename pattern, and header/trailer skip counts used during loading.
+    /// List file type NT records.
     /// </summary>
     /// <param name="fileTypeCode">Filter by file type code</param>
+    /// <response code="200">File type NT records returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("file-types-nt")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_file_types_nt")]
     [Tags("File Types NT")]
     [ProducesResponseType(typeof(List<FileTypeNtRecord>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetFileTypeNtRecords(
         [FromQuery(Name = "fileType")] string? fileTypeCode = null)
     {
@@ -1409,11 +1837,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Get a specific file type NT record.
     /// </summary>
     /// <param name="fileTypeCode">File type code</param>
+    /// <response code="200">File type NT record returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">File type NT record not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("file-types-nt/{file-type-code}")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_file_types_nt_file_type_code")]
     [Tags("File Types NT")]
     [ProducesResponseType(typeof(FileTypeNtRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetFileTypeNt([FromRoute(Name = "file-type-code")] string fileTypeCode)
     {
         try
@@ -1430,15 +1864,22 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     }
 
     /// <summary>
-    /// Create or update a file type NT record.
+    /// Create a new file type NT record.
     /// </summary>
-    /// <param name="fileTypeCode">File type code</param>
     /// <param name="record">File type NT record</param>
+    /// <response code="201">File type NT record created successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="409">File type NT record already exists for this file type code</response>
+    /// <response code="500">Internal server error</response>
     [HttpPost("file-types-nt")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_file_types_nt")]
     [Tags("File Types NT")]
     [ProducesResponseType(typeof(FileTypeNtRecord), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> CreateFileTypeNt(
         [FromBody] FileTypeNtRecord record)
     {
@@ -1460,11 +1901,19 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// </summary>
     /// <param name="fileTypeCode">File type code</param>
     /// <param name="record">File type NT record</param>
+    /// <response code="200">File type NT record updated successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">File type NT record not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpPatch("file-types-nt/{file-type-code}")]
     [SwaggerOperation(OperationId = "patch_api_v4_file_loading_file_types_nt_file_type_code")]
     [Tags("File Types NT")]
     [ProducesResponseType(typeof(FileTypeNtRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> UpdateFileTypeNt(
         [FromRoute(Name = "file-type-code")] string fileTypeCode,
         [FromBody] FileTypeNtRecord record)
@@ -1486,11 +1935,17 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Delete a file type NT record.
     /// </summary>
     /// <param name="fileTypeCode">File type code</param>
+    /// <response code="200">File type NT record deleted successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">File type NT record not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpDelete("file-types-nt/{file-type-code}")]
     [SwaggerOperation(OperationId = "delete_api_v4_file_loading_file_types_nt_file_type_code")]
     [Tags("File Types NT")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> DeleteFileTypeNt([FromRoute(Name = "file-type-code")] string fileTypeCode)
     {
         try

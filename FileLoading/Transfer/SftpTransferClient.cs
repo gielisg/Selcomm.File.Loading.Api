@@ -258,6 +258,18 @@ public class SftpTransferClient : ITransferClient
                 if (!string.IsNullOrEmpty(_config.Password))
                 {
                     authMethods.Add(new PasswordAuthenticationMethod(_config.Username, _config.Password));
+
+                    // Many SSH servers require keyboard-interactive instead of (or in addition to) password auth
+                    var kbdInteractive = new KeyboardInteractiveAuthenticationMethod(_config.Username);
+                    var pwd = _config.Password;
+                    kbdInteractive.AuthenticationPrompt += (sender, e) =>
+                    {
+                        foreach (var prompt in e.Prompts)
+                        {
+                            prompt.Response = pwd;
+                        }
+                    };
+                    authMethods.Add(kbdInteractive);
                 }
                 break;
 

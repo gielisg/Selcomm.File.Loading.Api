@@ -38,17 +38,27 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     // ============================================
 
     /// <summary>
-    /// Trigger an AI review of a file. Samples file content, calls the Claude API, and returns structured issues.
+    /// Trigger an AI review of a file.
     /// </summary>
     /// <param name="ntFileNum">NT file number to review</param>
     /// <param name="request">Optional review parameters</param>
+    /// <response code="200">AI review completed successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">File not found</response>
+    /// <response code="429">Rate limit exceeded</response>
+    /// <response code="500">Internal server error</response>
+    /// <response code="502">AI service unavailable</response>
+    /// <response code="504">AI service timeout</response>
     [HttpPost("files/{nt-file-num}")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_ai_review_file")]
     [Tags("AI Review")]
     [ProducesResponseType(typeof(AiReviewResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status502BadGateway)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status504GatewayTimeout)]
     public async Task<IActionResult> TriggerAiReview(
@@ -79,11 +89,17 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     /// Get the cached AI review for a file.
     /// </summary>
     /// <param name="ntFileNum">NT file number</param>
+    /// <response code="200">Cached AI review returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">No cached review found for this file</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("files/{nt-file-num}")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_ai_review_file")]
     [Tags("AI Review")]
     [ProducesResponseType(typeof(AiReviewResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetCachedAiReview([FromRoute(Name = "nt-file-num")] int ntFileNum)
     {
         try
@@ -109,15 +125,24 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     // ============================================
 
     /// <summary>
-    /// Review pasted file content directly. No file number required — content is provided in the request body.
+    /// Review pasted file content directly without a file number.
     /// </summary>
     /// <param name="request">File content and optional parameters</param>
+    /// <response code="200">AI content review completed successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="429">Rate limit exceeded</response>
+    /// <response code="500">Internal server error</response>
+    /// <response code="502">AI service unavailable</response>
+    /// <response code="504">AI service timeout</response>
     [HttpPost("content")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_ai_review_content")]
     [Tags("AI Review")]
     [ProducesResponseType(typeof(AiReviewResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status502BadGateway)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status504GatewayTimeout)]
     public async Task<IActionResult> ReviewContent([FromBody] AiContentReviewRequest request)
@@ -144,18 +169,27 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     }
 
     /// <summary>
-    /// Upload a file from the browser and review it with AI. The file is read in memory — not stored on the server.
+    /// Upload a file from the browser and review it with AI.
     /// </summary>
     /// <param name="file">The file to review</param>
     /// <param name="fileTypeCode">Optional file type code for spec lookup</param>
     /// <param name="focusAreas">Optional comma-separated focus areas</param>
+    /// <response code="200">AI upload review completed successfully</response>
+    /// <response code="400">Invalid request data or no file provided</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="429">Rate limit exceeded</response>
+    /// <response code="500">Internal server error</response>
+    /// <response code="502">AI service unavailable</response>
+    /// <response code="504">AI service timeout</response>
     [HttpPost("upload")]
     [Consumes("multipart/form-data")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_ai_review_upload")]
     [Tags("AI Review")]
     [ProducesResponseType(typeof(AiReviewResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status502BadGateway)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status504GatewayTimeout)]
     public async Task<IActionResult> UploadAndReview(
@@ -213,10 +247,15 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     /// <summary>
     /// List all configured example files.
     /// </summary>
+    /// <response code="200">Example files returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("example-files")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_ai_review_example_files")]
     [Tags("AI Review")]
     [ProducesResponseType(typeof(List<ExampleFileRecord>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> ListExampleFiles()
     {
         try
@@ -233,51 +272,67 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     }
 
     /// <summary>
-    /// Get the example file for a file type.
+    /// Get example files for a file type.
     /// </summary>
     /// <param name="fileTypeCode">File type code</param>
+    /// <response code="200">Example files returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("example-files/{file-type-code}")]
-    [SwaggerOperation(OperationId = "get_api_v4_file_loading_ai_review_example_file")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_ai_review_example_files_by_type")]
     [Tags("AI Review")]
-    [ProducesResponseType(typeof(ExampleFileRecord), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetExampleFile([FromRoute(Name = "file-type-code")] string fileTypeCode)
+    [ProducesResponseType(typeof(List<ExampleFileRecord>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetExampleFilesByType([FromRoute(Name = "file-type-code")] string fileTypeCode)
     {
         try
         {
-            var result = await _aiReviewService.GetExampleFileAsync(fileTypeCode);
-
-            if (result.IsSuccess)
-                return Ok(result.Data);
-
-            return StatusCode(result.StatusCode,
-                new ErrorResponse(result.ErrorMessage ?? "Not found", result.ErrorCode));
+            var result = await _aiReviewService.GetExampleFilesByTypeAsync(fileTypeCode);
+            return HandleDataResult(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting example file for type {FileTypeCode}", fileTypeCode);
+            _logger.LogError(ex, "Error getting example files for type {FileTypeCode}", fileTypeCode);
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }
 
     /// <summary>
-    /// Create or update the example file for a file type.
+    /// Upload an example file for a file type.
     /// </summary>
     /// <param name="fileTypeCode">File type code</param>
-    /// <param name="request">Example file details</param>
-    [HttpPut("example-files/{file-type-code}")]
-    [SwaggerOperation(OperationId = "put_api_v4_file_loading_ai_review_example_file")]
+    /// <param name="file">The example file to upload</param>
+    /// <param name="description">Optional description of the example file</param>
+    /// <response code="200">Example file uploaded successfully</response>
+    /// <response code="400">Invalid request data or no file provided</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPost("example-files/{file-type-code}")]
+    [Consumes("multipart/form-data")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_ai_review_example_file")]
     [Tags("AI Review")]
     [ProducesResponseType(typeof(ExampleFileRecord), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> SaveExampleFile(
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> UploadExampleFile(
         [FromRoute(Name = "file-type-code")] string fileTypeCode,
-        [FromBody] ExampleFileRequest request)
+        IFormFile file,
+        [FromQuery(Name = "description")] string? description = null)
     {
         try
         {
-            var securityContext = CreateSecurityContext("put_api_v4_file_loading_ai_review_example_file");
-            var result = await _aiReviewService.SaveExampleFileAsync(fileTypeCode, request, securityContext);
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new ErrorResponse("No file provided.", "VALIDATION_ERROR"));
+            }
+
+            _logger.LogInformation("Uploading example file for type {FileTypeCode}: {FileName}, size={Size}",
+                fileTypeCode, file.FileName, file.Length);
+
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_ai_review_example_file");
+            var result = await _aiReviewService.UploadExampleFileAsync(fileTypeCode, file, description, securityContext);
 
             if (result.IsSuccess)
                 return Ok(result.Data);
@@ -287,34 +342,41 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error saving example file for type {FileTypeCode}", fileTypeCode);
+            _logger.LogError(ex, "Error uploading example file for type {FileTypeCode}", fileTypeCode);
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }
 
     /// <summary>
-    /// Remove the example file for a file type.
+    /// Remove an example file by ID (also deletes the file from disk).
     /// </summary>
-    /// <param name="fileTypeCode">File type code</param>
-    [HttpDelete("example-files/{file-type-code}")]
+    /// <param name="exampleFileId">Example file ID</param>
+    /// <response code="200">Example file deleted successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Example file not found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpDelete("example-files/{example-file-id:int}")]
     [SwaggerOperation(OperationId = "delete_api_v4_file_loading_ai_review_example_file")]
     [Tags("AI Review")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<IActionResult> DeleteExampleFile([FromRoute(Name = "file-type-code")] string fileTypeCode)
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DeleteExampleFile([FromRoute(Name = "example-file-id")] int exampleFileId)
     {
         try
         {
-            var result = await _aiReviewService.DeleteExampleFileAsync(fileTypeCode);
+            var result = await _aiReviewService.DeleteExampleFileAsync(exampleFileId);
 
             if (result.IsSuccess)
-                return Ok(new { Message = $"Example file for '{fileTypeCode}' deleted." });
+                return Ok(new { Message = $"Example file {exampleFileId} deleted." });
 
             return StatusCode(result.StatusCode,
                 new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error deleting example file for type {FileTypeCode}", fileTypeCode);
+            _logger.LogError(ex, "Error deleting example file {ExampleFileId}", exampleFileId);
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }
@@ -326,11 +388,17 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     /// <summary>
     /// Get AI config for the caller's domain (from JWT).
     /// </summary>
+    /// <response code="200">AI config returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">No AI config found for this domain</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("config")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_ai_review_config")]
     [Tags("AI Review")]
     [ProducesResponseType(typeof(AiDomainConfig), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetDomainConfig()
     {
         try

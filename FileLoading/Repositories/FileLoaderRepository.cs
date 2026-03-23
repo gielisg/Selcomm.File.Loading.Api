@@ -1489,8 +1489,9 @@ public class FileLoaderRepository : IFileLoaderRepository
         var sql = @"INSERT INTO ntfl_transfer (
             source_id, nt_file_num, file_name, status_id, source_path,
             destination_path, current_folder, file_size, started_dt,
-            completed_dt, error_message, retry_count, created_by, created_dt
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT)";
+            completed_dt, error_message, retry_count, ftp_server_id,
+            created_by, created_dt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT)";
 
         var result = _dbContext.ExecuteRawCommand(sql,
             ("@p1", record.SourceId, DbType.Int32, null),
@@ -1505,7 +1506,8 @@ public class FileLoaderRepository : IFileLoaderRepository
             ("@p10", record.CompletedAt, DbType.DateTime, null),
             ("@p11", record.ErrorMessage, DbType.String, 512),
             ("@p12", record.RetryCount, DbType.Int32, null),
-            ("@p13", record.CreatedBy, DbType.String, 32)
+            ("@p13", record.FtpServerId, DbType.Int32, null),
+            ("@p14", record.CreatedBy, DbType.String, 32)
         );
 
         if (!result.IsSuccess)
@@ -1578,7 +1580,7 @@ public class FileLoaderRepository : IFileLoaderRepository
         var sql = @"SELECT transfer_id, source_id, nt_file_num, file_name, status_id,
                            source_path, destination_path, current_folder, file_size,
                            started_dt, completed_dt, error_message, retry_count,
-                           created_by, created_dt
+                           created_by, created_dt, ftp_server_id
                     FROM ntfl_transfer WHERE transfer_id = ?";
 
         var result = _dbContext.ExecuteRawQuery(
@@ -1599,7 +1601,8 @@ public class FileLoaderRepository : IFileLoaderRepository
                 ErrorMessage = reader.IsDBNull(11) ? null : reader.GetString(11).Trim(),
                 RetryCount = reader.IsDBNull(12) ? 0 : reader.GetInt32(12),
                 CreatedBy = reader.IsDBNull(13) ? null : reader.GetString(13).Trim(),
-                CreatedAt = reader.IsDBNull(14) ? DateTime.Now : reader.GetDateTime(14)
+                CreatedAt = reader.IsDBNull(14) ? DateTime.Now : reader.GetDateTime(14),
+                FtpServerId = reader.IsDBNull(15) ? null : reader.GetInt32(15)
             },
             ("@p1", transferId, DbType.Int32, null)
         );
@@ -1642,7 +1645,7 @@ public class FileLoaderRepository : IFileLoaderRepository
         sql.Append(@" transfer_id, source_id, nt_file_num, file_name, status_id,
                      source_path, destination_path, current_folder, file_size,
                      started_dt, completed_dt, error_message, retry_count,
-                     created_by, created_dt
+                     created_by, created_dt, ftp_server_id
                 FROM ntfl_transfer WHERE 1=1");
 
         var parameters = new List<(string, object?, DbType, int?)>();
@@ -1686,7 +1689,8 @@ public class FileLoaderRepository : IFileLoaderRepository
                 ErrorMessage = reader.IsDBNull(11) ? null : reader.GetString(11).Trim(),
                 RetryCount = reader.IsDBNull(12) ? 0 : reader.GetInt32(12),
                 CreatedBy = reader.IsDBNull(13) ? null : reader.GetString(13).Trim(),
-                CreatedAt = reader.IsDBNull(14) ? DateTime.Now : reader.GetDateTime(14)
+                CreatedAt = reader.IsDBNull(14) ? DateTime.Now : reader.GetDateTime(14),
+                FtpServerId = reader.IsDBNull(15) ? null : reader.GetInt32(15)
             },
             parameters.ToArray()
         );
@@ -1708,9 +1712,11 @@ public class FileLoaderRepository : IFileLoaderRepository
         sql.Append(filter.MaxRecords);
         sql.Append(@" t.transfer_id, t.nt_file_num, t.file_name, t.status_id,
                      t.current_folder, t.file_size, t.created_dt, t.completed_dt,
-                     t.error_message, t.source_id, s.file_type_code
+                     t.error_message, t.source_id, s.file_type_code,
+                     t.ftp_server_id, fs.host
                 FROM ntfl_transfer t
                 LEFT OUTER JOIN ntfl_transfer_source s ON t.source_id = s.source_id
+                LEFT OUTER JOIN ntfl_ftp_server fs ON t.ftp_server_id = fs.server_id
                 WHERE 1=1");
 
         var parameters = new List<(string, object?, DbType, int?)>();
@@ -1769,7 +1775,9 @@ public class FileLoaderRepository : IFileLoaderRepository
                 CompletedAt = reader.IsDBNull(7) ? null : reader.GetDateTime(7),
                 ErrorMessage = reader.IsDBNull(8) ? null : reader.GetString(8).Trim(),
                 SourceId = reader.IsDBNull(9) ? null : reader.GetInt32(9),
-                FileTypeCode = reader.IsDBNull(10) ? null : reader.GetString(10).Trim()
+                FileTypeCode = reader.IsDBNull(10) ? null : reader.GetString(10).Trim(),
+                FtpServerId = reader.IsDBNull(11) ? null : reader.GetInt32(11),
+                StorageHost = reader.IsDBNull(12) ? null : reader.GetString(12).Trim()
             },
             parameters.ToArray()
         );
@@ -3051,16 +3059,18 @@ public class FileLoaderRepository : IFileLoaderRepository
     public async Task<DataResult<List<ExampleFileRecord>>> GetAllExampleFilesAsync()
     {
         var result = _dbContext.ExecuteRawQuery<ExampleFileRecord>(
-            "SELECT file_type_code, file_path, description, created_tm, created_by, last_updated, updated_by FROM ntfl_ai_example_file ORDER BY file_type_code",
+            "SELECT example_file_id, file_type_code, file_path, file_name, description, created_tm, created_by, last_updated, updated_by FROM ntfl_ai_example_file ORDER BY file_type_code, example_file_id",
             reader => new ExampleFileRecord
             {
-                FileTypeCode = reader.GetString(0).Trim(),
-                FilePath = reader.GetString(1).Trim(),
-                Description = reader.IsDBNull(2) ? null : reader.GetString(2).Trim(),
-                CreatedAt = reader.GetDateTime(3),
-                CreatedBy = reader.GetString(4).Trim(),
-                UpdatedAt = reader.GetDateTime(5),
-                UpdatedBy = reader.GetString(6).Trim()
+                ExampleFileId = reader.GetInt32(0),
+                FileTypeCode = reader.GetString(1).Trim(),
+                FilePath = reader.GetString(2).Trim(),
+                FileName = reader.IsDBNull(3) ? null : reader.GetString(3).Trim(),
+                Description = reader.IsDBNull(4) ? null : reader.GetString(4).Trim(),
+                CreatedAt = reader.GetDateTime(5),
+                CreatedBy = reader.GetString(6).Trim(),
+                UpdatedAt = reader.GetDateTime(7),
+                UpdatedBy = reader.GetString(8).Trim()
             }
         );
 
@@ -3073,21 +3083,51 @@ public class FileLoaderRepository : IFileLoaderRepository
         };
     }
 
-    public async Task<DataResult<ExampleFileRecord>> GetExampleFileAsync(string fileTypeCode)
+    public async Task<DataResult<List<ExampleFileRecord>>> GetExampleFilesByTypeAsync(string fileTypeCode)
     {
         var result = _dbContext.ExecuteRawQuery<ExampleFileRecord>(
-            "SELECT file_type_code, file_path, description, created_tm, created_by, last_updated, updated_by FROM ntfl_ai_example_file WHERE file_type_code = ?",
+            "SELECT example_file_id, file_type_code, file_path, file_name, description, created_tm, created_by, last_updated, updated_by FROM ntfl_ai_example_file WHERE file_type_code = ? ORDER BY example_file_id",
             reader => new ExampleFileRecord
             {
-                FileTypeCode = reader.GetString(0).Trim(),
-                FilePath = reader.GetString(1).Trim(),
-                Description = reader.IsDBNull(2) ? null : reader.GetString(2).Trim(),
-                CreatedAt = reader.GetDateTime(3),
-                CreatedBy = reader.GetString(4).Trim(),
-                UpdatedAt = reader.GetDateTime(5),
-                UpdatedBy = reader.GetString(6).Trim()
+                ExampleFileId = reader.GetInt32(0),
+                FileTypeCode = reader.GetString(1).Trim(),
+                FilePath = reader.GetString(2).Trim(),
+                FileName = reader.IsDBNull(3) ? null : reader.GetString(3).Trim(),
+                Description = reader.IsDBNull(4) ? null : reader.GetString(4).Trim(),
+                CreatedAt = reader.GetDateTime(5),
+                CreatedBy = reader.GetString(6).Trim(),
+                UpdatedAt = reader.GetDateTime(7),
+                UpdatedBy = reader.GetString(8).Trim()
             },
             ("@p1", fileTypeCode, DbType.String, 20)
+        );
+
+        return new DataResult<List<ExampleFileRecord>>
+        {
+            StatusCode = result.IsSuccess ? 200 : result.StatusCode,
+            Data = result.IsSuccess ? result.Data : null,
+            ErrorCode = result.ErrorCode,
+            ErrorMessage = result.ErrorMessage
+        };
+    }
+
+    public async Task<DataResult<ExampleFileRecord>> GetExampleFileByIdAsync(int exampleFileId)
+    {
+        var result = _dbContext.ExecuteRawQuery<ExampleFileRecord>(
+            "SELECT example_file_id, file_type_code, file_path, file_name, description, created_tm, created_by, last_updated, updated_by FROM ntfl_ai_example_file WHERE example_file_id = ?",
+            reader => new ExampleFileRecord
+            {
+                ExampleFileId = reader.GetInt32(0),
+                FileTypeCode = reader.GetString(1).Trim(),
+                FilePath = reader.GetString(2).Trim(),
+                FileName = reader.IsDBNull(3) ? null : reader.GetString(3).Trim(),
+                Description = reader.IsDBNull(4) ? null : reader.GetString(4).Trim(),
+                CreatedAt = reader.GetDateTime(5),
+                CreatedBy = reader.GetString(6).Trim(),
+                UpdatedAt = reader.GetDateTime(7),
+                UpdatedBy = reader.GetString(8).Trim()
+            },
+            ("@p1", exampleFileId, DbType.Int32, null)
         );
 
         if (!result.IsSuccess)
@@ -3106,7 +3146,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             {
                 StatusCode = 404,
                 ErrorCode = "FileLoading.ExampleFileNotFound",
-                ErrorMessage = $"No example file configured for file type '{fileTypeCode}'"
+                ErrorMessage = $"No example file found with ID {exampleFileId}"
             };
         }
 
@@ -3117,44 +3157,26 @@ public class FileLoaderRepository : IFileLoaderRepository
         };
     }
 
-    public async Task<RawCommandResult> UpsertExampleFileAsync(ExampleFileRecord record)
+    public async Task<RawCommandResult> InsertExampleFileAsync(ExampleFileRecord record)
     {
-        // Check if exists
-        var existsResult = _dbContext.ExecuteRawScalar<int>(
-            "SELECT COUNT(*) FROM ntfl_ai_example_file WHERE file_type_code = ?",
-            ("@p1", record.FileTypeCode, DbType.String, 20)
-        );
-
-        if (existsResult.IsSuccess && existsResult.Value > 0)
-        {
-            return _dbContext.ExecuteRawCommand(
-                @"UPDATE ntfl_ai_example_file SET
-                    file_path = ?, description = ?, last_updated = CURRENT, updated_by = ?
-                  WHERE file_type_code = ?",
-                ("@p1", record.FilePath, DbType.String, 500),
-                ("@p2", (object?)record.Description ?? DBNull.Value, DbType.String, 200),
-                ("@p3", record.UpdatedBy, DbType.String, 18),
-                ("@p4", record.FileTypeCode, DbType.String, 20)
-            );
-        }
-
         return _dbContext.ExecuteRawCommand(
-            @"INSERT INTO ntfl_ai_example_file (file_type_code, file_path, description,
+            @"INSERT INTO ntfl_ai_example_file (file_type_code, file_path, file_name, description,
               created_tm, created_by, last_updated, updated_by)
-              VALUES (?, ?, ?, CURRENT, ?, CURRENT, ?)",
+              VALUES (?, ?, ?, ?, CURRENT, ?, CURRENT, ?)",
             ("@p1", record.FileTypeCode, DbType.String, 20),
             ("@p2", record.FilePath, DbType.String, 500),
-            ("@p3", (object?)record.Description ?? DBNull.Value, DbType.String, 200),
-            ("@p4", record.CreatedBy, DbType.String, 18),
-            ("@p5", record.UpdatedBy, DbType.String, 18)
+            ("@p3", (object?)record.FileName ?? DBNull.Value, DbType.String, 255),
+            ("@p4", (object?)record.Description ?? DBNull.Value, DbType.String, 200),
+            ("@p5", record.CreatedBy, DbType.String, 18),
+            ("@p6", record.UpdatedBy, DbType.String, 18)
         );
     }
 
-    public async Task<RawCommandResult> DeleteExampleFileAsync(string fileTypeCode)
+    public async Task<RawCommandResult> DeleteExampleFileAsync(int exampleFileId)
     {
         return _dbContext.ExecuteRawCommand(
-            "DELETE FROM ntfl_ai_example_file WHERE file_type_code = ?",
-            ("@p1", fileTypeCode, DbType.String, 20)
+            "DELETE FROM ntfl_ai_example_file WHERE example_file_id = ?",
+            ("@p1", exampleFileId, DbType.Int32, null)
         );
     }
 
@@ -3271,152 +3293,212 @@ public class FileLoaderRepository : IFileLoaderRepository
     }
 
     // ============================================
-    // Folder Storage Configuration
+    // FTP Server Configuration
     // ============================================
 
-    public async Task<DataResult<FolderStorageConfig>> GetFolderStorageAsync()
+    private static FtpServer MapFtpServer(IDataReader reader) => new()
     {
-        _logger.LogDebug("Getting folder storage config");
+        ServerId = reader.GetInt32(0),
+        ServerName = reader.IsDBNull(1) ? string.Empty : reader.GetString(1).Trim(),
+        Protocol = ParseFtpProtocol(reader.IsDBNull(2) ? "SFTP" : reader.GetString(2).Trim()),
+        Host = reader.IsDBNull(3) ? string.Empty : reader.GetString(3).Trim(),
+        Port = reader.IsDBNull(4) ? 22 : reader.GetInt32(4),
+        AuthType = ParseAuthType(reader.IsDBNull(5) ? "PASSWORD" : reader.GetString(5).Trim()),
+        Username = reader.IsDBNull(6) ? null : reader.GetString(6).Trim(),
+        Password = reader.IsDBNull(7) ? null : reader.GetString(7).Trim(),
+        CertificatePath = reader.IsDBNull(8) ? null : reader.GetString(8).Trim(),
+        PrivateKeyPath = reader.IsDBNull(9) ? null : reader.GetString(9).Trim(),
+        RootPath = reader.IsDBNull(10) ? "/" : reader.GetString(10).Trim(),
+        TempLocalPath = reader.IsDBNull(11) ? null : reader.GetString(11).Trim(),
+        IsActive = !reader.IsDBNull(12) && reader.GetString(12).Trim() == "Y",
+        CreatedAt = reader.GetDateTime(13),
+        CreatedBy = reader.IsDBNull(14) ? string.Empty : reader.GetString(14).Trim(),
+        UpdatedAt = reader.GetDateTime(15),
+        UpdatedBy = reader.IsDBNull(16) ? string.Empty : reader.GetString(16).Trim()
+    };
 
-        var sql = @"SELECT storage_id, storage_mode, protocol, host, port,
-                           auth_type, username, password_encrypted, certificate_path,
-                           private_key_path, base_path, temp_local_path,
-                           created_tm, created_by, last_updated, updated_by
-                    FROM ntfl_folder_storage";
+    private const string FtpServerSelectColumns = @"server_id, server_name, protocol, host, port,
+        auth_type, username, password_enc, certificate_path, private_key_path,
+        root_path, temp_local_path, is_active, created_tm, created_by, last_updated, updated_by";
 
-        var result = _dbContext.ExecuteRawQuery(
-            sql,
-            reader => new FolderStorageConfig
-            {
-                StorageId = reader.GetInt32(0),
-                StorageMode = ParseStorageMode(reader.IsDBNull(1) ? "LOCAL" : reader.GetString(1).Trim()),
-                Protocol = reader.IsDBNull(2) ? null : (TransferProtocol?)ParseStorageTransferProtocol(reader.GetString(2).Trim()),
-                Host = reader.IsDBNull(3) ? null : reader.GetString(3).Trim(),
-                Port = reader.IsDBNull(4) ? null : reader.GetInt32(4),
-                AuthType = reader.IsDBNull(5) ? null : (AuthenticationType?)ParseAuthType(reader.GetString(5).Trim()),
-                Username = reader.IsDBNull(6) ? null : reader.GetString(6).Trim(),
-                Password = reader.IsDBNull(7) ? null : reader.GetString(7).Trim(),
-                CertificatePath = reader.IsDBNull(8) ? null : reader.GetString(8).Trim(),
-                PrivateKeyPath = reader.IsDBNull(9) ? null : reader.GetString(9).Trim(),
-                BasePath = reader.IsDBNull(10) ? "/" : reader.GetString(10).Trim(),
-                TempLocalPath = reader.IsDBNull(11) ? null : reader.GetString(11).Trim(),
-                CreatedAt = reader.GetDateTime(12),
-                CreatedBy = reader.GetString(13).Trim(),
-                UpdatedAt = reader.GetDateTime(14),
-                UpdatedBy = reader.GetString(15).Trim()
-            }
+    public async Task<DataResult<List<FtpServer>>> GetFtpServersAsync()
+    {
+        _logger.LogDebug("Getting all FTP servers");
+
+        var sql = $"SELECT {FtpServerSelectColumns} FROM ntfl_ftp_server ORDER BY server_id";
+
+        var result = _dbContext.ExecuteRawQuery(sql, MapFtpServer);
+
+        if (!result.IsSuccess)
+            return new DataResult<List<FtpServer>> { StatusCode = result.StatusCode, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
+
+        // Compute IsLocked for each server
+        foreach (var server in result.Data)
+        {
+            server.IsLocked = await IsFtpServerLockedAsync(server.ServerId);
+        }
+
+        return new DataResult<List<FtpServer>> { StatusCode = 200, Data = result.Data };
+    }
+
+    public async Task<DataResult<FtpServer>> GetFtpServerAsync(int serverId)
+    {
+        _logger.LogDebug("Getting FTP server: {ServerId}", serverId);
+
+        var sql = $"SELECT {FtpServerSelectColumns} FROM ntfl_ftp_server WHERE server_id = ?";
+
+        var result = _dbContext.ExecuteRawQuery(sql, MapFtpServer,
+            ("@p1", serverId, DbType.Int32, null));
+
+        if (!result.IsSuccess)
+            return new DataResult<FtpServer> { StatusCode = result.StatusCode, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
+
+        if (result.Data.Count == 0)
+            return new DataResult<FtpServer> { StatusCode = 404, ErrorCode = "FileLoading.FtpServerNotFound", ErrorMessage = $"FTP server {serverId} not found" };
+
+        var server = result.Data[0];
+        server.IsLocked = await IsFtpServerLockedAsync(serverId);
+
+        return new DataResult<FtpServer> { StatusCode = 200, Data = server };
+    }
+
+    public async Task<DataResult<FtpServer?>> GetActiveFtpServerAsync()
+    {
+        _logger.LogDebug("Getting active FTP server");
+
+        var sql = $"SELECT {FtpServerSelectColumns} FROM ntfl_ftp_server WHERE is_active = 'Y'";
+
+        var result = _dbContext.ExecuteRawQuery(sql, MapFtpServer);
+
+        if (!result.IsSuccess)
+            return new DataResult<FtpServer?> { StatusCode = result.StatusCode, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
+
+        if (result.Data.Count == 0)
+            return new DataResult<FtpServer?> { StatusCode = 200, Data = null };
+
+        var server = result.Data[0];
+        server.IsLocked = await IsFtpServerLockedAsync(server.ServerId);
+
+        return new DataResult<FtpServer?> { StatusCode = 200, Data = server };
+    }
+
+    public async Task<ValueResult<int>> InsertFtpServerAsync(FtpServer server)
+    {
+        _logger.LogDebug("Inserting FTP server: {ServerName}", server.ServerName);
+
+        var protocol = server.Protocol.ToString().ToUpper();
+        var authType = server.AuthType.ToString().ToUpper();
+        var isActive = server.IsActive ? "Y" : "N";
+
+        var sql = @"INSERT INTO ntfl_ftp_server (
+            server_name, protocol, host, port, auth_type,
+            username, password_enc, certificate_path, private_key_path,
+            root_path, temp_local_path, is_active,
+            created_tm, created_by, last_updated, updated_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT, ?, CURRENT, ?)";
+
+        var result = _dbContext.ExecuteRawCommand(sql,
+            ("@p1", server.ServerName, DbType.String, 64),
+            ("@p2", protocol, DbType.String, 16),
+            ("@p3", server.Host, DbType.String, 255),
+            ("@p4", server.Port, DbType.Int32, null),
+            ("@p5", authType, DbType.String, 16),
+            ("@p6", server.Username, DbType.String, 64),
+            ("@p7", server.Password, DbType.String, 512),
+            ("@p8", server.CertificatePath, DbType.String, 255),
+            ("@p9", server.PrivateKeyPath, DbType.String, 255),
+            ("@p10", server.RootPath, DbType.String, 255),
+            ("@p11", server.TempLocalPath, DbType.String, 255),
+            ("@p12", isActive, DbType.String, 1),
+            ("@p13", server.CreatedBy, DbType.String, 18),
+            ("@p14", server.UpdatedBy, DbType.String, 18)
         );
 
         if (!result.IsSuccess)
-        {
-            return new DataResult<FolderStorageConfig>
-            {
-                StatusCode = result.StatusCode,
-                ErrorCode = result.ErrorCode,
-                ErrorMessage = result.ErrorMessage
-            };
-        }
+            return new ValueResult<int> { StatusCode = 500, ErrorCode = "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
 
-        if (result.Data.Count == 0)
-        {
-            return new DataResult<FolderStorageConfig>
-            {
-                StatusCode = 204
-            };
-        }
-
-        return new DataResult<FolderStorageConfig>
-        {
-            StatusCode = 200,
-            Data = result.Data[0]
-        };
-    }
-
-    public async Task<RawCommandResult> UpsertFolderStorageAsync(FolderStorageConfig config)
-    {
-        _logger.LogDebug("Upserting folder storage config: Mode={Mode}", config.StorageMode);
-
-        // Check if exists
-        var existsResult = _dbContext.ExecuteRawScalar<int>(
-            "SELECT COUNT(*) FROM ntfl_folder_storage"
+        var idResult = _dbContext.ExecuteRawScalar<int>(
+            "SELECT MAX(server_id) FROM ntfl_ftp_server WHERE server_name = ? AND created_by = ?",
+            ("@p1", server.ServerName, DbType.String, 64),
+            ("@p2", server.CreatedBy, DbType.String, 18)
         );
 
-        var storageMode = config.StorageMode == StorageMode.Ftp ? "FTP" : "LOCAL";
-        var protocol = config.Protocol?.ToString().ToUpper();
-        var authType = config.AuthType?.ToString().ToUpper();
-
-        if (existsResult.IsSuccess && existsResult.Value > 0)
-        {
-            var sql = @"UPDATE ntfl_folder_storage SET
-                storage_mode = ?, protocol = ?, host = ?, port = ?,
-                auth_type = ?, username = ?, password_encrypted = ?,
-                certificate_path = ?, private_key_path = ?,
-                base_path = ?, temp_local_path = ?,
-                last_updated = CURRENT, updated_by = ?
-            WHERE storage_id = (SELECT MIN(storage_id) FROM ntfl_folder_storage)";
-
-            return _dbContext.ExecuteRawCommand(sql,
-                ("@p1", storageMode, DbType.String, 8),
-                ("@p2", protocol, DbType.String, 16),
-                ("@p3", config.Host, DbType.String, 255),
-                ("@p4", config.Port, DbType.Int32, 0),
-                ("@p5", authType, DbType.String, 16),
-                ("@p6", config.Username, DbType.String, 64),
-                ("@p7", config.Password, DbType.String, 512),
-                ("@p8", config.CertificatePath, DbType.String, 255),
-                ("@p9", config.PrivateKeyPath, DbType.String, 255),
-                ("@p10", config.BasePath, DbType.String, 255),
-                ("@p11", config.TempLocalPath, DbType.String, 255),
-                ("@p12", config.UpdatedBy, DbType.String, 18)
-            );
-        }
-        else
-        {
-            var sql = @"INSERT INTO ntfl_folder_storage (
-                storage_mode, protocol, host, port,
-                auth_type, username, password_encrypted,
-                certificate_path, private_key_path,
-                base_path, temp_local_path,
-                created_tm, created_by, last_updated, updated_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT, ?, CURRENT, ?)";
-
-            return _dbContext.ExecuteRawCommand(sql,
-                ("@p1", storageMode, DbType.String, 8),
-                ("@p2", protocol, DbType.String, 16),
-                ("@p3", config.Host, DbType.String, 255),
-                ("@p4", config.Port, DbType.Int32, 0),
-                ("@p5", authType, DbType.String, 16),
-                ("@p6", config.Username, DbType.String, 64),
-                ("@p7", config.Password, DbType.String, 512),
-                ("@p8", config.CertificatePath, DbType.String, 255),
-                ("@p9", config.PrivateKeyPath, DbType.String, 255),
-                ("@p10", config.BasePath, DbType.String, 255),
-                ("@p11", config.TempLocalPath, DbType.String, 255),
-                ("@p12", config.CreatedBy, DbType.String, 18),
-                ("@p13", config.UpdatedBy, DbType.String, 18)
-            );
-        }
+        return new ValueResult<int> { StatusCode = 201, Value = idResult.IsSuccess ? idResult.Value : 0 };
     }
 
-    public async Task<RawCommandResult> DeleteFolderStorageAsync()
+    public async Task<RawCommandResult> UpdateFtpServerAsync(FtpServer server)
     {
-        _logger.LogDebug("Deleting folder storage config");
+        _logger.LogDebug("Updating FTP server: {ServerId}", server.ServerId);
+
+        var protocol = server.Protocol.ToString().ToUpper();
+        var authType = server.AuthType.ToString().ToUpper();
+
+        var sql = @"UPDATE ntfl_ftp_server SET
+            server_name = ?, protocol = ?, host = ?, port = ?, auth_type = ?,
+            username = ?, password_enc = ?, certificate_path = ?, private_key_path = ?,
+            root_path = ?, temp_local_path = ?,
+            last_updated = CURRENT, updated_by = ?
+        WHERE server_id = ?";
+
+        return _dbContext.ExecuteRawCommand(sql,
+            ("@p1", server.ServerName, DbType.String, 64),
+            ("@p2", protocol, DbType.String, 16),
+            ("@p3", server.Host, DbType.String, 255),
+            ("@p4", server.Port, DbType.Int32, null),
+            ("@p5", authType, DbType.String, 16),
+            ("@p6", server.Username, DbType.String, 64),
+            ("@p7", server.Password, DbType.String, 512),
+            ("@p8", server.CertificatePath, DbType.String, 255),
+            ("@p9", server.PrivateKeyPath, DbType.String, 255),
+            ("@p10", server.RootPath, DbType.String, 255),
+            ("@p11", server.TempLocalPath, DbType.String, 255),
+            ("@p12", server.UpdatedBy, DbType.String, 18),
+            ("@p13", server.ServerId, DbType.Int32, null)
+        );
+    }
+
+    public async Task<RawCommandResult> DeleteFtpServerAsync(int serverId)
+    {
+        _logger.LogDebug("Deleting FTP server: {ServerId}", serverId);
 
         return _dbContext.ExecuteRawCommand(
-            "DELETE FROM ntfl_folder_storage"
+            "DELETE FROM ntfl_ftp_server WHERE server_id = ?",
+            ("@p1", serverId, DbType.Int32, null)
         );
     }
 
-    private static StorageMode ParseStorageMode(string value)
+    public async Task<RawCommandResult> ActivateFtpServerAsync(int serverId)
     {
-        return value.ToUpper() switch
-        {
-            "FTP" => StorageMode.Ftp,
-            _ => StorageMode.Local
-        };
+        _logger.LogDebug("Activating FTP server: {ServerId}", serverId);
+
+        // Deactivate all first
+        _dbContext.ExecuteRawCommand("UPDATE ntfl_ftp_server SET is_active = 'N' WHERE is_active = 'Y'");
+
+        // Activate target
+        return _dbContext.ExecuteRawCommand(
+            "UPDATE ntfl_ftp_server SET is_active = 'Y', last_updated = CURRENT WHERE server_id = ?",
+            ("@p1", serverId, DbType.Int32, null)
+        );
     }
 
-    private static TransferProtocol ParseStorageTransferProtocol(string value)
+    public async Task<RawCommandResult> DeactivateAllFtpServersAsync()
+    {
+        _logger.LogDebug("Deactivating all FTP servers");
+
+        return _dbContext.ExecuteRawCommand("UPDATE ntfl_ftp_server SET is_active = 'N' WHERE is_active = 'Y'");
+    }
+
+    public async Task<bool> IsFtpServerLockedAsync(int serverId)
+    {
+        var result = _dbContext.ExecuteRawScalar<int>(
+            "SELECT COUNT(*) FROM ntfl_transfer WHERE ftp_server_id = ?",
+            ("@p1", serverId, DbType.Int32, null)
+        );
+
+        return result.IsSuccess && result.Value > 0;
+    }
+
+    private static TransferProtocol ParseFtpProtocol(string value)
     {
         return value.ToUpper() switch
         {

@@ -489,24 +489,35 @@ public interface IFileLoaderRepository
     Task<RawCommandResult> DeleteFileTypeNtAsync(string fileTypeCode);
 
     // ============================================
-    // Folder Storage Configuration
+    // FTP Server Configuration
     // ============================================
 
-    /// <summary>
-    /// Get folder storage configuration.
-    /// </summary>
-    Task<DataResult<FolderStorageConfig>> GetFolderStorageAsync();
+    /// <summary>Get all FTP server entities.</summary>
+    Task<DataResult<List<FtpServer>>> GetFtpServersAsync();
 
-    /// <summary>
-    /// Insert or update folder storage configuration.
-    /// </summary>
-    /// <param name="config">Storage configuration</param>
-    Task<RawCommandResult> UpsertFolderStorageAsync(FolderStorageConfig config);
+    /// <summary>Get a specific FTP server entity.</summary>
+    Task<DataResult<FtpServer>> GetFtpServerAsync(int serverId);
 
-    /// <summary>
-    /// Delete folder storage configuration.
-    /// </summary>
-    Task<RawCommandResult> DeleteFolderStorageAsync();
+    /// <summary>Get the currently active FTP server (is_active = 'Y'), or null if none.</summary>
+    Task<DataResult<FtpServer?>> GetActiveFtpServerAsync();
+
+    /// <summary>Insert a new FTP server entity. Returns the new server_id.</summary>
+    Task<ValueResult<int>> InsertFtpServerAsync(FtpServer server);
+
+    /// <summary>Update an FTP server entity.</summary>
+    Task<RawCommandResult> UpdateFtpServerAsync(FtpServer server);
+
+    /// <summary>Delete an FTP server entity.</summary>
+    Task<RawCommandResult> DeleteFtpServerAsync(int serverId);
+
+    /// <summary>Set is_active = 'Y' on target server and 'N' on all others.</summary>
+    Task<RawCommandResult> ActivateFtpServerAsync(int serverId);
+
+    /// <summary>Set is_active = 'N' on all FTP servers.</summary>
+    Task<RawCommandResult> DeactivateAllFtpServersAsync();
+
+    /// <summary>Check if any transfer record references this FTP server.</summary>
+    Task<bool> IsFtpServerLockedAsync(int serverId);
 
     // ============================================
     // AI Review
@@ -532,9 +543,10 @@ public interface IFileLoaderRepository
     // ============================================
 
     Task<DataResult<List<ExampleFileRecord>>> GetAllExampleFilesAsync();
-    Task<DataResult<ExampleFileRecord>> GetExampleFileAsync(string fileTypeCode);
-    Task<RawCommandResult> UpsertExampleFileAsync(ExampleFileRecord record);
-    Task<RawCommandResult> DeleteExampleFileAsync(string fileTypeCode);
+    Task<DataResult<List<ExampleFileRecord>>> GetExampleFilesByTypeAsync(string fileTypeCode);
+    Task<DataResult<ExampleFileRecord>> GetExampleFileByIdAsync(int exampleFileId);
+    Task<RawCommandResult> InsertExampleFileAsync(ExampleFileRecord record);
+    Task<RawCommandResult> DeleteExampleFileAsync(int exampleFileId);
 
     // ============================================
     // AI Domain Config

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using FileLoading.Interfaces;
 using FileLoading.Models;
@@ -16,6 +17,7 @@ public class AiReviewService : IAiReviewService
     private readonly IFileLoaderRepository _repository;
     private readonly IValidationConfigProvider _validationConfigProvider;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IConfiguration _configuration;
     private readonly AiReviewOptions _options;
     private readonly ILogger<AiReviewService> _logger;
 
@@ -30,12 +32,14 @@ public class AiReviewService : IAiReviewService
         IFileLoaderRepository repository,
         IValidationConfigProvider validationConfigProvider,
         IHttpClientFactory httpClientFactory,
+        IConfiguration configuration,
         IOptions<AiReviewOptions> options,
         ILogger<AiReviewService> logger)
     {
         _repository = repository;
         _validationConfigProvider = validationConfigProvider;
         _httpClientFactory = httpClientFactory;
+        _configuration = configuration;
         _options = options.Value;
         _logger = logger;
     }
@@ -99,29 +103,11 @@ public class AiReviewService : IAiReviewService
         // 6. Load existing validation summary
         var validationSummary = await _repository.GetValidationSummaryAsync(ntFileNum);
 
-        // 7. Load example file
+        // 7. Load example files
         string? exampleContent = request?.ExampleFileContent;
         if (string.IsNullOrEmpty(exampleContent))
         {
-            var exampleResult = await _repository.GetExampleFileAsync(fileStatus.FileType);
-            if (exampleResult.IsSuccess && exampleResult.Data != null)
-            {
-                var examplePath = exampleResult.Data.FilePath;
-                if (File.Exists(examplePath))
-                {
-                    try
-                    {
-                        exampleContent = await File.ReadAllTextAsync(examplePath);
-                        // Limit example content to avoid huge prompts
-                        if (exampleContent.Length > 10000)
-                            exampleContent = exampleContent[..10000] + "\n... (truncated)";
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Could not read example file at {Path}", examplePath);
-                    }
-                }
-            }
+            exampleContent = await LoadExampleContentForTypeAsync(fileStatus.FileType);
         }
 
         // 8. Build prompt
@@ -193,21 +179,11 @@ public class AiReviewService : IAiReviewService
         if (!string.IsNullOrEmpty(request.FileTypeCode))
             validationConfig = _validationConfigProvider.GetConfig(request.FileTypeCode);
 
-        // 4. Load example file
+        // 4. Load example files
         string? exampleContent = request.ExampleFileContent;
         if (string.IsNullOrEmpty(exampleContent) && !string.IsNullOrEmpty(request.FileTypeCode))
         {
-            var exampleResult = await _repository.GetExampleFileAsync(request.FileTypeCode);
-            if (exampleResult.IsSuccess && exampleResult.Data != null && File.Exists(exampleResult.Data.FilePath))
-            {
-                try
-                {
-                    exampleContent = await File.ReadAllTextAsync(exampleResult.Data.FilePath);
-                    if (exampleContent.Length > 10000)
-                        exampleContent = exampleContent[..10000] + "\n... (truncated)";
-                }
-                catch { /* ignore */ }
-            }
+            exampleContent = await LoadExampleContentForTypeAsync(request.FileTypeCode);
         }
 
         // 5. Build prompt — use a lightweight FileStatusResponse for prompt construction
@@ -268,44 +244,43 @@ public class AiReviewService : IAiReviewService
         return await _repository.GetAllExampleFilesAsync();
     }
 
-    public async Task<DataResult<ExampleFileRecord>> GetExampleFileAsync(string fileTypeCode)
+    public async Task<DataResult<List<ExampleFileRecord>>> GetExampleFilesByTypeAsync(string fileTypeCode)
     {
-        return await _repository.GetExampleFileAsync(fileTypeCode);
+        return await _repository.GetExampleFilesByTypeAsync(fileTypeCode);
     }
 
-    public async Task<DataResult<ExampleFileRecord>> SaveExampleFileAsync(
-        string fileTypeCode, ExampleFileRequest request, SecurityContext securityContext)
+    public async Task<DataResult<ExampleFileRecord>> UploadExampleFileAsync(
+        string fileTypeCode, IFormFile file, string? description, SecurityContext securityContext)
     {
-        if (string.IsNullOrWhiteSpace(request.FilePath))
+        // Resolve example folder path
+        var rootBase = _configuration["LocalStorage:BasePath"] ?? "/var/www";
+        var domain = securityContext.Domain ?? "default";
+        var exampleFolder = $"{rootBase}/{domain}/files/{fileTypeCode}/example";
+
+        // Ensure directory exists
+        Directory.CreateDirectory(exampleFolder);
+
+        // Save uploaded file to disk
+        var fileName = Path.GetFileName(file.FileName);
+        var filePath = $"{exampleFolder}/{fileName}";
+
+        using (var stream = new FileStream(filePath, FileMode.Create))
         {
-            return new DataResult<ExampleFileRecord>
-            {
-                StatusCode = 400,
-                ErrorCode = "FileLoading.ValidationError",
-                ErrorMessage = "FilePath is required."
-            };
+            await file.CopyToAsync(stream);
         }
 
-        if (!File.Exists(request.FilePath))
-        {
-            return new DataResult<ExampleFileRecord>
-            {
-                StatusCode = 400,
-                ErrorCode = "FileLoading.ExampleFileNotFound",
-                ErrorMessage = $"Example file path does not exist: {request.FilePath}"
-            };
-        }
-
+        // Insert DB record
         var record = new ExampleFileRecord
         {
             FileTypeCode = fileTypeCode,
-            FilePath = request.FilePath,
-            Description = request.Description,
+            FilePath = filePath,
+            FileName = fileName,
+            Description = description,
             CreatedBy = securityContext.UserCode ?? "SYSTEM",
             UpdatedBy = securityContext.UserCode ?? "SYSTEM"
         };
 
-        var result = await _repository.UpsertExampleFileAsync(record);
+        var result = await _repository.InsertExampleFileAsync(record);
         if (!result.IsSuccess)
         {
             return new DataResult<ExampleFileRecord>
@@ -323,9 +298,83 @@ public class AiReviewService : IAiReviewService
         };
     }
 
-    public async Task<RawCommandResult> DeleteExampleFileAsync(string fileTypeCode)
+    public async Task<DataResult<ExampleFileRecord>> DeleteExampleFileAsync(int exampleFileId)
     {
-        return await _repository.DeleteExampleFileAsync(fileTypeCode);
+        // Look up the record to get the file path
+        var existing = await _repository.GetExampleFileByIdAsync(exampleFileId);
+        if (!existing.IsSuccess || existing.Data == null)
+        {
+            return new DataResult<ExampleFileRecord>
+            {
+                StatusCode = 404,
+                ErrorCode = "FileLoading.ExampleFileNotFound",
+                ErrorMessage = $"No example file found with ID {exampleFileId}"
+            };
+        }
+
+        // Delete from database
+        var deleteResult = await _repository.DeleteExampleFileAsync(exampleFileId);
+        if (!deleteResult.IsSuccess)
+        {
+            return new DataResult<ExampleFileRecord>
+            {
+                StatusCode = deleteResult.StatusCode,
+                ErrorCode = deleteResult.ErrorCode,
+                ErrorMessage = deleteResult.ErrorMessage
+            };
+        }
+
+        // Delete the physical file from disk
+        if (!string.IsNullOrEmpty(existing.Data.FilePath) && File.Exists(existing.Data.FilePath))
+        {
+            try
+            {
+                File.Delete(existing.Data.FilePath);
+                _logger.LogInformation("Deleted example file from disk: {FilePath}", existing.Data.FilePath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not delete example file from disk: {FilePath}", existing.Data.FilePath);
+            }
+        }
+
+        return new DataResult<ExampleFileRecord>
+        {
+            StatusCode = 200,
+            Data = existing.Data
+        };
+    }
+
+    private async Task<string?> LoadExampleContentForTypeAsync(string fileTypeCode)
+    {
+        var exampleResult = await _repository.GetExampleFilesByTypeAsync(fileTypeCode);
+        if (!exampleResult.IsSuccess || exampleResult.Data == null || exampleResult.Data.Count == 0)
+            return null;
+
+        var parts = new List<string>();
+        foreach (var example in exampleResult.Data)
+        {
+            if (!File.Exists(example.FilePath))
+                continue;
+
+            try
+            {
+                var content = await File.ReadAllTextAsync(example.FilePath);
+                if (content.Length > 10000)
+                    content = content[..10000] + "\n... (truncated)";
+
+                if (exampleResult.Data.Count > 1)
+                    parts.Add($"--- Example: {example.FileName ?? Path.GetFileName(example.FilePath)} ---\n{content}");
+                else
+                    parts.Add(content);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not read example file at {Path}", example.FilePath);
+            }
+        }
+
+        return parts.Count > 0 ? string.Join("\n\n", parts) : null;
     }
 
     // ============================================

@@ -86,17 +86,16 @@ public class FileTransferService : IFileTransferService
 
             var folderConfig = folderResult.Data;
 
-            // Check storage mode for destination folders
-            var storageResult = await _repository.GetFolderStorageAsync();
-            var isFtpStorage = storageResult.IsSuccess && storageResult.Data != null &&
-                               storageResult.Data.StorageMode == StorageMode.Ftp;
-            var storageConfig = isFtpStorage ? storageResult.Data : null;
+            // Check for active FTP server
+            var activeServerResult = await _repository.GetActiveFtpServerAsync();
+            var activeFtpServer = activeServerResult.IsSuccess ? activeServerResult.Data : null;
+            var isFtpStorage = activeFtpServer != null;
 
             // Determine local download path
             string localDownloadDir;
-            if (isFtpStorage && !string.IsNullOrEmpty(storageConfig!.TempLocalPath))
+            if (isFtpStorage && !string.IsNullOrEmpty(activeFtpServer!.TempLocalPath))
             {
-                localDownloadDir = storageConfig.TempLocalPath;
+                localDownloadDir = activeFtpServer.TempLocalPath;
             }
             else
             {
@@ -125,11 +124,12 @@ public class FileTransferService : IFileTransferService
             ITransferClient? ftpStorageClient = null;
             if (isFtpStorage)
             {
-                if (!string.IsNullOrEmpty(storageConfig!.Password))
+                var ftpPassword = activeFtpServer!.Password;
+                if (!string.IsNullOrEmpty(ftpPassword))
                 {
-                    storageConfig.Password = DecryptPassword(storageConfig.Password);
+                    ftpPassword = DecryptPassword(ftpPassword);
                 }
-                var ftpConfig = BuildFtpConfigFromStorage(storageConfig);
+                var ftpConfig = BuildFtpConfigFromServer(activeFtpServer, ftpPassword);
                 ftpStorageClient = _clientFactory.CreateClient(ftpConfig);
                 await ftpStorageClient.ConnectAsync();
             }
@@ -177,6 +177,7 @@ public class FileTransferService : IFileTransferService
                             CurrentFolder = "Transfer",
                             FileSize = remoteFile.Size,
                             StartedAt = DateTime.Now,
+                            FtpServerId = activeFtpServer?.ServerId,
                             CreatedBy = context.UserCode ?? "SYSTEM"
                         };
 
@@ -315,24 +316,24 @@ public class FileTransferService : IFileTransferService
 
         var folderConfig = folderResult.Data;
 
-        // Check storage mode
-        var storageResult = await _repository.GetFolderStorageAsync();
-        var isFtpStorage = storageResult.IsSuccess && storageResult.Data != null &&
-                           storageResult.Data.StorageMode == StorageMode.Ftp;
+        // Check for active FTP server
+        var activeServerResult = await _repository.GetActiveFtpServerAsync();
+        var activeFtpServer = activeServerResult.IsSuccess ? activeServerResult.Data : null;
+        var isFtpStorage = activeFtpServer != null;
 
         try
         {
             if (isFtpStorage)
             {
                 // FTP mode: download from FTP transfer folder to local temp path
-                var storage = storageResult.Data!;
-                if (!string.IsNullOrEmpty(storage.Password))
+                var ftpPassword = activeFtpServer!.Password;
+                if (!string.IsNullOrEmpty(ftpPassword))
                 {
-                    storage.Password = DecryptPassword(storage.Password);
+                    ftpPassword = DecryptPassword(ftpPassword);
                 }
-                var ftpConfig = BuildFtpConfigFromStorage(storage);
+                var ftpConfig = BuildFtpConfigFromServer(activeFtpServer, ftpPassword);
 
-                var tempDir = storage.TempLocalPath ?? $"/var/www/{context.Domain ?? "default"}/files/_temp";
+                var tempDir = activeFtpServer.TempLocalPath ?? $"/var/www/{context.Domain ?? "default"}/files/_temp";
                 if (!Directory.Exists(tempDir))
                 {
                     Directory.CreateDirectory(tempDir);
@@ -434,10 +435,10 @@ public class FileTransferService : IFileTransferService
             _ => throw new ArgumentException($"Unknown folder: {targetFolder}")
         };
 
-        // Check storage mode
-        var storageResult = await _repository.GetFolderStorageAsync();
-        var isFtpStorage = storageResult.IsSuccess && storageResult.Data != null &&
-                           storageResult.Data.StorageMode == StorageMode.Ftp;
+        // Check for active FTP server
+        var activeServerResult = await _repository.GetActiveFtpServerAsync();
+        var activeFtpServer = activeServerResult.IsSuccess ? activeServerResult.Data : null;
+        var isFtpStorage = activeFtpServer != null;
 
         var sourcePath = transfer.DestinationPath!;
         var destFileName = transfer.FileName;
@@ -458,12 +459,12 @@ public class FileTransferService : IFileTransferService
             if (isFtpStorage)
             {
                 // FTP mode: upload to FTP target folder, delete local temp
-                var storage = storageResult.Data!;
-                if (!string.IsNullOrEmpty(storage.Password))
+                var ftpPassword = activeFtpServer!.Password;
+                if (!string.IsNullOrEmpty(ftpPassword))
                 {
-                    storage.Password = DecryptPassword(storage.Password);
+                    ftpPassword = DecryptPassword(ftpPassword);
                 }
-                var ftpConfig = BuildFtpConfigFromStorage(storage);
+                var ftpConfig = BuildFtpConfigFromServer(activeFtpServer, ftpPassword);
 
                 destPath = $"{targetPath}/{destFileName}";
 
@@ -703,70 +704,47 @@ public class FileTransferService : IFileTransferService
     }
 
     public async Task<DataResult<FolderWorkflowConfig>> SaveFolderConfigAsync(
-        FolderWorkflowRequest request, SecurityContext context)
+        string? fileTypeCode, SecurityContext context)
     {
-        // Determine storage mode
-        var storageResult = await _repository.GetFolderStorageAsync();
-        var storageMode = storageResult.IsSuccess && storageResult.Data != null
-            ? storageResult.Data.StorageMode
-            : StorageMode.Local;
+        // Determine storage mode from active FTP server
+        var activeServerResult = await _repository.GetActiveFtpServerAsync();
+        var activeFtpServer = activeServerResult.IsSuccess ? activeServerResult.Data : null;
+        var isFtpMode = activeFtpServer != null;
 
-        var typePath = string.IsNullOrEmpty(request.FileTypeCode) ? "default" : request.FileTypeCode;
+        var typePath = string.IsNullOrEmpty(fileTypeCode) ? "default" : fileTypeCode;
+        var rootBase = _configuration["LocalStorage:BasePath"] ?? "/var/www";
+        var domain = context.Domain ?? "default";
+        var localBasePath = $"{rootBase}/{domain}/files";
+
         FolderWorkflowConfig config;
 
-        if (storageMode == StorageMode.Local)
+        if (!isFtpMode)
         {
-            // Local: paths are fully derived from config — not user-configurable
-            var rootBase = _configuration["LocalStorage:BasePath"] ?? "/var/www";
-            var domain = context.Domain ?? "default";
-            var basePath = $"{rootBase}/{domain}/files";
-
+            // Local: all paths derived from config
             config = new FolderWorkflowConfig
             {
-                FileTypeCode = request.FileTypeCode,
-                TransferFolder = $"{basePath}/{typePath}/transfer",
-                ProcessingFolder = $"{basePath}/{typePath}/processing",
-                ProcessedFolder = $"{basePath}/{typePath}/processed",
-                ErrorsFolder = $"{basePath}/{typePath}/errors",
-                SkippedFolder = $"{basePath}/{typePath}/skipped",
-                ExampleFolder = $"{basePath}/{typePath}/example"
+                FileTypeCode = fileTypeCode,
+                TransferFolder = $"{localBasePath}/{typePath}/transfer",
+                ProcessingFolder = $"{localBasePath}/{typePath}/processing",
+                ProcessedFolder = $"{localBasePath}/{typePath}/processed",
+                ErrorsFolder = $"{localBasePath}/{typePath}/errors",
+                SkippedFolder = $"{localBasePath}/{typePath}/skipped",
+                ExampleFolder = $"{localBasePath}/{typePath}/example"
             };
         }
         else
         {
-            // FTP: user provides full paths on their FTP server
-            var folderPaths = new[]
-            {
-                (Name: "TransferFolder", Path: request.TransferFolder),
-                (Name: "ProcessingFolder", Path: request.ProcessingFolder),
-                (Name: "ProcessedFolder", Path: request.ProcessedFolder),
-                (Name: "ErrorsFolder", Path: request.ErrorsFolder),
-                (Name: "SkippedFolder", Path: request.SkippedFolder),
-                (Name: "ExampleFolder", Path: request.ExampleFolder)
-            };
-
-            foreach (var folder in folderPaths)
-            {
-                if (string.IsNullOrWhiteSpace(folder.Path))
-                {
-                    return new DataResult<FolderWorkflowConfig>
-                    {
-                        StatusCode = 400,
-                        ErrorCode = "FileLoading.InvalidFolderPath",
-                        ErrorMessage = $"{folder.Name} is required for FTP storage mode"
-                    };
-                }
-            }
-
+            // FTP: 5 workflow folders on FTP server, Example always local
+            var ftpBase = $"{activeFtpServer!.RootPath}/files";
             config = new FolderWorkflowConfig
             {
-                FileTypeCode = request.FileTypeCode,
-                TransferFolder = request.TransferFolder!,
-                ProcessingFolder = request.ProcessingFolder!,
-                ProcessedFolder = request.ProcessedFolder!,
-                ErrorsFolder = request.ErrorsFolder!,
-                SkippedFolder = request.SkippedFolder!,
-                ExampleFolder = request.ExampleFolder!
+                FileTypeCode = fileTypeCode,
+                TransferFolder = $"{ftpBase}/{typePath}/transfer",
+                ProcessingFolder = $"{ftpBase}/{typePath}/processing",
+                ProcessedFolder = $"{ftpBase}/{typePath}/processed",
+                ErrorsFolder = $"{ftpBase}/{typePath}/errors",
+                SkippedFolder = $"{ftpBase}/{typePath}/skipped",
+                ExampleFolder = $"{localBasePath}/{typePath}/example"
             };
         }
 
@@ -789,108 +767,140 @@ public class FileTransferService : IFileTransferService
     }
 
     // ============================================
-    // Folder Storage Configuration
+    // FTP Server Configuration
     // ============================================
 
-    public async Task<DataResult<FolderStorageConfig>> GetFolderStorageAsync(
-        SecurityContext context)
+    public async Task<DataResult<List<FtpServer>>> GetFtpServersAsync(SecurityContext context)
     {
-        var result = await _repository.GetFolderStorageAsync();
+        var result = await _repository.GetFtpServersAsync();
 
-        // Mask password in response
+        // Mask passwords in response
         if (result.IsSuccess && result.Data != null)
         {
-            result.Data.Password = string.IsNullOrEmpty(result.Data.Password) ? null : "********";
+            foreach (var server in result.Data)
+                server.Password = string.IsNullOrEmpty(server.Password) ? null : "********";
         }
 
         return result;
     }
 
-    public async Task<DataResult<FolderStorageConfig>> SaveFolderStorageAsync(
-        FolderStorageRequest request, SecurityContext context)
+    public async Task<DataResult<FtpServer>> GetFtpServerAsync(int serverId, SecurityContext context)
     {
-        // Validate FTP fields when mode is FTP
-        if (request.StorageMode == StorageMode.Ftp)
-        {
-            if (string.IsNullOrWhiteSpace(request.Host))
-            {
-                return new DataResult<FolderStorageConfig>
-                {
-                    StatusCode = 400,
-                    ErrorCode = "FileLoading.ValidationError",
-                    ErrorMessage = "Host is required for FTP storage mode"
-                };
-            }
-        }
+        var result = await _repository.GetFtpServerAsync(serverId);
 
-        var config = new FolderStorageConfig
+        if (result.IsSuccess && result.Data != null)
+            result.Data.Password = string.IsNullOrEmpty(result.Data.Password) ? null : "********";
+
+        return result;
+    }
+
+    public async Task<DataResult<FtpServer>> CreateFtpServerAsync(FtpServerRequest request, SecurityContext context)
+    {
+        if (string.IsNullOrWhiteSpace(request.Host))
+            return new DataResult<FtpServer> { StatusCode = 400, ErrorCode = "FileLoading.ValidationError", ErrorMessage = "Host is required" };
+
+        if (string.IsNullOrWhiteSpace(request.ServerName))
+            return new DataResult<FtpServer> { StatusCode = 400, ErrorCode = "FileLoading.ValidationError", ErrorMessage = "ServerName is required" };
+
+        var server = new FtpServer
         {
-            StorageMode = request.StorageMode,
+            ServerName = request.ServerName,
             Protocol = request.Protocol,
             Host = request.Host,
             Port = request.Port,
             AuthType = request.AuthType,
             Username = request.Username,
-            Password = string.IsNullOrEmpty(request.Password) || request.Password == "********"
-                ? null
-                : EncryptPassword(request.Password),
+            Password = string.IsNullOrEmpty(request.Password) ? null : EncryptPassword(request.Password),
             CertificatePath = request.CertificatePath,
             PrivateKeyPath = request.PrivateKeyPath,
-            BasePath = request.BasePath,
+            RootPath = request.RootPath,
             TempLocalPath = request.TempLocalPath,
+            IsActive = false,
             CreatedBy = context.UserCode ?? "SYSTEM",
             UpdatedBy = context.UserCode ?? "SYSTEM"
         };
 
-        // If password is masked, keep existing encrypted password
-        if (request.Password == "********")
+        var insertResult = await _repository.InsertFtpServerAsync(server);
+        if (!insertResult.IsSuccess)
+            return new DataResult<FtpServer> { StatusCode = 500, ErrorCode = insertResult.ErrorCode ?? "DATABASE_ERROR", ErrorMessage = insertResult.ErrorMessage };
+
+        var saved = await _repository.GetFtpServerAsync(insertResult.Value);
+        if (saved.IsSuccess && saved.Data != null)
+            saved.Data.Password = string.IsNullOrEmpty(saved.Data.Password) ? null : "********";
+
+        return new DataResult<FtpServer> { StatusCode = 201, Data = saved.Data };
+    }
+
+    public async Task<DataResult<FtpServer>> UpdateFtpServerAsync(int serverId, FtpServerRequest request, SecurityContext context)
+    {
+        var existing = await _repository.GetFtpServerAsync(serverId);
+        if (!existing.IsSuccess || existing.Data == null)
+            return new DataResult<FtpServer> { StatusCode = 404, ErrorCode = "FileLoading.FtpServerNotFound", ErrorMessage = $"FTP server {serverId} not found" };
+
+        var server = existing.Data;
+        var isLocked = await _repository.IsFtpServerLockedAsync(serverId);
+
+        // Immutability check: if locked, only ServerName and TempLocalPath can change
+        if (isLocked)
         {
-            var existingResult = await _repository.GetFolderStorageAsync();
-            if (existingResult.IsSuccess && existingResult.Data != null)
+            if (request.Host != server.Host || request.RootPath != server.RootPath ||
+                request.Protocol != server.Protocol || request.Port != server.Port ||
+                request.AuthType != server.AuthType)
             {
-                config.Password = existingResult.Data.Password;
+                return new DataResult<FtpServer>
+                {
+                    StatusCode = 409,
+                    ErrorCode = "FileLoading.ServerLocked",
+                    ErrorMessage = "This FTP server is referenced by transfer records. Only ServerName and TempLocalPath can be updated. Create a new server for different connection settings."
+                };
             }
         }
 
-        // Clear FTP fields when mode is Local
-        if (request.StorageMode == StorageMode.Local)
+        server.ServerName = request.ServerName;
+        server.Protocol = request.Protocol;
+        server.Host = request.Host;
+        server.Port = request.Port;
+        server.AuthType = request.AuthType;
+        server.Username = request.Username;
+        server.CertificatePath = request.CertificatePath;
+        server.PrivateKeyPath = request.PrivateKeyPath;
+        server.RootPath = request.RootPath;
+        server.TempLocalPath = request.TempLocalPath;
+        server.UpdatedBy = context.UserCode ?? "SYSTEM";
+
+        // Handle password: keep existing if masked
+        if (!string.IsNullOrEmpty(request.Password) && request.Password != "********")
         {
-            config.Protocol = null;
-            config.Host = null;
-            config.Port = null;
-            config.AuthType = null;
-            config.Username = null;
-            config.Password = null;
-            config.CertificatePath = null;
-            config.PrivateKeyPath = null;
-            config.BasePath = "/";
-            config.TempLocalPath = null;
+            server.Password = EncryptPassword(request.Password);
         }
+        // else: keep existing encrypted password from DB
 
-        var result = await _repository.UpsertFolderStorageAsync(config);
-
+        var result = await _repository.UpdateFtpServerAsync(server);
         if (!result.IsSuccess)
-        {
-            return new DataResult<FolderStorageConfig>
-            {
-                StatusCode = 500,
-                ErrorCode = result.ErrorCode ?? "DATABASE_ERROR",
-                ErrorMessage = result.ErrorMessage
-            };
-        }
+            return new DataResult<FtpServer> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "DATABASE_ERROR", ErrorMessage = result.ErrorMessage };
 
-        // Return the saved config
-        var saved = await _repository.GetFolderStorageAsync();
+        var saved = await _repository.GetFtpServerAsync(serverId);
         if (saved.IsSuccess && saved.Data != null)
-        {
             saved.Data.Password = string.IsNullOrEmpty(saved.Data.Password) ? null : "********";
-        }
+
         return saved;
     }
 
-    public async Task<DataResult<bool>> DeleteFolderStorageAsync(SecurityContext context)
+    public async Task<DataResult<bool>> DeleteFtpServerAsync(int serverId, SecurityContext context)
     {
-        var result = await _repository.DeleteFolderStorageAsync();
+        var isLocked = await _repository.IsFtpServerLockedAsync(serverId);
+        if (isLocked)
+        {
+            return new DataResult<bool>
+            {
+                StatusCode = 409,
+                Data = false,
+                ErrorCode = "FileLoading.ServerLocked",
+                ErrorMessage = "Cannot delete FTP server — it is referenced by transfer records"
+            };
+        }
+
+        var result = await _repository.DeleteFtpServerAsync(serverId);
         return new DataResult<bool>
         {
             StatusCode = result.IsSuccess ? 200 : 500,
@@ -900,49 +910,88 @@ public class FileTransferService : IFileTransferService
         };
     }
 
-    public async Task<DataResult<bool>> TestFolderStorageAsync(
-        FolderStorageRequest request, SecurityContext context)
+    public async Task<DataResult<FtpServer>> ActivateFtpServerAsync(int serverId, SecurityContext context)
     {
-        if (request.StorageMode == StorageMode.Local)
-        {
-            return new DataResult<bool>
-            {
-                StatusCode = 400,
-                Data = false,
-                ErrorCode = "FileLoading.ValidationError",
-                ErrorMessage = "Connection test is only applicable for FTP storage mode"
-            };
-        }
+        var existing = await _repository.GetFtpServerAsync(serverId);
+        if (!existing.IsSuccess || existing.Data == null)
+            return new DataResult<FtpServer> { StatusCode = 404, ErrorCode = "FileLoading.FtpServerNotFound", ErrorMessage = $"FTP server {serverId} not found" };
 
-        var config = BuildFtpConfig(request);
+        var result = await _repository.ActivateFtpServerAsync(serverId);
+        if (!result.IsSuccess)
+            return new DataResult<FtpServer> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "DATABASE_ERROR", ErrorMessage = result.ErrorMessage };
+
+        var saved = await _repository.GetFtpServerAsync(serverId);
+        if (saved.IsSuccess && saved.Data != null)
+            saved.Data.Password = string.IsNullOrEmpty(saved.Data.Password) ? null : "********";
+
+        return saved;
+    }
+
+    public async Task<DataResult<bool>> DeactivateFtpServerAsync(int serverId, SecurityContext context)
+    {
+        var result = await _repository.DeactivateAllFtpServersAsync();
+        return new DataResult<bool>
+        {
+            StatusCode = result.IsSuccess ? 200 : 500,
+            Data = result.IsSuccess,
+            ErrorCode = result.ErrorCode,
+            ErrorMessage = result.ErrorMessage
+        };
+    }
+
+    public async Task<DataResult<bool>> TestFtpConnectionAsync(FtpServerRequest request, SecurityContext context)
+    {
+        var config = BuildFtpConfigFromRequest(request);
         return await TestConnectionInternalAsync(config);
     }
 
-    public Task<DataResult<FolderDefaultsResponse>> GetDefaultFolderPathsAsync(
+    public async Task<DataResult<FtpServer?>> GetActiveFtpServerAsync(SecurityContext context)
+    {
+        return await _repository.GetActiveFtpServerAsync();
+    }
+
+    public async Task<DataResult<FolderDefaultsResponse>> GetDefaultFolderPathsAsync(
         string? fileType, SecurityContext context)
     {
         var domain = context.Domain ?? "default";
         var rootBase = _configuration["LocalStorage:BasePath"] ?? "/var/www";
-        var basePath = $"{rootBase}/{domain}/files";
+        var localBasePath = $"{rootBase}/{domain}/files";
         var typePath = string.IsNullOrEmpty(fileType) ? "default" : fileType;
+
+        // Check for active FTP server
+        var activeServerResult = await _repository.GetActiveFtpServerAsync();
+        var activeFtpServer = activeServerResult.IsSuccess ? activeServerResult.Data : null;
+        var isFtpMode = activeFtpServer != null;
 
         var defaults = new FolderDefaultsResponse
         {
             FileTypeCode = fileType,
-            BasePath = basePath,
-            TransferFolder = $"{basePath}/{typePath}/transfer",
-            ProcessingFolder = $"{basePath}/{typePath}/processing",
-            ProcessedFolder = $"{basePath}/{typePath}/processed",
-            ErrorsFolder = $"{basePath}/{typePath}/errors",
-            SkippedFolder = $"{basePath}/{typePath}/skipped",
-            ExampleFolder = $"{basePath}/{typePath}/example"
+            IsFtpMode = isFtpMode,
+            BasePath = localBasePath,
+            IsExampleAlwaysLocal = isFtpMode
         };
 
-        return Task.FromResult(new DataResult<FolderDefaultsResponse>
+        if (isFtpMode)
         {
-            StatusCode = 200,
-            Data = defaults
-        });
+            var ftpBase = $"{activeFtpServer!.RootPath}/files";
+            defaults.TransferFolder = $"{ftpBase}/{typePath}/transfer";
+            defaults.ProcessingFolder = $"{ftpBase}/{typePath}/processing";
+            defaults.ProcessedFolder = $"{ftpBase}/{typePath}/processed";
+            defaults.ErrorsFolder = $"{ftpBase}/{typePath}/errors";
+            defaults.SkippedFolder = $"{ftpBase}/{typePath}/skipped";
+            defaults.ExampleFolder = $"{localBasePath}/{typePath}/example";
+        }
+        else
+        {
+            defaults.TransferFolder = $"{localBasePath}/{typePath}/transfer";
+            defaults.ProcessingFolder = $"{localBasePath}/{typePath}/processing";
+            defaults.ProcessedFolder = $"{localBasePath}/{typePath}/processed";
+            defaults.ErrorsFolder = $"{localBasePath}/{typePath}/errors";
+            defaults.SkippedFolder = $"{localBasePath}/{typePath}/skipped";
+            defaults.ExampleFolder = $"{localBasePath}/{typePath}/example";
+        }
+
+        return new DataResult<FolderDefaultsResponse> { StatusCode = 200, Data = defaults };
     }
 
     public async Task<DataResult<FolderCreateResult>> CreateFoldersAsync(
@@ -975,14 +1024,14 @@ public class FileTransferService : IFileTransferService
             ["Example"] = folderConfig.ExampleFolder
         };
 
-        // Check storage mode
-        var storageResult = await _repository.GetFolderStorageAsync();
-        var isLocal = !storageResult.IsSuccess || storageResult.Data == null ||
-                      storageResult.Data.StorageMode == StorageMode.Local;
+        // Check for active FTP server
+        var activeServerResult = await _repository.GetActiveFtpServerAsync();
+        var activeFtpServer = activeServerResult.IsSuccess ? activeServerResult.Data : null;
+        var isFtpMode = activeFtpServer != null;
 
-        if (isLocal)
+        if (!isFtpMode)
         {
-            // Create local directories
+            // Create all local directories
             foreach (var (name, path) in folders)
             {
                 var status = new FolderCreateStatus { FolderName = name, Path = path };
@@ -1008,14 +1057,15 @@ public class FileTransferService : IFileTransferService
         }
         else
         {
-            // Create FTP directories
-            var storage = storageResult.Data!;
-            if (!string.IsNullOrEmpty(storage.Password))
+            // FTP mode: create 5 workflow folders on FTP + Example locally
+            var ftpServer = activeFtpServer!;
+            var password = ftpServer.Password;
+            if (!string.IsNullOrEmpty(password))
             {
-                storage.Password = DecryptPassword(storage.Password);
+                password = DecryptPassword(password);
             }
 
-            var ftpConfig = BuildFtpConfigFromStorage(storage);
+            var ftpConfig = BuildFtpConfigFromServer(ftpServer, password);
 
             try
             {
@@ -1027,8 +1077,25 @@ public class FileTransferService : IFileTransferService
                     var status = new FolderCreateStatus { FolderName = name, Path = path };
                     try
                     {
-                        await client.CreateDirectoryAsync(path);
-                        status.Created = true;
+                        if (name == "Example")
+                        {
+                            // Example always created locally
+                            if (Directory.Exists(path))
+                            {
+                                status.AlreadyExisted = true;
+                                status.Created = true;
+                            }
+                            else
+                            {
+                                Directory.CreateDirectory(path);
+                                status.Created = true;
+                            }
+                        }
+                        else
+                        {
+                            await client.CreateDirectoryAsync(path);
+                            status.Created = true;
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -1040,9 +1107,9 @@ public class FileTransferService : IFileTransferService
                 await client.DisconnectAsync();
 
                 // Also create temp local path if configured
-                if (!string.IsNullOrEmpty(storage.TempLocalPath) && !Directory.Exists(storage.TempLocalPath))
+                if (!string.IsNullOrEmpty(ftpServer.TempLocalPath) && !Directory.Exists(ftpServer.TempLocalPath))
                 {
-                    Directory.CreateDirectory(storage.TempLocalPath);
+                    Directory.CreateDirectory(ftpServer.TempLocalPath);
                 }
             }
             catch (Exception ex)
@@ -1059,37 +1126,59 @@ public class FileTransferService : IFileTransferService
 
         result.AllCreated = result.Folders.All(f => f.Created);
 
-        return new DataResult<FolderCreateResult>
-        {
-            StatusCode = 200,
-            Data = result
-        };
+        return new DataResult<FolderCreateResult> { StatusCode = 200, Data = result };
     }
 
-    private TransferSourceConfig BuildFtpConfig(FolderStorageRequest request) => new()
+    /// <summary>
+    /// Ensure a single folder exists on the FTP server. Idempotent — safe to call repeatedly.
+    /// </summary>
+    public async Task EnsureFtpFolderExistsAsync(FtpServer ftpServer, string folderPath)
     {
-        Protocol = request.Protocol ?? TransferProtocol.Sftp,
-        Host = request.Host ?? "",
-        Port = request.Port ?? (request.Protocol == TransferProtocol.Ftp ? 21 : 22),
-        AuthType = request.AuthType ?? AuthenticationType.Password,
+        var password = ftpServer.Password;
+        if (!string.IsNullOrEmpty(password))
+        {
+            password = DecryptPassword(password);
+        }
+
+        var ftpConfig = BuildFtpConfigFromServer(ftpServer, password);
+
+        using var client = _clientFactory.CreateClient(ftpConfig);
+        await client.ConnectAsync();
+        try
+        {
+            await client.CreateDirectoryAsync(folderPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Folder may already exist: {Path}", folderPath);
+        }
+        await client.DisconnectAsync();
+    }
+
+    private static TransferSourceConfig BuildFtpConfigFromRequest(FtpServerRequest request) => new()
+    {
+        Protocol = request.Protocol,
+        Host = request.Host,
+        Port = request.Port,
+        AuthType = request.AuthType,
         Username = request.Username ?? "",
         Password = request.Password,
         CertificatePath = request.CertificatePath,
         PrivateKeyPath = request.PrivateKeyPath,
-        RemotePath = request.BasePath
+        RemotePath = request.RootPath
     };
 
-    private static TransferSourceConfig BuildFtpConfigFromStorage(FolderStorageConfig storage) => new()
+    private static TransferSourceConfig BuildFtpConfigFromServer(FtpServer server, string? decryptedPassword = null) => new()
     {
-        Protocol = storage.Protocol ?? TransferProtocol.Sftp,
-        Host = storage.Host ?? "",
-        Port = storage.Port ?? (storage.Protocol == TransferProtocol.Ftp ? 21 : 22),
-        AuthType = storage.AuthType ?? AuthenticationType.Password,
-        Username = storage.Username ?? "",
-        Password = storage.Password,
-        CertificatePath = storage.CertificatePath,
-        PrivateKeyPath = storage.PrivateKeyPath,
-        RemotePath = storage.BasePath
+        Protocol = server.Protocol,
+        Host = server.Host,
+        Port = server.Port,
+        AuthType = server.AuthType,
+        Username = server.Username ?? "",
+        Password = decryptedPassword ?? server.Password,
+        CertificatePath = server.CertificatePath,
+        PrivateKeyPath = server.PrivateKeyPath,
+        RemotePath = server.RootPath
     };
 
     // ============================================

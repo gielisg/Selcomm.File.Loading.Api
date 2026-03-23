@@ -996,8 +996,7 @@ public class FileManagementService : IFileManagementService
             return new DataResult<FileTypeRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
 
         // Auto-create folder config and local folders for new file types
-        var folderRequest = new FolderWorkflowRequest { FileTypeCode = record.FileTypeCode };
-        var folderSaveResult = await _transferService.SaveFolderConfigAsync(folderRequest, context);
+        var folderSaveResult = await _transferService.SaveFolderConfigAsync(record.FileTypeCode, context);
         if (folderSaveResult.IsSuccess)
         {
             await _transferService.CreateFoldersAsync(record.FileTypeCode, context);

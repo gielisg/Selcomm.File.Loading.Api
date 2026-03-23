@@ -93,12 +93,17 @@ public class FileLoaderController : DbControllerBase<FileLoaderDbContext>
     /// Load a network file for processing.
     /// </summary>
     /// <param name="request">File load request</param>
-    /// <returns>Load job details</returns>
+    /// <response code="202">File load accepted for processing</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpPost("load")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_load")]
     [Tags("File Loading")]
     [ProducesResponseType(typeof(FileLoadResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> LoadFile([FromBody] LoadFileRequest request)
     {
         try
@@ -131,13 +136,18 @@ public class FileLoaderController : DbControllerBase<FileLoaderDbContext>
     /// </summary>
     /// <param name="file">File to upload</param>
     /// <param name="fileType">File type code</param>
-    /// <returns>Load job details</returns>
+    /// <response code="202">File upload accepted for processing</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpPost("upload")]
     [Consumes("multipart/form-data")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_upload")]
     [Tags("File Loading")]
     [ProducesResponseType(typeof(FileLoadResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> UploadFile(
         IFormFile file,
         [FromQuery(Name = "fileType")] string fileType)
@@ -171,12 +181,17 @@ public class FileLoaderController : DbControllerBase<FileLoaderDbContext>
     /// Get file load status by nt-file-num (the database record key assigned at load time).
     /// </summary>
     /// <param name="ntFileNum">File number (nt_file_num)</param>
-    /// <returns>File status</returns>
+    /// <response code="200">File status returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">File record not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("files/{nt-file-num}")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_files_nt_file_num")]
     [Tags("File Loading")]
     [ProducesResponseType(typeof(FileStatusResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetFileStatus([FromRoute(Name = "nt-file-num")] int ntFileNum)
     {
         try
@@ -201,11 +216,15 @@ public class FileLoaderController : DbControllerBase<FileLoaderDbContext>
     /// <param name="skipRecords">Number of records to skip (default 0)</param>
     /// <param name="takeRecords">Number of records to return (default 20, max 100)</param>
     /// <param name="countRecords">Include total count: Y=yes, N=no, F=first page only (default F)</param>
-    /// <returns>Paged list of files</returns>
+    /// <response code="200">Paged file list returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("files")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_files")]
     [Tags("File Loading")]
     [ProducesResponseType(typeof(FileListResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> ListFiles(
         [FromQuery(Name = "fileTypeCode")] string? fileTypeCode = null,
         [FromQuery(Name = "ntCustNum")] string? ntCustNum = null,
@@ -230,11 +249,15 @@ public class FileLoaderController : DbControllerBase<FileLoaderDbContext>
     /// <summary>
     /// Get supported file types for loading.
     /// </summary>
-    /// <returns>List of file types</returns>
+    /// <response code="200">File types returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
     [HttpGet("file-types")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_file_types")]
     [Tags("File Loading")]
     [ProducesResponseType(typeof(FileTypeListResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> ListFileTypes()
     {
         try
@@ -255,12 +278,17 @@ public class FileLoaderController : DbControllerBase<FileLoaderDbContext>
     /// Reprocess a previously loaded file.
     /// </summary>
     /// <param name="ntFileNum">File number (nt_file_num)</param>
-    /// <returns>Reprocess result</returns>
+    /// <response code="202">File reprocess accepted</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">File record not found</response>
+    /// <response code="500">Internal server error</response>
     [HttpPost("files/{nt-file-num}/reprocess")]
     [SwaggerOperation(OperationId = "post_api_v4_file_loading_files_nt_file_num_reprocess")]
     [Tags("File Loading")]
     [ProducesResponseType(typeof(FileLoadResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> ReprocessFile([FromRoute(Name = "nt-file-num")] int ntFileNum)
     {
         try

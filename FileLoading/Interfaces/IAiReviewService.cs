@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using FileLoading.Models;
 using Selcomm.Data.Common;
 
@@ -32,9 +33,9 @@ public interface IAiReviewService
     // ============================================
 
     Task<DataResult<List<ExampleFileRecord>>> ListExampleFilesAsync();
-    Task<DataResult<ExampleFileRecord>> GetExampleFileAsync(string fileTypeCode);
-    Task<DataResult<ExampleFileRecord>> SaveExampleFileAsync(string fileTypeCode, ExampleFileRequest request, SecurityContext securityContext);
-    Task<RawCommandResult> DeleteExampleFileAsync(string fileTypeCode);
+    Task<DataResult<List<ExampleFileRecord>>> GetExampleFilesByTypeAsync(string fileTypeCode);
+    Task<DataResult<ExampleFileRecord>> UploadExampleFileAsync(string fileTypeCode, IFormFile file, string? description, SecurityContext securityContext);
+    Task<DataResult<ExampleFileRecord>> DeleteExampleFileAsync(int exampleFileId);
 
     // ============================================
     // Domain AI Config CRUD

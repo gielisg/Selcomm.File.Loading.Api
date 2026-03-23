@@ -154,53 +154,64 @@ public interface IFileTransferService
         SecurityContext context);
 
     /// <summary>
-    /// Save folder workflow configuration.
+    /// Save folder workflow configuration. Paths are always derived from the file type code
+    /// and current storage mode — no user-supplied paths.
     /// </summary>
-    /// <param name="config">Folder configuration</param>
+    /// <param name="fileTypeCode">File type code (null for domain-level default)</param>
     /// <param name="context">Security context</param>
     /// <returns>Saved folder configuration</returns>
     Task<DataResult<FolderWorkflowConfig>> SaveFolderConfigAsync(
-        FolderWorkflowRequest request,
+        string? fileTypeCode,
         SecurityContext context);
 
     // ============================================
-    // Folder Storage Configuration
+    // FTP Server Configuration
     // ============================================
 
     /// <summary>
-    /// Get folder storage configuration.
+    /// Get all FTP server entities.
     /// </summary>
-    /// <param name="context">Security context</param>
-    /// <returns>Storage configuration (404 = LOCAL default)</returns>
-    Task<DataResult<FolderStorageConfig>> GetFolderStorageAsync(
-        SecurityContext context);
+    Task<DataResult<List<FtpServer>>> GetFtpServersAsync(SecurityContext context);
 
     /// <summary>
-    /// Save folder storage configuration.
+    /// Get a specific FTP server entity.
     /// </summary>
-    /// <param name="request">Storage configuration request</param>
-    /// <param name="context">Security context</param>
-    /// <returns>Saved storage configuration</returns>
-    Task<DataResult<FolderStorageConfig>> SaveFolderStorageAsync(
-        FolderStorageRequest request,
-        SecurityContext context);
+    Task<DataResult<FtpServer>> GetFtpServerAsync(int serverId, SecurityContext context);
 
     /// <summary>
-    /// Delete folder storage configuration (revert to local defaults).
+    /// Create a new FTP server entity (not activated automatically).
     /// </summary>
-    /// <param name="context">Security context</param>
-    Task<DataResult<bool>> DeleteFolderStorageAsync(
-        SecurityContext context);
+    Task<DataResult<FtpServer>> CreateFtpServerAsync(FtpServerRequest request, SecurityContext context);
 
     /// <summary>
-    /// Test FTP connection with provided storage configuration.
+    /// Update an FTP server entity. Immutable fields blocked if server is locked.
     /// </summary>
-    /// <param name="request">Storage configuration to test</param>
-    /// <param name="context">Security context</param>
-    /// <returns>True if connection successful</returns>
-    Task<DataResult<bool>> TestFolderStorageAsync(
-        FolderStorageRequest request,
-        SecurityContext context);
+    Task<DataResult<FtpServer>> UpdateFtpServerAsync(int serverId, FtpServerRequest request, SecurityContext context);
+
+    /// <summary>
+    /// Delete an FTP server entity. Blocked if locked (referenced by transfers).
+    /// </summary>
+    Task<DataResult<bool>> DeleteFtpServerAsync(int serverId, SecurityContext context);
+
+    /// <summary>
+    /// Activate an FTP server as the current storage destination (deactivates all others).
+    /// </summary>
+    Task<DataResult<FtpServer>> ActivateFtpServerAsync(int serverId, SecurityContext context);
+
+    /// <summary>
+    /// Deactivate an FTP server, reverting the domain to local storage mode.
+    /// </summary>
+    Task<DataResult<bool>> DeactivateFtpServerAsync(int serverId, SecurityContext context);
+
+    /// <summary>
+    /// Test FTP connection with provided configuration (without saving).
+    /// </summary>
+    Task<DataResult<bool>> TestFtpConnectionAsync(FtpServerRequest request, SecurityContext context);
+
+    /// <summary>
+    /// Get the currently active FTP server, or null if in local mode.
+    /// </summary>
+    Task<DataResult<FtpServer?>> GetActiveFtpServerAsync(SecurityContext context);
 
     /// <summary>
     /// Get default folder paths for a file-type combination.
