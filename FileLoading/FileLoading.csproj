@@ -45,4 +45,8 @@
     <Content Include="..\documentation\*.md" Link="documentation\%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="Instructions\**\*.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

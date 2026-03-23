@@ -557,6 +557,69 @@ public interface IFileLoaderRepository
     Task<RawCommandResult> DeleteAiDomainConfigAsync();
     Task<RawCommandResult> IncrementAiReviewCountAsync();
     Task<RawCommandResult> ResetAiReviewCountAsync();
+
+    // ============================================
+    // Custom Table Management
+    // ============================================
+
+    /// <summary>Get all custom table versions for a file type.</summary>
+    Task<DataResult<List<CustomTableMetadata>>> GetCustomTablesAsync(string fileTypeCode);
+
+    /// <summary>Get the ACTIVE custom table for a file type (null if none).</summary>
+    Task<CustomTableMetadata?> GetActiveCustomTableAsync(string fileTypeCode);
+
+    /// <summary>Get a specific custom table version.</summary>
+    Task<CustomTableMetadata?> GetCustomTableByVersionAsync(string fileTypeCode, int version);
+
+    /// <summary>Insert a new custom table metadata record. Returns the new custom_table_id.</summary>
+    Task<ValueResult<int>> InsertCustomTableMetadataAsync(CustomTableMetadata metadata);
+
+    /// <summary>Update a custom table's status (ACTIVE, RETIRED, DROPPED).</summary>
+    Task<RawCommandResult> UpdateCustomTableStatusAsync(int customTableId, string status, DateTime? droppedDt = null);
+
+    /// <summary>Get a live record count for a custom table by executing SELECT COUNT(*).</summary>
+    Task<int> GetLiveRecordCountAsync(string tableName);
+
+    /// <summary>Execute a CREATE TABLE DDL statement (outside of transactions).</summary>
+    Task<RawCommandResult> ExecuteCreateTableAsync(string ddl);
+
+    /// <summary>Execute a DROP TABLE statement (outside of transactions).</summary>
+    Task<RawCommandResult> DropTableAsync(string tableName);
+
+    /// <summary>
+    /// Dynamically insert a batch of generic detail records into a custom table.
+    /// Builds INSERT SQL from column mappings at runtime.
+    /// </summary>
+    Task<RawCommandResult> InsertCustomTableBatchAsync(
+        string tableName,
+        List<GenericColumnMapping> mappings,
+        IEnumerable<GenericDetailRecord> records,
+        int transactionBatchSize = 1000);
+
+    /// <summary>Delete all records from a custom table for a specific nt_file_num.</summary>
+    Task<RawCommandResult> DeleteCustomTableRecordsAsync(string tableName, int ntFileNum);
+
+    /// <summary>Get the file_type_code for a given nt_file_num.</summary>
+    Task<string?> GetFileTypeCodeForFileAsync(int ntFileNum);
+
+    /// <summary>Delete an nt_file record (for test load cleanup).</summary>
+    Task<RawCommandResult> DeleteNtFileAsync(int ntFileNum);
+
+    // ============================================
+    // AI Instruction Files
+    // ============================================
+
+    /// <summary>Get all AI instruction files.</summary>
+    Task<DataResult<List<AiInstructionFileRecord>>> GetAllInstructionFilesAsync();
+
+    /// <summary>Get AI instruction file for a file class.</summary>
+    Task<DataResult<AiInstructionFileRecord>> GetInstructionFileAsync(string fileClassCode);
+
+    /// <summary>Create or update AI instruction file for a file class.</summary>
+    Task<RawCommandResult> UpsertInstructionFileAsync(AiInstructionFileRecord record);
+
+    /// <summary>Delete AI instruction file for a file class.</summary>
+    Task<RawCommandResult> DeleteInstructionFileAsync(string fileClassCode);
 }
 
 /// <summary>

@@ -341,6 +341,62 @@ public class AiConfigStatusResponse
 }
 
 // ============================================
+// AI Instruction File Models
+// ============================================
+
+/// <summary>
+/// Stored AI instruction file from the ntfl_ai_instruction_file table.
+/// Contains markdown instructions for how to analyse files of a given file class.
+/// </summary>
+public class AiInstructionFileRecord
+{
+    /// <summary>Auto-generated primary key.</summary>
+    /// <example>1</example>
+    public int InstructionId { get; set; }
+
+    /// <summary>File class code this instruction applies to.</summary>
+    /// <example>CHG</example>
+    public string FileClassCode { get; set; } = string.Empty;
+
+    /// <summary>Markdown instruction content.</summary>
+    public string InstructionContent { get; set; } = string.Empty;
+
+    /// <summary>Whether this is a system default instruction ('t') or user-created ('f').</summary>
+    /// <example>false</example>
+    public bool IsDefault { get; set; }
+
+    /// <summary>Human-readable description of the instruction file.</summary>
+    /// <example>Custom charge file analysis for Crayon supplier format</example>
+    public string? Description { get; set; }
+
+    /// <summary>Timestamp when this record was created.</summary>
+    public DateTime CreatedAt { get; set; }
+
+    /// <summary>User who created this record.</summary>
+    public string CreatedBy { get; set; } = string.Empty;
+
+    /// <summary>Timestamp when this record was last updated.</summary>
+    public DateTime? UpdatedAt { get; set; }
+
+    /// <summary>User who last updated this record.</summary>
+    public string? UpdatedBy { get; set; }
+}
+
+/// <summary>
+/// Request body for POST /ai-review/instructions/{file-class-code}.
+/// Creates or updates the AI instruction file for a file class.
+/// </summary>
+public class AiInstructionFileRequest
+{
+    /// <summary>Markdown instruction content for the AI analysis.</summary>
+    public string InstructionContent { get; set; } = string.Empty;
+
+    /// <summary>Human-readable description of the instruction file.</summary>
+    /// <example>Custom charge file analysis for Crayon supplier format</example>
+    public string? Description { get; set; }
+}
+
+// ============================================
 // File Analysis Response Models (discovery/configuration)
 // ============================================
 
@@ -350,10 +406,6 @@ public class AiConfigStatusResponse
 /// </summary>
 public class AiFileAnalysisRequest
 {
-    /// <summary>File class hint to select the right analysis instructions (Charge, Usage, Payment).</summary>
-    /// <example>Charge</example>
-    public string? FileClass { get; set; }
-
     /// <summary>Optional focus areas for the analysis.</summary>
     public List<string>? FocusAreas { get; set; }
 }

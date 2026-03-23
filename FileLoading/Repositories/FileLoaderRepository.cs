@@ -2050,6 +2050,18 @@ public class FileLoaderRepository : IFileLoaderRepository
         );
         if (genResult.IsSuccess) totalDeleted += genResult.RowsAffected;
 
+        // Delete from custom table if one exists for this file type
+        var fileTypeCode = await GetFileTypeCodeForFileAsync(ntFileNum);
+        if (!string.IsNullOrEmpty(fileTypeCode))
+        {
+            var customTable = await GetActiveCustomTableAsync(fileTypeCode);
+            if (customTable != null)
+            {
+                var customResult = await DeleteCustomTableRecordsAsync(customTable.TableName, ntFileNum);
+                if (customResult.IsSuccess) totalDeleted += customResult.RowsAffected;
+            }
+        }
+
         // Delete nt_cl_not_load records
         var notLoadResult = _dbContext.ExecuteRawCommand(
             "DELETE FROM nt_cl_not_load WHERE nt_file_num = ?",
@@ -3507,5 +3519,629 @@ public class FileLoaderRepository : IFileLoaderRepository
             "FILESYSTEM" => TransferProtocol.FileSystem,
             _ => TransferProtocol.Sftp
         };
+    }
+
+    // ============================================
+    // Custom Table Management
+    // ============================================
+
+    public async Task<DataResult<List<CustomTableMetadata>>> GetCustomTablesAsync(string fileTypeCode)
+    {
+        var sql = @"SELECT custom_table_id, file_type_code, table_name, version, status,
+            column_count, column_definition, created_dt, created_by, dropped_dt
+            FROM ntfl_custom_table
+            WHERE file_type_code = ?
+            ORDER BY version";
+
+        var connection = _dbContext.GetConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync();
+
+        var results = new List<CustomTableMetadata>();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.CommandType = CommandType.Text;
+        AddParameter(command, "@p1", fileTypeCode, DbType.String, 10);
+
+        using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            results.Add(ReadCustomTableMetadata(reader));
+        }
+
+        return new DataResult<List<CustomTableMetadata>> { Data = results };
+    }
+
+    public async Task<CustomTableMetadata?> GetActiveCustomTableAsync(string fileTypeCode)
+    {
+        var sql = @"SELECT custom_table_id, file_type_code, table_name, version, status,
+            column_count, column_definition, created_dt, created_by, dropped_dt
+            FROM ntfl_custom_table
+            WHERE file_type_code = ? AND status = 'ACTIVE'";
+
+        var connection = _dbContext.GetConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.CommandType = CommandType.Text;
+        AddParameter(command, "@p1", fileTypeCode, DbType.String, 10);
+
+        using var reader = await command.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return ReadCustomTableMetadata(reader);
+        }
+
+        return null;
+    }
+
+    public async Task<CustomTableMetadata?> GetCustomTableByVersionAsync(string fileTypeCode, int version)
+    {
+        var sql = @"SELECT custom_table_id, file_type_code, table_name, version, status,
+            column_count, column_definition, created_dt, created_by, dropped_dt
+            FROM ntfl_custom_table
+            WHERE file_type_code = ? AND version = ?";
+
+        var connection = _dbContext.GetConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.CommandType = CommandType.Text;
+        AddParameter(command, "@p1", fileTypeCode, DbType.String, 10);
+        AddParameter(command, "@p2", version, DbType.Int32);
+
+        using var reader = await command.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return ReadCustomTableMetadata(reader);
+        }
+
+        return null;
+    }
+
+    public async Task<ValueResult<int>> InsertCustomTableMetadataAsync(CustomTableMetadata metadata)
+    {
+        var sql = @"INSERT INTO ntfl_custom_table (
+            file_type_code, table_name, version, status, column_count,
+            column_definition, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)";
+
+        var connection = _dbContext.GetConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.CommandType = CommandType.Text;
+        AddParameter(command, "@p1", metadata.FileTypeCode, DbType.String, 10);
+        AddParameter(command, "@p2", metadata.TableName, DbType.String, 64);
+        AddParameter(command, "@p3", metadata.Version, DbType.Int32);
+        AddParameter(command, "@p4", metadata.Status, DbType.String, 10);
+        AddParameter(command, "@p5", metadata.ColumnCount, DbType.Int32);
+        AddParameter(command, "@p6", metadata.ColumnDefinition, DbType.String, 4000);
+        AddParameter(command, "@p7", metadata.CreatedBy, DbType.String, 30);
+
+        await command.ExecuteNonQueryAsync();
+
+        // Get the auto-generated ID
+        using var idCommand = connection.CreateCommand();
+        idCommand.CommandText = "SELECT DBINFO('sqlca.sqlerrd1') FROM systables WHERE tabid = 1";
+        idCommand.CommandType = CommandType.Text;
+        var id = Convert.ToInt32(await idCommand.ExecuteScalarAsync());
+
+        return new ValueResult<int> { Value = id };
+    }
+
+    public async Task<RawCommandResult> UpdateCustomTableStatusAsync(int customTableId, string status, DateTime? droppedDt = null)
+    {
+        var sql = "UPDATE ntfl_custom_table SET status = ?, dropped_dt = ? WHERE custom_table_id = ?";
+
+        var connection = _dbContext.GetConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.CommandType = CommandType.Text;
+        AddParameter(command, "@p1", status, DbType.String, 10);
+        AddParameter(command, "@p2", droppedDt, DbType.DateTime);
+        AddParameter(command, "@p3", customTableId, DbType.Int32);
+
+        var rows = await command.ExecuteNonQueryAsync();
+        return new RawCommandResult { RowsAffected = rows };
+    }
+
+    public async Task<int> GetLiveRecordCountAsync(string tableName)
+    {
+        // Validate table name to prevent SQL injection
+        if (!IsValidTableName(tableName))
+            throw new ArgumentException($"Invalid table name: {tableName}");
+
+        var sql = $"SELECT COUNT(*) FROM {tableName}";
+
+        var connection = _dbContext.GetConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.CommandType = CommandType.Text;
+
+        var result = await command.ExecuteScalarAsync();
+        return Convert.ToInt32(result);
+    }
+
+    public async Task<RawCommandResult> ExecuteCreateTableAsync(string ddl)
+    {
+        var connection = _dbContext.GetConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = ddl;
+        command.CommandType = CommandType.Text;
+
+        try
+        {
+            await command.ExecuteNonQueryAsync();
+            _logger.LogInformation("Successfully executed CREATE TABLE DDL");
+            return new RawCommandResult { RowsAffected = 0 };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to execute CREATE TABLE DDL");
+            return new RawCommandResult { RowsAffected = 0, ErrorMessage = ex.Message };
+        }
+    }
+
+    public async Task<RawCommandResult> DropTableAsync(string tableName)
+    {
+        if (!IsValidTableName(tableName))
+            throw new ArgumentException($"Invalid table name: {tableName}");
+
+        var connection = _dbContext.GetConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = $"DROP TABLE {tableName}";
+        command.CommandType = CommandType.Text;
+
+        try
+        {
+            await command.ExecuteNonQueryAsync();
+            _logger.LogInformation("Successfully dropped table {TableName}", tableName);
+            return new RawCommandResult { RowsAffected = 0 };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to drop table {TableName}", tableName);
+            return new RawCommandResult { RowsAffected = 0, ErrorMessage = ex.Message };
+        }
+    }
+
+    public async Task<RawCommandResult> InsertCustomTableBatchAsync(
+        string tableName,
+        List<GenericColumnMapping> mappings,
+        IEnumerable<GenericDetailRecord> records,
+        int transactionBatchSize = 1000)
+    {
+        if (!IsValidTableName(tableName))
+            throw new ArgumentException($"Invalid table name: {tableName}");
+
+        var recordList = records.ToList();
+        if (recordList.Count == 0)
+            return new RawCommandResult { RowsAffected = 0 };
+
+        // Build column names and placeholder list from mappings
+        var columnNames = new List<string> { "nt_file_num", "nt_file_rec_num" };
+        foreach (var mapping in mappings.OrderBy(m => m.ColumnIndex))
+        {
+            columnNames.Add(CustomTableHelper.ToSnakeCase(mapping.TargetField));
+        }
+        columnNames.Add("status_id");
+
+        var placeholders = string.Join(", ", columnNames.Select(_ => "?"));
+        var insertSql = $"INSERT INTO {tableName} ({string.Join(", ", columnNames)}) VALUES ({placeholders})";
+
+        _logger.LogDebug("Inserting {Count} records into custom table {TableName} with transaction batching",
+            recordList.Count, tableName);
+
+        var totalRows = 0;
+        var connection = _dbContext.GetConnection();
+
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync();
+
+        foreach (var batch in recordList.Chunk(transactionBatchSize))
+        {
+            DbTransaction? transaction = null;
+            try
+            {
+                transaction = await connection.BeginTransactionAsync();
+
+                foreach (var record in batch)
+                {
+                    using var command = connection.CreateCommand();
+                    command.Transaction = transaction;
+                    command.CommandText = insertSql;
+                    command.CommandType = CommandType.Text;
+
+                    // Fixed columns
+                    AddParameter(command, "@p_ntfilenum", record.NtFileNum, DbType.Int32);
+                    AddParameter(command, "@p_ntfilerecnum", record.NtFileRecNum, DbType.Int32);
+
+                    // Dynamic columns from mappings
+                    var paramIdx = 3;
+                    foreach (var mapping in mappings.OrderBy(m => m.ColumnIndex))
+                    {
+                        var value = GetRecordValueByTargetField(record, mapping.TargetField);
+                        var dbType = CustomTableHelper.MapToDbType(mapping.DataType);
+                        var size = mapping.DataType.Equals("String", StringComparison.OrdinalIgnoreCase)
+                            ? mapping.MaxLength ?? 128
+                            : (int?)null;
+                        AddParameter(command, $"@p{paramIdx}", value, dbType, size);
+                        paramIdx++;
+                    }
+
+                    // Status
+                    AddParameter(command, $"@p{paramIdx}", record.StatusId, DbType.Int32);
+
+                    var rowsAffected = await command.ExecuteNonQueryAsync();
+                    if (rowsAffected < 0)
+                    {
+                        _logger.LogError("Failed to insert record into custom table {TableName}", tableName);
+                        await transaction.RollbackAsync();
+                        return new RawCommandResult { RowsAffected = 0, ErrorMessage = "Insert failed" };
+                    }
+                    totalRows += rowsAffected;
+                }
+
+                await transaction.CommitAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Exception during custom table batch insert into {TableName}, rolling back", tableName);
+                if (transaction != null)
+                    await transaction.RollbackAsync();
+                throw;
+            }
+            finally
+            {
+                transaction?.Dispose();
+            }
+        }
+
+        _logger.LogDebug("Completed inserting {TotalRows} records into custom table {TableName}", totalRows, tableName);
+        return new RawCommandResult { RowsAffected = totalRows };
+    }
+
+    public async Task<RawCommandResult> DeleteCustomTableRecordsAsync(string tableName, int ntFileNum)
+    {
+        if (!IsValidTableName(tableName))
+            throw new ArgumentException($"Invalid table name: {tableName}");
+
+        var sql = $"DELETE FROM {tableName} WHERE nt_file_num = ?";
+
+        var connection = _dbContext.GetConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.CommandType = CommandType.Text;
+        AddParameter(command, "@p1", ntFileNum, DbType.Int32);
+
+        var rows = await command.ExecuteNonQueryAsync();
+        return new RawCommandResult { RowsAffected = rows };
+    }
+
+    public async Task<string?> GetFileTypeCodeForFileAsync(int ntFileNum)
+    {
+        var sql = "SELECT file_type_code FROM nt_file WHERE nt_file_num = ?";
+
+        var connection = _dbContext.GetConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.CommandType = CommandType.Text;
+        AddParameter(command, "@p1", ntFileNum, DbType.Int32);
+
+        var result = await command.ExecuteScalarAsync();
+        return result?.ToString()?.Trim();
+    }
+
+    public async Task<RawCommandResult> DeleteNtFileAsync(int ntFileNum)
+    {
+        var connection = _dbContext.GetConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync();
+
+        // Delete trailer first
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = "DELETE FROM nt_fl_trailer WHERE nt_file_num = ?";
+            cmd.CommandType = CommandType.Text;
+            AddParameter(cmd, "@p1", ntFileNum, DbType.Int32);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        // Delete header
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = "DELETE FROM nt_fl_header WHERE nt_file_num = ?";
+            cmd.CommandType = CommandType.Text;
+            AddParameter(cmd, "@p1", ntFileNum, DbType.Int32);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        // Delete nt_file
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM nt_file WHERE nt_file_num = ?";
+        command.CommandType = CommandType.Text;
+        AddParameter(command, "@p1", ntFileNum, DbType.Int32);
+
+        var rows = await command.ExecuteNonQueryAsync();
+        return new RawCommandResult { RowsAffected = rows };
+    }
+
+    // ============================================
+    // Custom Table Helpers
+    // ============================================
+
+    private static CustomTableMetadata ReadCustomTableMetadata(DbDataReader reader)
+    {
+        return new CustomTableMetadata
+        {
+            CustomTableId = reader.GetInt32(0),
+            FileTypeCode = reader.GetString(1).Trim(),
+            TableName = reader.GetString(2).Trim(),
+            Version = reader.GetInt32(3),
+            Status = reader.GetString(4).Trim(),
+            ColumnCount = reader.GetInt32(5),
+            ColumnDefinition = reader.IsDBNull(6) ? null : reader.GetString(6),
+            CreatedDt = reader.GetDateTime(7),
+            CreatedBy = reader.IsDBNull(8) ? null : reader.GetString(8).Trim(),
+            DroppedDt = reader.IsDBNull(9) ? null : reader.GetDateTime(9)
+        };
+    }
+
+    private static object? GetRecordValueByTargetField(GenericDetailRecord record, string targetField)
+    {
+        return targetField switch
+        {
+            "AccountCode" => record.AccountCode,
+            "ServiceId" => record.ServiceId,
+            "ChargeType" => record.ChargeType,
+            "CostAmount" => record.CostAmount,
+            "TaxAmount" => record.TaxAmount,
+            "Quantity" => record.Quantity,
+            "UOM" => record.UOM,
+            "FromDate" => record.FromDate,
+            "ToDate" => record.ToDate,
+            "Description" => record.Description,
+            "ExternalRef" => record.ExternalRef,
+            _ when targetField.StartsWith("Generic") && int.TryParse(targetField[7..], out var num) => record.GetGenericField(num),
+            _ => null
+        };
+    }
+
+    /// <summary>
+    /// Validates that a table name contains only safe characters (alphanumeric and underscores).
+    /// </summary>
+    private static bool IsValidTableName(string tableName)
+    {
+        return !string.IsNullOrEmpty(tableName) &&
+               System.Text.RegularExpressions.Regex.IsMatch(tableName, @"^[a-zA-Z_][a-zA-Z0-9_]*$");
+    }
+
+    // ============================================
+    // AI Instruction Files
+    // ============================================
+
+    public async Task<DataResult<List<AiInstructionFileRecord>>> GetAllInstructionFilesAsync()
+    {
+        var result = _dbContext.ExecuteRawQuery<AiInstructionFileRecord>(
+            "SELECT instruction_id, file_class_code, instruction_content, is_default, description, created_tm, created_by, last_updated, updated_by FROM ntfl_ai_instruction_file ORDER BY file_class_code",
+            reader => new AiInstructionFileRecord
+            {
+                InstructionId = reader.GetInt32(0),
+                FileClassCode = reader.GetString(1).Trim(),
+                InstructionContent = reader.GetString(2).Trim(),
+                IsDefault = !reader.IsDBNull(3) && reader.GetString(3).Trim().ToLower() == "t",
+                Description = reader.IsDBNull(4) ? null : reader.GetString(4).Trim(),
+                CreatedAt = reader.GetDateTime(5),
+                CreatedBy = reader.GetString(6).Trim(),
+                UpdatedAt = reader.IsDBNull(7) ? null : reader.GetDateTime(7),
+                UpdatedBy = reader.IsDBNull(8) ? null : reader.GetString(8).Trim()
+            }
+        );
+
+        return new DataResult<List<AiInstructionFileRecord>>
+        {
+            StatusCode = result.IsSuccess ? 200 : result.StatusCode,
+            Data = result.IsSuccess ? result.Data : null,
+            ErrorCode = result.ErrorCode,
+            ErrorMessage = result.ErrorMessage
+        };
+    }
+
+    public async Task<DataResult<AiInstructionFileRecord>> GetInstructionFileAsync(string fileClassCode)
+    {
+        var result = _dbContext.ExecuteRawQuery<AiInstructionFileRecord>(
+            "SELECT instruction_id, file_class_code, instruction_content, is_default, description, created_tm, created_by, last_updated, updated_by FROM ntfl_ai_instruction_file WHERE file_class_code = ?",
+            reader => new AiInstructionFileRecord
+            {
+                InstructionId = reader.GetInt32(0),
+                FileClassCode = reader.GetString(1).Trim(),
+                InstructionContent = reader.GetString(2).Trim(),
+                IsDefault = !reader.IsDBNull(3) && reader.GetString(3).Trim().ToLower() == "t",
+                Description = reader.IsDBNull(4) ? null : reader.GetString(4).Trim(),
+                CreatedAt = reader.GetDateTime(5),
+                CreatedBy = reader.GetString(6).Trim(),
+                UpdatedAt = reader.IsDBNull(7) ? null : reader.GetDateTime(7),
+                UpdatedBy = reader.IsDBNull(8) ? null : reader.GetString(8).Trim()
+            },
+            ("@p1", (object)fileClassCode, DbType.String, (int?)null)
+        );
+
+        if (!result.IsSuccess)
+            return new DataResult<AiInstructionFileRecord> { StatusCode = result.StatusCode, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
+
+        var record = result.Data?.FirstOrDefault();
+        if (record == null)
+            return new DataResult<AiInstructionFileRecord> { StatusCode = 404, ErrorCode = "FileLoading.InstructionNotFound", ErrorMessage = $"No instruction file found for file class '{fileClassCode}'" };
+
+        return new DataResult<AiInstructionFileRecord> { StatusCode = 200, Data = record };
+    }
+
+    public async Task<RawCommandResult> UpsertInstructionFileAsync(AiInstructionFileRecord record)
+    {
+        var updateResult = _dbContext.ExecuteRawCommand(
+            @"UPDATE ntfl_ai_instruction_file
+              SET instruction_content = ?, is_default = ?, description = ?, updated_by = ?, last_updated = CURRENT YEAR TO SECOND
+              WHERE file_class_code = ?",
+            ("@p1", (object)record.InstructionContent, DbType.String, (int?)null),
+            ("@p2", (object)(record.IsDefault ? "t" : "f"), DbType.String, (int?)null),
+            ("@p3", (object?)record.Description ?? DBNull.Value, DbType.String, (int?)null),
+            ("@p4", (object?)record.UpdatedBy ?? DBNull.Value, DbType.String, (int?)null),
+            ("@p5", (object)record.FileClassCode, DbType.String, (int?)null)
+        );
+
+        if (updateResult.IsSuccess && updateResult.RowsAffected > 0)
+            return updateResult;
+
+        return _dbContext.ExecuteRawCommand(
+            @"INSERT INTO ntfl_ai_instruction_file (file_class_code, instruction_content, is_default, description, created_by, created_tm)
+              VALUES (?, ?, ?, ?, ?, CURRENT YEAR TO SECOND)",
+            ("@p1", (object)record.FileClassCode, DbType.String, (int?)null),
+            ("@p2", (object)record.InstructionContent, DbType.String, (int?)null),
+            ("@p3", (object)(record.IsDefault ? "t" : "f"), DbType.String, (int?)null),
+            ("@p4", (object?)record.Description ?? DBNull.Value, DbType.String, (int?)null),
+            ("@p5", (object?)record.CreatedBy ?? DBNull.Value, DbType.String, (int?)null)
+        );
+    }
+
+    public async Task<RawCommandResult> DeleteInstructionFileAsync(string fileClassCode)
+    {
+        return _dbContext.ExecuteRawCommand(
+            "DELETE FROM ntfl_ai_instruction_file WHERE file_class_code = ?",
+            ("@p1", (object)fileClassCode, DbType.String, (int?)null)
+        );
+    }
+}
+
+/// <summary>
+/// Static helper methods for custom table DDL generation.
+/// </summary>
+public static class CustomTableHelper
+{
+    /// <summary>Convert PascalCase to snake_case (e.g. AccountCode → account_code, Generic01 → generic_01).</summary>
+    public static string ToSnakeCase(string pascalCase)
+    {
+        if (string.IsNullOrEmpty(pascalCase)) return pascalCase;
+
+        var sb = new StringBuilder();
+        for (int i = 0; i < pascalCase.Length; i++)
+        {
+            var c = pascalCase[i];
+            if (i > 0 && char.IsUpper(c) && !char.IsUpper(pascalCase[i - 1]))
+            {
+                sb.Append('_');
+            }
+            else if (i > 0 && char.IsUpper(c) && char.IsUpper(pascalCase[i - 1]) &&
+                     i + 1 < pascalCase.Length && char.IsLower(pascalCase[i + 1]))
+            {
+                sb.Append('_');
+            }
+            // Insert underscore between letters and digits
+            else if (i > 0 && char.IsDigit(c) && char.IsLetter(pascalCase[i - 1]))
+            {
+                sb.Append('_');
+            }
+            sb.Append(char.ToLowerInvariant(c));
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Derive the physical table name from file type code and version.</summary>
+    public static string DeriveTableName(string fileTypeCode, int version)
+    {
+        var baseName = fileTypeCode.Trim().ToLowerInvariant()
+            .Replace(' ', '_')
+            .Replace('-', '_');
+        baseName = System.Text.RegularExpressions.Regex.Replace(baseName, @"[^a-z0-9_]", "");
+        return $"ntfl_{baseName}_v{version}";
+    }
+
+    /// <summary>Map a column mapping DataType string to the corresponding SQL type string.</summary>
+    public static string MapToSqlType(GenericColumnMapping mapping)
+    {
+        return mapping.DataType.ToLowerInvariant() switch
+        {
+            "int" or "integer" => "INTEGER",
+            "decimal" => "DECIMAL(16,6)",
+            "date" => "DATE",
+            "datetime" => "DATETIME YEAR TO SECOND",
+            _ => $"VARCHAR({mapping.MaxLength ?? 128})" // String and default
+        };
+    }
+
+    /// <summary>Map a column mapping DataType string to the corresponding DbType.</summary>
+    public static DbType MapToDbType(string dataType)
+    {
+        return dataType.ToLowerInvariant() switch
+        {
+            "int" or "integer" => DbType.Int32,
+            "decimal" => DbType.Decimal,
+            "date" or "datetime" => DbType.DateTime,
+            _ => DbType.String
+        };
+    }
+
+    /// <summary>Generate CREATE TABLE DDL from column mappings.</summary>
+    public static string GenerateCreateTableDdl(string tableName, List<GenericColumnMapping> mappings)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"CREATE TABLE {tableName} (");
+        sb.AppendLine("    nt_file_num         INTEGER NOT NULL,");
+        sb.AppendLine("    nt_file_rec_num     INTEGER NOT NULL,");
+
+        foreach (var mapping in mappings.OrderBy(m => m.ColumnIndex))
+        {
+            var colName = ToSnakeCase(mapping.TargetField);
+            var sqlType = MapToSqlType(mapping);
+            var nullable = mapping.IsRequired ? " NOT NULL" : "";
+            sb.AppendLine($"    {colName,-20}{sqlType}{nullable},");
+        }
+
+        sb.AppendLine("    status_id           INTEGER DEFAULT 1,");
+        sb.AppendLine();
+        sb.AppendLine("    PRIMARY KEY (nt_file_num, nt_file_rec_num)");
+        sb.AppendLine(");");
+
+        return sb.ToString();
+    }
+
+    /// <summary>Build the list of column definitions for a proposal response.</summary>
+    public static List<CustomTableColumnDef> BuildColumnDefs(List<GenericColumnMapping> mappings)
+    {
+        return mappings.OrderBy(m => m.ColumnIndex)
+            .Select(m => new CustomTableColumnDef
+            {
+                ColumnName = ToSnakeCase(m.TargetField),
+                SqlType = MapToSqlType(m),
+                IsRequired = m.IsRequired,
+                SourceField = m.TargetField,
+                DataType = m.DataType
+            })
+            .ToList();
     }
 }

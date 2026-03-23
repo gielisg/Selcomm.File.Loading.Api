@@ -39,6 +39,15 @@ public interface IAiReviewService
     Task<DataResult<AiFileAnalysisResponse>> AnalyseExampleFileAsync(string fileTypeCode, AiFileAnalysisRequest? request, SecurityContext securityContext);
 
     // ============================================
+    // AI Instruction File CRUD
+    // ============================================
+
+    Task<DataResult<List<AiInstructionFileRecord>>> ListInstructionFilesAsync();
+    Task<DataResult<AiInstructionFileRecord>> GetInstructionFileAsync(string fileClassCode);
+    Task<DataResult<AiInstructionFileRecord>> SaveInstructionFileAsync(string fileClassCode, AiInstructionFileRequest request, SecurityContext securityContext);
+    Task<RawCommandResult> DeleteInstructionFileAsync(string fileClassCode);
+
+    // ============================================
     // Example File CRUD
     // ============================================
 

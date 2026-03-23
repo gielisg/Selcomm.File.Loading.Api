@@ -229,6 +229,93 @@ public class AiReviewService : IAiReviewService
     }
 
     // ============================================
+    // AI Instruction File CRUD
+    // ============================================
+
+    public async Task<DataResult<List<AiInstructionFileRecord>>> ListInstructionFilesAsync()
+    {
+        return await _repository.GetAllInstructionFilesAsync();
+    }
+
+    public async Task<DataResult<AiInstructionFileRecord>> GetInstructionFileAsync(string fileClassCode)
+    {
+        // Try DB first
+        var dbResult = await _repository.GetInstructionFileAsync(fileClassCode);
+        if (dbResult.IsSuccess)
+            return dbResult;
+
+        // Fall back to default file
+        var defaultContent = LoadDefaultInstructionFile(fileClassCode);
+        if (defaultContent != null)
+        {
+            return new DataResult<AiInstructionFileRecord>
+            {
+                StatusCode = 200,
+                Data = new AiInstructionFileRecord
+                {
+                    FileClassCode = fileClassCode,
+                    InstructionContent = defaultContent,
+                    IsDefault = true,
+                    Description = $"Default {fileClassCode} analysis instructions"
+                }
+            };
+        }
+
+        return new DataResult<AiInstructionFileRecord>
+        {
+            StatusCode = 404,
+            ErrorCode = "FileLoading.InstructionNotFound",
+            ErrorMessage = $"No instruction file found for file class '{fileClassCode}'"
+        };
+    }
+
+    public async Task<DataResult<AiInstructionFileRecord>> SaveInstructionFileAsync(
+        string fileClassCode, AiInstructionFileRequest request, SecurityContext securityContext)
+    {
+        if (string.IsNullOrWhiteSpace(request.InstructionContent))
+        {
+            return new DataResult<AiInstructionFileRecord>
+            {
+                StatusCode = 400,
+                ErrorCode = "FileLoading.ValidationError",
+                ErrorMessage = "InstructionContent is required."
+            };
+        }
+
+        var record = new AiInstructionFileRecord
+        {
+            FileClassCode = fileClassCode,
+            InstructionContent = request.InstructionContent,
+            IsDefault = false,
+            Description = request.Description,
+            CreatedBy = securityContext.UserCode ?? "SYSTEM",
+            UpdatedBy = securityContext.UserCode ?? "SYSTEM"
+        };
+
+        var result = await _repository.UpsertInstructionFileAsync(record);
+        if (!result.IsSuccess)
+        {
+            return new DataResult<AiInstructionFileRecord>
+            {
+                StatusCode = result.StatusCode,
+                ErrorCode = result.ErrorCode,
+                ErrorMessage = result.ErrorMessage
+            };
+        }
+
+        return new DataResult<AiInstructionFileRecord>
+        {
+            StatusCode = 200,
+            Data = record
+        };
+    }
+
+    public async Task<RawCommandResult> DeleteInstructionFileAsync(string fileClassCode)
+    {
+        return await _repository.DeleteInstructionFileAsync(fileClassCode);
+    }
+
+    // ============================================
     // Example File CRUD
     // ============================================
 
@@ -377,7 +464,21 @@ public class AiReviewService : IAiReviewService
     public async Task<DataResult<AiFileAnalysisResponse>> AnalyseExampleFileAsync(
         string fileTypeCode, AiFileAnalysisRequest? request, SecurityContext securityContext)
     {
-        // 1. Load example files for this file type
+        // 1. Look up file type to get file class
+        var fileTypeResult = await _repository.GetFileTypeRecordAsync(fileTypeCode);
+        if (!fileTypeResult.IsSuccess || fileTypeResult.Data == null)
+        {
+            return new DataResult<AiFileAnalysisResponse>
+            {
+                StatusCode = 404,
+                ErrorCode = "FileLoading.FileTypeNotFound",
+                ErrorMessage = $"File type '{fileTypeCode}' not found."
+            };
+        }
+
+        var fileClassCode = fileTypeResult.Data.FileClassCode;
+
+        // 2. Load example files for this file type
         var exampleContent = await LoadExampleContentForTypeAsync(fileTypeCode);
         if (string.IsNullOrEmpty(exampleContent))
         {
@@ -389,8 +490,11 @@ public class AiReviewService : IAiReviewService
             };
         }
 
-        // 2. Build analysis prompt
-        var systemPrompt = BuildAnalysisSystemPrompt(request?.FileClass);
+        // 3. Load instruction content: DB first, then default file, then fallback
+        var instructionContent = await LoadInstructionContentAsync(fileClassCode);
+
+        // 4. Build analysis prompt
+        var systemPrompt = BuildAnalysisSystemPrompt(fileClassCode, instructionContent);
         var userPrompt = BuildAnalysisUserPrompt(fileTypeCode, exampleContent, request?.FocusAreas);
 
         // 3. Call AI Gateway
@@ -1073,7 +1177,40 @@ Return ONLY the JSON object, no markdown fences or other text.";
     // Analysis Prompt Construction
     // ============================================
 
-    private static string BuildAnalysisSystemPrompt(string? fileClass)
+    /// <summary>
+    /// Load instruction content for a file class: DB first, then default file.
+    /// </summary>
+    private async Task<string?> LoadInstructionContentAsync(string fileClassCode)
+    {
+        // 1. Try database (user-created or seeded default)
+        var dbResult = await _repository.GetInstructionFileAsync(fileClassCode);
+        if (dbResult.IsSuccess && dbResult.Data != null)
+            return dbResult.Data.InstructionContent;
+
+        // 2. Fall back to shipped default file
+        return LoadDefaultInstructionFile(fileClassCode);
+    }
+
+    /// <summary>
+    /// Load default instruction markdown from the Instructions/ directory.
+    /// </summary>
+    private static string? LoadDefaultInstructionFile(string fileClassCode)
+    {
+        var fileName = $"{fileClassCode.Trim().ToUpperInvariant()}.md";
+
+        // Check published location first, then dev location
+        var basePath = Path.Combine(AppContext.BaseDirectory, "Instructions", fileName);
+        if (File.Exists(basePath))
+            return File.ReadAllText(basePath);
+
+        var devPath = Path.Combine(Directory.GetCurrentDirectory(), "Instructions", fileName);
+        if (File.Exists(devPath))
+            return File.ReadAllText(devPath);
+
+        return null;
+    }
+
+    private static string BuildAnalysisSystemPrompt(string? fileClassCode, string? instructionContent)
     {
         var sb = new StringBuilder();
         sb.AppendLine(@"You are a data analyst specialising in billing file ingestion for a telecom/IT billing platform.
@@ -1143,49 +1280,12 @@ Return your analysis as a JSON object with this exact structure:
 
 Return ONLY the JSON object, no markdown fences or other text.");
 
-        if (!string.IsNullOrEmpty(fileClass))
+        // Append file-class-specific instructions (from DB or default file)
+        if (!string.IsNullOrEmpty(instructionContent))
         {
             sb.AppendLine();
-            sb.AppendLine($"## File Class: {fileClass}");
-
-            switch (fileClass.ToUpperInvariant())
-            {
-                case "CHARGE":
-                    sb.AppendLine(@"This is a CHARGE file. Pay special attention to identifying:
-- Which column identifies the customer (account code, customer name, or tenant/domain)
-- Which column identifies the service this charge is for (service ID, subscription ID, phone number)
-- The charge type or product name column
-- Charge dates: period start (FromDate) and period end (ToDate)
-- Cost/buy price amount (what the reseller pays)
-- RRP/sell price amount (what the end customer pays) — map to Generic01 if found
-- Unit of measure (UOM) and quantity
-- Any line item description
-- Any external reference or invoice number
-- BillableRatio or proration factors — map to Generic02 if found
-- Currency indicators — note if non-AUD pricing is present");
-                    break;
-
-                case "USAGE":
-                    sb.AppendLine(@"This is a USAGE/CDR file. Pay special attention to identifying:
-- Service identifier (phone number, circuit ID, username)
-- Call/event date and time
-- Duration or data volume
-- Source and destination (A-number, B-number)
-- Call type or event type
-- Rated amount
-- Direction (inbound/outbound)");
-                    break;
-
-                case "PAYMENT":
-                    sb.AppendLine(@"This is a PAYMENT file. Pay special attention to identifying:
-- Customer/account identifier
-- Payment date
-- Payment amount
-- Payment method (credit card, direct debit, etc.)
-- Reference/transaction number
-- Payment status");
-                    break;
-            }
+            sb.AppendLine($"## File Class: {fileClassCode}");
+            sb.AppendLine(instructionContent);
         }
 
         return sb.ToString();
@@ -1217,6 +1317,17 @@ Return ONLY the JSON object, no markdown fences or other text.");
     // ============================================
     // Helpers
     // ============================================
+
+    private static string MapFileClassCodeToCategory(string? fileClassCode)
+    {
+        return fileClassCode?.ToUpperInvariant() switch
+        {
+            "CHG" => "Charge",
+            "CDR" => "Usage",
+            "PAY" or "EBL" => "Payment",
+            _ => fileClassCode ?? "Unknown"
+        };
+    }
 
     private static string MaskApiKey(string apiKey)
     {

@@ -292,6 +292,126 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     }
 
     // ============================================
+    // AI Instruction File CRUD
+    // ============================================
+
+    /// <summary>
+    /// List all AI instruction files for analysis.
+    /// </summary>
+    [HttpGet("instructions")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_ai_review_instructions")]
+    [Tags("AI Review")]
+    [ProducesResponseType(typeof(List<AiInstructionFileRecord>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> ListInstructionFiles()
+    {
+        try
+        {
+            var result = await _aiReviewService.ListInstructionFilesAsync();
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error listing instruction files");
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Get the AI instruction file for a file class. Returns DB record if exists, otherwise the shipped default.
+    /// </summary>
+    /// <param name="fileClassCode">File class code (e.g., CHG, CDR, PAY)</param>
+    [HttpGet("instructions/{file-class-code}")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_ai_review_instructions_file_class_code")]
+    [Tags("AI Review")]
+    [ProducesResponseType(typeof(AiInstructionFileRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetInstructionFile([FromRoute(Name = "file-class-code")] string fileClassCode)
+    {
+        try
+        {
+            var result = await _aiReviewService.GetInstructionFileAsync(fileClassCode);
+
+            if (result.IsSuccess)
+                return Ok(result.Data);
+
+            return StatusCode(result.StatusCode,
+                new ErrorResponse(result.ErrorMessage ?? "Not found", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting instruction file for {FileClassCode}", fileClassCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Create or update a custom AI instruction file for a file class.
+    /// </summary>
+    /// <param name="fileClassCode">File class code (e.g., CHG, CDR, PAY)</param>
+    /// <param name="request">Instruction content and description</param>
+    [HttpPost("instructions/{file-class-code}")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_ai_review_instructions_file_class_code")]
+    [Tags("AI Review")]
+    [ProducesResponseType(typeof(AiInstructionFileRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> SaveInstructionFile(
+        [FromRoute(Name = "file-class-code")] string fileClassCode,
+        [FromBody] AiInstructionFileRequest request)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_ai_review_instructions_file_class_code");
+            var result = await _aiReviewService.SaveInstructionFileAsync(fileClassCode, request, securityContext);
+
+            if (result.IsSuccess)
+                return Ok(result.Data);
+
+            return StatusCode(result.StatusCode,
+                new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving instruction file for {FileClassCode}", fileClassCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Delete a custom AI instruction file for a file class. Reverts to the shipped default.
+    /// </summary>
+    /// <param name="fileClassCode">File class code</param>
+    [HttpDelete("instructions/{file-class-code}")]
+    [SwaggerOperation(OperationId = "delete_api_v4_file_loading_ai_review_instructions_file_class_code")]
+    [Tags("AI Review")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DeleteInstructionFile([FromRoute(Name = "file-class-code")] string fileClassCode)
+    {
+        try
+        {
+            var result = await _aiReviewService.DeleteInstructionFileAsync(fileClassCode);
+
+            if (result.IsSuccess)
+                return Ok(new { Message = $"Custom instruction for '{fileClassCode}' deleted. Default will be used." });
+
+            return StatusCode(result.StatusCode,
+                new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting instruction file for {FileClassCode}", fileClassCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    // ============================================
     // Example File CRUD
     // ============================================
 
