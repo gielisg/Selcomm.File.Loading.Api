@@ -39,6 +39,27 @@ public interface IAiReviewService
     Task<DataResult<AiFileAnalysisResponse>> AnalyseExampleFileAsync(string fileTypeCode, AiFileAnalysisRequest? request, SecurityContext securityContext);
 
     // ============================================
+    // AI Analysis Results (persisted per file-type)
+    // ============================================
+
+    Task<DataResult<List<AiAnalysisResultRecord>>> GetAnalysisResultsAsync(string fileTypeCode);
+    Task<DataResult<AiAnalysisResultRecord>> GetAnalysisResultAsync(int analysisId);
+    Task<DataResult<AiAnalysisResultRecord>> UpdateAnalysisResultAsync(int analysisId, AiAnalysisResultUpdateRequest request, SecurityContext securityContext);
+    Task<RawCommandResult> DeleteAnalysisResultAsync(int analysisId);
+
+    // ============================================
+    // AI File-Type Prompts (versioned per file-type)
+    // ============================================
+
+    Task<DataResult<List<AiFileTypePromptRecord>>> GetFileTypePromptsAsync(string fileTypeCode);
+    Task<DataResult<AiFileTypePromptRecord>> GetCurrentFileTypePromptAsync(string fileTypeCode);
+    Task<DataResult<AiFileTypePromptRecord>> CreateFileTypePromptAsync(string fileTypeCode, AiFileTypePromptCreateRequest request, SecurityContext securityContext);
+    Task<DataResult<AiFileTypePromptRecord>> GenerateFileTypePromptAsync(string fileTypeCode, AiFileTypePromptGenerateRequest request, SecurityContext securityContext);
+    Task<DataResult<AiFileTypePromptRecord>> UpdateFileTypePromptAsync(string fileTypeCode, int promptId, AiFileTypePromptUpdateRequest request, SecurityContext securityContext);
+    Task<RawCommandResult> ActivateFileTypePromptAsync(string fileTypeCode, int promptId);
+    Task<RawCommandResult> DeleteFileTypePromptAsync(int promptId);
+
+    // ============================================
     // AI Instruction File CRUD
     // ============================================
 

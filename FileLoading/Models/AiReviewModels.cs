@@ -369,17 +369,17 @@ public class AiInstructionFileRecord
     /// <example>Custom charge file analysis for Crayon supplier format</example>
     public string? Description { get; set; }
 
-    /// <summary>Timestamp when this record was created.</summary>
-    public DateTime CreatedAt { get; set; }
-
     /// <summary>User who created this record.</summary>
     public string CreatedBy { get; set; } = string.Empty;
 
-    /// <summary>Timestamp when this record was last updated.</summary>
-    public DateTime? UpdatedAt { get; set; }
-
     /// <summary>User who last updated this record.</summary>
     public string? UpdatedBy { get; set; }
+
+    /// <summary>Timestamp when this record was created.</summary>
+    public DateTime CreatedTm { get; set; }
+
+    /// <summary>Timestamp when this record was last updated.</summary>
+    public DateTime? LastUpdated { get; set; }
 }
 
 /// <summary>
@@ -397,6 +397,148 @@ public class AiInstructionFileRequest
 }
 
 // ============================================
+// AI Analysis Result Models (persisted per file-type)
+// ============================================
+
+/// <summary>
+/// Persisted AI analysis result from the ntfl_ai_analysis_result table.
+/// </summary>
+public class AiAnalysisResultRecord
+{
+    /// <summary>Auto-generated primary key.</summary>
+    /// <example>1</example>
+    public int AnalysisId { get; set; }
+
+    /// <summary>File type code this analysis applies to.</summary>
+    /// <example>CRAYON_SUB</example>
+    public string FileTypeCode { get; set; } = string.Empty;
+
+    /// <summary>Ingestion readiness rating.</summary>
+    /// <example>HIGH</example>
+    public string? IngestionReadiness { get; set; }
+
+    /// <summary>Prose summary of the analysis.</summary>
+    public string? Summary { get; set; }
+
+    /// <summary>Full analysis response as JSON (columns, mappings, quality issues, parser config).</summary>
+    public string? AnalysisJson { get; set; }
+
+    /// <summary>User who triggered the analysis.</summary>
+    public string CreatedBy { get; set; } = string.Empty;
+
+    /// <summary>User who last edited the result.</summary>
+    public string? UpdatedBy { get; set; }
+
+    /// <summary>Timestamp when analysis was created.</summary>
+    public DateTime CreatedTm { get; set; }
+
+    /// <summary>Timestamp when analysis was last edited.</summary>
+    public DateTime? LastUpdated { get; set; }
+}
+
+/// <summary>
+/// Request body for PATCH /ai-review/analysis-results/{file-type-code}/{analysis-id}.
+/// </summary>
+public class AiAnalysisResultUpdateRequest
+{
+    /// <summary>Updated summary text.</summary>
+    public string? Summary { get; set; }
+
+    /// <summary>Updated ingestion readiness.</summary>
+    public string? IngestionReadiness { get; set; }
+
+    /// <summary>Updated analysis JSON (full replacement).</summary>
+    public string? AnalysisJson { get; set; }
+}
+
+// ============================================
+// AI File-Type Prompt Models (versioned per file-type)
+// ============================================
+
+/// <summary>
+/// AI prompt for a file-type from the ntfl_ai_file_type_prompt table.
+/// Used for validating/parsing file instances. Versioned with one CURRENT per file-type.
+/// </summary>
+public class AiFileTypePromptRecord
+{
+    /// <summary>Auto-generated primary key.</summary>
+    /// <example>1</example>
+    public int PromptId { get; set; }
+
+    /// <summary>File type code this prompt applies to.</summary>
+    /// <example>CRAYON_SUB</example>
+    public string FileTypeCode { get; set; } = string.Empty;
+
+    /// <summary>Markdown prompt content.</summary>
+    public string PromptContent { get; set; } = string.Empty;
+
+    /// <summary>Whether this is the active prompt for this file type.</summary>
+    /// <example>true</example>
+    public bool IsCurrent { get; set; }
+
+    /// <summary>Version number.</summary>
+    /// <example>1</example>
+    public int Version { get; set; } = 1;
+
+    /// <summary>Description of this prompt version.</summary>
+    /// <example>Auto-generated from Crayon subscription analysis</example>
+    public string? Description { get; set; }
+
+    /// <summary>Source: AI (auto-generated) or USER (manually created/edited).</summary>
+    /// <example>AI</example>
+    public string Source { get; set; } = "AI";
+
+    /// <summary>User who created this prompt.</summary>
+    public string CreatedBy { get; set; } = string.Empty;
+
+    /// <summary>User who last edited this prompt.</summary>
+    public string? UpdatedBy { get; set; }
+
+    /// <summary>Timestamp when prompt was created.</summary>
+    public DateTime CreatedTm { get; set; }
+
+    /// <summary>Timestamp when prompt was last edited.</summary>
+    public DateTime? LastUpdated { get; set; }
+}
+
+/// <summary>
+/// Request body for POST /ai-review/prompts/{file-type-code}.
+/// Creates a new prompt version manually.
+/// </summary>
+public class AiFileTypePromptCreateRequest
+{
+    /// <summary>Markdown prompt content.</summary>
+    public string PromptContent { get; set; } = string.Empty;
+
+    /// <summary>Description of this prompt.</summary>
+    public string? Description { get; set; }
+}
+
+/// <summary>
+/// Request body for PATCH /ai-review/prompts/{file-type-code}/{prompt-id}.
+/// Edits an existing prompt.
+/// </summary>
+public class AiFileTypePromptUpdateRequest
+{
+    /// <summary>Updated prompt content.</summary>
+    public string? PromptContent { get; set; }
+
+    /// <summary>Updated description.</summary>
+    public string? Description { get; set; }
+}
+
+/// <summary>
+/// Request body for POST /ai-review/prompts/{file-type-code}/generate.
+/// Auto-generates a file-type prompt from a stored analysis result.
+/// </summary>
+public class AiFileTypePromptGenerateRequest
+{
+    /// <summary>Analysis ID to generate the prompt from.</summary>
+    /// <example>5</example>
+    public int AnalysisId { get; set; }
+}
+
+// ============================================
 // File Analysis Response Models (discovery/configuration)
 // ============================================
 
@@ -408,6 +550,10 @@ public class AiFileAnalysisRequest
 {
     /// <summary>Optional focus areas for the analysis.</summary>
     public List<string>? FocusAreas { get; set; }
+
+    /// <summary>If true, use the current file-type prompt instead of the file-class instructions. Default false (discovery mode).</summary>
+    /// <example>false</example>
+    public bool UseFileTypePrompt { get; set; }
 }
 
 /// <summary>
@@ -501,7 +647,7 @@ public class DiscoveredColumn
     /// <summary>Sample values from the column.</summary>
     public List<string> SampleValues { get; set; } = new();
 
-    /// <summary>Suggested target field from GenericTargetField enum.</summary>
+    /// <summary>Suggested target field. Use well-known names (AccountCode, ServiceId, ChargeType, CostAmount, TaxAmount, Quantity, UOM, FromDate, ToDate, Description, ExternalRef) for billing concepts, or the snake_cased header name for other columns (e.g. reseller_name, billable_ratio).</summary>
     /// <example>AccountCode</example>
     public string? SuggestedTargetField { get; set; }
 }
@@ -570,7 +716,7 @@ public class SuggestedColumnMapping
     /// <summary>Source column name from header.</summary>
     public string? SourceColumnName { get; set; }
 
-    /// <summary>Target field (GenericTargetField enum value or Generic01-20).</summary>
+    /// <summary>Target field. Use well-known names (AccountCode, ServiceId, etc.) for billing concepts, or the snake_cased header name for other columns (e.g. reseller_name, billable_ratio).</summary>
     public string TargetField { get; set; } = string.Empty;
 
     /// <summary>Data type (String, Int, Decimal, Date, DateTime).</summary>

@@ -620,6 +620,28 @@ public interface IFileLoaderRepository
 
     /// <summary>Delete AI instruction file for a file class.</summary>
     Task<RawCommandResult> DeleteInstructionFileAsync(string fileClassCode);
+
+    // ============================================
+    // AI Analysis Results
+    // ============================================
+
+    Task<DataResult<List<AiAnalysisResultRecord>>> GetAnalysisResultsAsync(string fileTypeCode);
+    Task<DataResult<AiAnalysisResultRecord>> GetAnalysisResultAsync(int analysisId);
+    Task<ValueResult<int>> InsertAnalysisResultAsync(AiAnalysisResultRecord record);
+    Task<RawCommandResult> UpdateAnalysisResultAsync(AiAnalysisResultRecord record);
+    Task<RawCommandResult> DeleteAnalysisResultAsync(int analysisId);
+
+    // ============================================
+    // AI File-Type Prompts
+    // ============================================
+
+    Task<DataResult<List<AiFileTypePromptRecord>>> GetFileTypePromptsAsync(string fileTypeCode);
+    Task<DataResult<AiFileTypePromptRecord>> GetFileTypePromptAsync(int promptId);
+    Task<DataResult<AiFileTypePromptRecord>> GetCurrentFileTypePromptAsync(string fileTypeCode);
+    Task<ValueResult<int>> InsertFileTypePromptAsync(AiFileTypePromptRecord record);
+    Task<RawCommandResult> UpdateFileTypePromptAsync(AiFileTypePromptRecord record);
+    Task<RawCommandResult> ActivateFileTypePromptAsync(string fileTypeCode, int promptId);
+    Task<RawCommandResult> DeleteFileTypePromptAsync(int promptId);
 }
 
 /// <summary>

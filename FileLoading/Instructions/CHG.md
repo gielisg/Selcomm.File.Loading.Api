@@ -17,9 +17,9 @@ This is a CHARGE file. Pay special attention to identifying:
 
 ## Pricing
 - Cost/buy price amount (what the reseller pays) — map to CostAmount
-- RRP/sell price amount (what the end customer pays) — map to Generic01 if found
+- RRP/sell price amount (what the end customer pays) — map using the snake_cased header name (e.g. unit_price_rrp, sub_total_rrp)
 - Unit price vs total price — identify which is which
-- BillableRatio or proration factors — map to Generic02 if found
+- BillableRatio or proration factors — map using the snake_cased header name (e.g. billable_ratio)
 - Tax amount if present — map to TaxAmount
 
 ## Quantities

@@ -3957,9 +3957,9 @@ public class FileLoaderRepository : IFileLoaderRepository
                 InstructionContent = reader.GetString(2).Trim(),
                 IsDefault = !reader.IsDBNull(3) && reader.GetString(3).Trim().ToLower() == "t",
                 Description = reader.IsDBNull(4) ? null : reader.GetString(4).Trim(),
-                CreatedAt = reader.GetDateTime(5),
+                CreatedTm = reader.GetDateTime(5),
                 CreatedBy = reader.GetString(6).Trim(),
-                UpdatedAt = reader.IsDBNull(7) ? null : reader.GetDateTime(7),
+                LastUpdated = reader.IsDBNull(7) ? null : reader.GetDateTime(7),
                 UpdatedBy = reader.IsDBNull(8) ? null : reader.GetString(8).Trim()
             }
         );
@@ -3984,9 +3984,9 @@ public class FileLoaderRepository : IFileLoaderRepository
                 InstructionContent = reader.GetString(2).Trim(),
                 IsDefault = !reader.IsDBNull(3) && reader.GetString(3).Trim().ToLower() == "t",
                 Description = reader.IsDBNull(4) ? null : reader.GetString(4).Trim(),
-                CreatedAt = reader.GetDateTime(5),
+                CreatedTm = reader.GetDateTime(5),
                 CreatedBy = reader.GetString(6).Trim(),
-                UpdatedAt = reader.IsDBNull(7) ? null : reader.GetDateTime(7),
+                LastUpdated = reader.IsDBNull(7) ? null : reader.GetDateTime(7),
                 UpdatedBy = reader.IsDBNull(8) ? null : reader.GetString(8).Trim()
             },
             ("@p1", (object)fileClassCode, DbType.String, (int?)null)
@@ -4034,6 +4034,253 @@ public class FileLoaderRepository : IFileLoaderRepository
         return _dbContext.ExecuteRawCommand(
             "DELETE FROM ntfl_ai_instruction_file WHERE file_class_code = ?",
             ("@p1", (object)fileClassCode, DbType.String, (int?)null)
+        );
+    }
+
+    // ============================================
+    // AI Analysis Results
+    // ============================================
+
+    public async Task<DataResult<List<AiAnalysisResultRecord>>> GetAnalysisResultsAsync(string fileTypeCode)
+    {
+        var result = _dbContext.ExecuteRawQuery<AiAnalysisResultRecord>(
+            "SELECT analysis_id, file_type_code, ingestion_readiness, summary, analysis_json, created_by, created_tm, updated_by, last_updated FROM ntfl_ai_analysis_result WHERE file_type_code = ? ORDER BY created_tm DESC",
+            reader => new AiAnalysisResultRecord
+            {
+                AnalysisId = reader.GetInt32(0),
+                FileTypeCode = reader.GetString(1).Trim(),
+                IngestionReadiness = reader.IsDBNull(2) ? null : reader.GetString(2).Trim(),
+                Summary = reader.IsDBNull(3) ? null : reader.GetString(3).Trim(),
+                AnalysisJson = reader.IsDBNull(4) ? null : reader.GetString(4).Trim(),
+                CreatedBy = reader.IsDBNull(5) ? "" : reader.GetString(5).Trim(),
+                CreatedTm = reader.GetDateTime(6),
+                UpdatedBy = reader.IsDBNull(7) ? null : reader.GetString(7).Trim(),
+                LastUpdated = reader.IsDBNull(8) ? null : reader.GetDateTime(8)
+            },
+            ("@p1", (object)fileTypeCode, DbType.String, (int?)null)
+        );
+
+        return new DataResult<List<AiAnalysisResultRecord>>
+        {
+            StatusCode = result.IsSuccess ? 200 : result.StatusCode,
+            Data = result.IsSuccess ? result.Data : null,
+            ErrorCode = result.ErrorCode,
+            ErrorMessage = result.ErrorMessage
+        };
+    }
+
+    public async Task<DataResult<AiAnalysisResultRecord>> GetAnalysisResultAsync(int analysisId)
+    {
+        var result = _dbContext.ExecuteRawQuery<AiAnalysisResultRecord>(
+            "SELECT analysis_id, file_type_code, ingestion_readiness, summary, analysis_json, created_by, created_tm, updated_by, last_updated FROM ntfl_ai_analysis_result WHERE analysis_id = ?",
+            reader => new AiAnalysisResultRecord
+            {
+                AnalysisId = reader.GetInt32(0),
+                FileTypeCode = reader.GetString(1).Trim(),
+                IngestionReadiness = reader.IsDBNull(2) ? null : reader.GetString(2).Trim(),
+                Summary = reader.IsDBNull(3) ? null : reader.GetString(3).Trim(),
+                AnalysisJson = reader.IsDBNull(4) ? null : reader.GetString(4).Trim(),
+                CreatedBy = reader.IsDBNull(5) ? "" : reader.GetString(5).Trim(),
+                CreatedTm = reader.GetDateTime(6),
+                UpdatedBy = reader.IsDBNull(7) ? null : reader.GetString(7).Trim(),
+                LastUpdated = reader.IsDBNull(8) ? null : reader.GetDateTime(8)
+            },
+            ("@p1", (object)analysisId, DbType.Int32, (int?)null)
+        );
+
+        if (!result.IsSuccess)
+            return new DataResult<AiAnalysisResultRecord> { StatusCode = result.StatusCode, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
+
+        var record = result.Data?.FirstOrDefault();
+        if (record == null)
+            return new DataResult<AiAnalysisResultRecord> { StatusCode = 404, ErrorCode = "FileLoading.AnalysisNotFound", ErrorMessage = $"Analysis result {analysisId} not found" };
+
+        return new DataResult<AiAnalysisResultRecord> { StatusCode = 200, Data = record };
+    }
+
+    public async Task<ValueResult<int>> InsertAnalysisResultAsync(AiAnalysisResultRecord record)
+    {
+        var cmd = _dbContext.ExecuteRawCommand(
+            @"INSERT INTO ntfl_ai_analysis_result (file_type_code, ingestion_readiness, summary, analysis_json, created_by, created_tm)
+              VALUES (?, ?, ?, ?, ?, CURRENT YEAR TO SECOND)",
+            ("@p1", (object)record.FileTypeCode, DbType.String, (int?)null),
+            ("@p2", (object?)record.IngestionReadiness ?? DBNull.Value, DbType.String, (int?)null),
+            ("@p3", (object?)record.Summary ?? DBNull.Value, DbType.String, (int?)null),
+            ("@p4", (object?)record.AnalysisJson ?? DBNull.Value, DbType.String, (int?)null),
+            ("@p5", (object?)record.CreatedBy ?? DBNull.Value, DbType.String, (int?)null)
+        );
+
+        if (!cmd.IsSuccess)
+            return new ValueResult<int> { StatusCode = cmd.StatusCode, ErrorCode = cmd.ErrorCode, ErrorMessage = cmd.ErrorMessage };
+
+        // Get inserted ID
+        var idResult = _dbContext.ExecuteRawScalar<int>("SELECT DBINFO('sqlca.sqlerrd1') FROM systables WHERE tabid = 1");
+        return new ValueResult<int> { StatusCode = 201, Value = idResult.IsSuccess ? idResult.Value : 0 };
+    }
+
+    public async Task<RawCommandResult> UpdateAnalysisResultAsync(AiAnalysisResultRecord record)
+    {
+        return _dbContext.ExecuteRawCommand(
+            @"UPDATE ntfl_ai_analysis_result SET ingestion_readiness = ?, summary = ?, analysis_json = ?, updated_by = ?, last_updated = CURRENT YEAR TO SECOND WHERE analysis_id = ?",
+            ("@p1", (object?)record.IngestionReadiness ?? DBNull.Value, DbType.String, (int?)null),
+            ("@p2", (object?)record.Summary ?? DBNull.Value, DbType.String, (int?)null),
+            ("@p3", (object?)record.AnalysisJson ?? DBNull.Value, DbType.String, (int?)null),
+            ("@p4", (object?)record.UpdatedBy ?? DBNull.Value, DbType.String, (int?)null),
+            ("@p5", (object)record.AnalysisId, DbType.Int32, (int?)null)
+        );
+    }
+
+    public async Task<RawCommandResult> DeleteAnalysisResultAsync(int analysisId)
+    {
+        return _dbContext.ExecuteRawCommand(
+            "DELETE FROM ntfl_ai_analysis_result WHERE analysis_id = ?",
+            ("@p1", (object)analysisId, DbType.Int32, (int?)null)
+        );
+    }
+
+    // ============================================
+    // AI File-Type Prompts
+    // ============================================
+
+    public async Task<DataResult<List<AiFileTypePromptRecord>>> GetFileTypePromptsAsync(string fileTypeCode)
+    {
+        var result = _dbContext.ExecuteRawQuery<AiFileTypePromptRecord>(
+            "SELECT prompt_id, file_type_code, prompt_content, is_current, version, description, source, created_by, created_tm, updated_by, last_updated FROM ntfl_ai_file_type_prompt WHERE file_type_code = ? ORDER BY version DESC",
+            reader => new AiFileTypePromptRecord
+            {
+                PromptId = reader.GetInt32(0),
+                FileTypeCode = reader.GetString(1).Trim(),
+                PromptContent = reader.GetString(2).Trim(),
+                IsCurrent = !reader.IsDBNull(3) && reader.GetString(3).Trim().ToLower() == "t",
+                Version = reader.IsDBNull(4) ? 1 : reader.GetInt32(4),
+                Description = reader.IsDBNull(5) ? null : reader.GetString(5).Trim(),
+                Source = reader.IsDBNull(6) ? "AI" : reader.GetString(6).Trim(),
+                CreatedBy = reader.IsDBNull(7) ? "" : reader.GetString(7).Trim(),
+                CreatedTm = reader.GetDateTime(8),
+                UpdatedBy = reader.IsDBNull(9) ? null : reader.GetString(9).Trim(),
+                LastUpdated = reader.IsDBNull(10) ? null : reader.GetDateTime(10)
+            },
+            ("@p1", (object)fileTypeCode, DbType.String, (int?)null)
+        );
+
+        return new DataResult<List<AiFileTypePromptRecord>>
+        {
+            StatusCode = result.IsSuccess ? 200 : result.StatusCode,
+            Data = result.IsSuccess ? result.Data : null,
+            ErrorCode = result.ErrorCode,
+            ErrorMessage = result.ErrorMessage
+        };
+    }
+
+    public async Task<DataResult<AiFileTypePromptRecord>> GetFileTypePromptAsync(int promptId)
+    {
+        var result = _dbContext.ExecuteRawQuery<AiFileTypePromptRecord>(
+            "SELECT prompt_id, file_type_code, prompt_content, is_current, version, description, source, created_by, created_tm, updated_by, last_updated FROM ntfl_ai_file_type_prompt WHERE prompt_id = ?",
+            reader => new AiFileTypePromptRecord
+            {
+                PromptId = reader.GetInt32(0),
+                FileTypeCode = reader.GetString(1).Trim(),
+                PromptContent = reader.GetString(2).Trim(),
+                IsCurrent = !reader.IsDBNull(3) && reader.GetString(3).Trim().ToLower() == "t",
+                Version = reader.IsDBNull(4) ? 1 : reader.GetInt32(4),
+                Description = reader.IsDBNull(5) ? null : reader.GetString(5).Trim(),
+                Source = reader.IsDBNull(6) ? "AI" : reader.GetString(6).Trim(),
+                CreatedBy = reader.IsDBNull(7) ? "" : reader.GetString(7).Trim(),
+                CreatedTm = reader.GetDateTime(8),
+                UpdatedBy = reader.IsDBNull(9) ? null : reader.GetString(9).Trim(),
+                LastUpdated = reader.IsDBNull(10) ? null : reader.GetDateTime(10)
+            },
+            ("@p1", (object)promptId, DbType.Int32, (int?)null)
+        );
+
+        var record = result.Data?.FirstOrDefault();
+        if (record == null)
+            return new DataResult<AiFileTypePromptRecord> { StatusCode = 404, ErrorCode = "FileLoading.PromptNotFound", ErrorMessage = $"Prompt {promptId} not found" };
+
+        return new DataResult<AiFileTypePromptRecord> { StatusCode = 200, Data = record };
+    }
+
+    public async Task<DataResult<AiFileTypePromptRecord>> GetCurrentFileTypePromptAsync(string fileTypeCode)
+    {
+        var result = _dbContext.ExecuteRawQuery<AiFileTypePromptRecord>(
+            "SELECT prompt_id, file_type_code, prompt_content, is_current, version, description, source, created_by, created_tm, updated_by, last_updated FROM ntfl_ai_file_type_prompt WHERE file_type_code = ? AND is_current = 't'",
+            reader => new AiFileTypePromptRecord
+            {
+                PromptId = reader.GetInt32(0),
+                FileTypeCode = reader.GetString(1).Trim(),
+                PromptContent = reader.GetString(2).Trim(),
+                IsCurrent = true,
+                Version = reader.IsDBNull(4) ? 1 : reader.GetInt32(4),
+                Description = reader.IsDBNull(5) ? null : reader.GetString(5).Trim(),
+                Source = reader.IsDBNull(6) ? "AI" : reader.GetString(6).Trim(),
+                CreatedBy = reader.IsDBNull(7) ? "" : reader.GetString(7).Trim(),
+                CreatedTm = reader.GetDateTime(8),
+                UpdatedBy = reader.IsDBNull(9) ? null : reader.GetString(9).Trim(),
+                LastUpdated = reader.IsDBNull(10) ? null : reader.GetDateTime(10)
+            },
+            ("@p1", (object)fileTypeCode, DbType.String, (int?)null)
+        );
+
+        var record = result.Data?.FirstOrDefault();
+        if (record == null)
+            return new DataResult<AiFileTypePromptRecord> { StatusCode = 404, ErrorCode = "FileLoading.NoCurrentPrompt", ErrorMessage = $"No current prompt found for file type '{fileTypeCode}'" };
+
+        return new DataResult<AiFileTypePromptRecord> { StatusCode = 200, Data = record };
+    }
+
+    public async Task<ValueResult<int>> InsertFileTypePromptAsync(AiFileTypePromptRecord record)
+    {
+        var cmd = _dbContext.ExecuteRawCommand(
+            @"INSERT INTO ntfl_ai_file_type_prompt (file_type_code, prompt_content, is_current, version, description, source, created_by, created_tm)
+              VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT YEAR TO SECOND)",
+            ("@p1", (object)record.FileTypeCode, DbType.String, (int?)null),
+            ("@p2", (object)record.PromptContent, DbType.String, (int?)null),
+            ("@p3", (object)(record.IsCurrent ? "t" : "f"), DbType.String, (int?)null),
+            ("@p4", (object)record.Version, DbType.Int32, (int?)null),
+            ("@p5", (object?)record.Description ?? DBNull.Value, DbType.String, (int?)null),
+            ("@p6", (object)record.Source, DbType.String, (int?)null),
+            ("@p7", (object?)record.CreatedBy ?? DBNull.Value, DbType.String, (int?)null)
+        );
+
+        if (!cmd.IsSuccess)
+            return new ValueResult<int> { StatusCode = cmd.StatusCode, ErrorCode = cmd.ErrorCode, ErrorMessage = cmd.ErrorMessage };
+
+        var idResult = _dbContext.ExecuteRawScalar<int>("SELECT DBINFO('sqlca.sqlerrd1') FROM systables WHERE tabid = 1");
+        return new ValueResult<int> { StatusCode = 201, Value = idResult.IsSuccess ? idResult.Value : 0 };
+    }
+
+    public async Task<RawCommandResult> UpdateFileTypePromptAsync(AiFileTypePromptRecord record)
+    {
+        return _dbContext.ExecuteRawCommand(
+            @"UPDATE ntfl_ai_file_type_prompt SET prompt_content = ?, description = ?, source = ?, updated_by = ?, last_updated = CURRENT YEAR TO SECOND WHERE prompt_id = ?",
+            ("@p1", (object)record.PromptContent, DbType.String, (int?)null),
+            ("@p2", (object?)record.Description ?? DBNull.Value, DbType.String, (int?)null),
+            ("@p3", (object)record.Source, DbType.String, (int?)null),
+            ("@p4", (object?)record.UpdatedBy ?? DBNull.Value, DbType.String, (int?)null),
+            ("@p5", (object)record.PromptId, DbType.Int32, (int?)null)
+        );
+    }
+
+    public async Task<RawCommandResult> ActivateFileTypePromptAsync(string fileTypeCode, int promptId)
+    {
+        // Deactivate all prompts for this file type
+        _dbContext.ExecuteRawCommand(
+            "UPDATE ntfl_ai_file_type_prompt SET is_current = 'f' WHERE file_type_code = ?",
+            ("@p1", (object)fileTypeCode, DbType.String, (int?)null)
+        );
+
+        // Activate the specified prompt
+        return _dbContext.ExecuteRawCommand(
+            "UPDATE ntfl_ai_file_type_prompt SET is_current = 't' WHERE prompt_id = ?",
+            ("@p1", (object)promptId, DbType.Int32, (int?)null)
+        );
+    }
+
+    public async Task<RawCommandResult> DeleteFileTypePromptAsync(int promptId)
+    {
+        return _dbContext.ExecuteRawCommand(
+            "DELETE FROM ntfl_ai_file_type_prompt WHERE prompt_id = ?",
+            ("@p1", (object)promptId, DbType.Int32, (int?)null)
         );
     }
 }

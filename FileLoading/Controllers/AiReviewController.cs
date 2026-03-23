@@ -292,6 +292,263 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     }
 
     // ============================================
+    // AI Analysis Results (persisted per file-type)
+    // ============================================
+
+    /// <summary>List all analysis results for a file type.</summary>
+    [HttpGet("analysis-results/{file-type-code}")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_ai_review_analysis_results")]
+    [Tags("AI Review")]
+    [ProducesResponseType(typeof(List<AiAnalysisResultRecord>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetAnalysisResults([FromRoute(Name = "file-type-code")] string fileTypeCode)
+    {
+        try
+        {
+            var result = await _aiReviewService.GetAnalysisResultsAsync(fileTypeCode);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting analysis results for {FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>Get a specific analysis result by ID.</summary>
+    [HttpGet("analysis-results/{file-type-code}/{analysis-id:int}")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_ai_review_analysis_results_id")]
+    [Tags("AI Review")]
+    [ProducesResponseType(typeof(AiAnalysisResultRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetAnalysisResult(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromRoute(Name = "analysis-id")] int analysisId)
+    {
+        try
+        {
+            var result = await _aiReviewService.GetAnalysisResultAsync(analysisId);
+            if (result.IsSuccess) return Ok(result.Data);
+            return StatusCode(result.StatusCode, new ErrorResponse(result.ErrorMessage ?? "Not found", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting analysis result {AnalysisId}", analysisId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>Update/edit a stored analysis result.</summary>
+    [HttpPatch("analysis-results/{file-type-code}/{analysis-id:int}")]
+    [SwaggerOperation(OperationId = "patch_api_v4_file_loading_ai_review_analysis_results_id")]
+    [Tags("AI Review")]
+    [ProducesResponseType(typeof(AiAnalysisResultRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateAnalysisResult(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromRoute(Name = "analysis-id")] int analysisId,
+        [FromBody] AiAnalysisResultUpdateRequest request)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("patch_api_v4_file_loading_ai_review_analysis_results_id");
+            var result = await _aiReviewService.UpdateAnalysisResultAsync(analysisId, request, securityContext);
+            if (result.IsSuccess) return Ok(result.Data);
+            return StatusCode(result.StatusCode, new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating analysis result {AnalysisId}", analysisId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>Delete an analysis result.</summary>
+    [HttpDelete("analysis-results/{file-type-code}/{analysis-id:int}")]
+    [SwaggerOperation(OperationId = "delete_api_v4_file_loading_ai_review_analysis_results_id")]
+    [Tags("AI Review")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteAnalysisResult(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromRoute(Name = "analysis-id")] int analysisId)
+    {
+        try
+        {
+            var result = await _aiReviewService.DeleteAnalysisResultAsync(analysisId);
+            if (result.IsSuccess) return Ok(new { Message = $"Analysis result {analysisId} deleted." });
+            return StatusCode(result.StatusCode, new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting analysis result {AnalysisId}", analysisId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    // ============================================
+    // AI File-Type Prompts (versioned per file-type)
+    // ============================================
+
+    /// <summary>List all prompts for a file type.</summary>
+    [HttpGet("prompts/{file-type-code}")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_ai_review_prompts")]
+    [Tags("AI Review")]
+    [ProducesResponseType(typeof(List<AiFileTypePromptRecord>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetFileTypePrompts([FromRoute(Name = "file-type-code")] string fileTypeCode)
+    {
+        try
+        {
+            var result = await _aiReviewService.GetFileTypePromptsAsync(fileTypeCode);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting prompts for {FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>Get the current active prompt for a file type.</summary>
+    [HttpGet("prompts/{file-type-code}/current")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_ai_review_prompts_current")]
+    [Tags("AI Review")]
+    [ProducesResponseType(typeof(AiFileTypePromptRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetCurrentFileTypePrompt([FromRoute(Name = "file-type-code")] string fileTypeCode)
+    {
+        try
+        {
+            var result = await _aiReviewService.GetCurrentFileTypePromptAsync(fileTypeCode);
+            if (result.IsSuccess) return Ok(result.Data);
+            return StatusCode(result.StatusCode, new ErrorResponse(result.ErrorMessage ?? "Not found", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting current prompt for {FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>Create a new prompt version manually.</summary>
+    [HttpPost("prompts/{file-type-code}")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_ai_review_prompts")]
+    [Tags("AI Review")]
+    [ProducesResponseType(typeof(AiFileTypePromptRecord), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> CreateFileTypePrompt(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromBody] AiFileTypePromptCreateRequest request)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_ai_review_prompts");
+            var result = await _aiReviewService.CreateFileTypePromptAsync(fileTypeCode, request, securityContext);
+            if (result.IsSuccess) return StatusCode(201, result.Data);
+            return StatusCode(result.StatusCode, new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating prompt for {FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>Auto-generate a file-type prompt from a stored analysis result.</summary>
+    [HttpPost("prompts/{file-type-code}/generate")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_ai_review_prompts_generate")]
+    [Tags("AI Review")]
+    [ProducesResponseType(typeof(AiFileTypePromptRecord), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status502BadGateway)]
+    public async Task<IActionResult> GenerateFileTypePrompt(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromBody] AiFileTypePromptGenerateRequest request)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_ai_review_prompts_generate");
+            var result = await _aiReviewService.GenerateFileTypePromptAsync(fileTypeCode, request, securityContext);
+            if (result.IsSuccess) return StatusCode(201, result.Data);
+            return StatusCode(result.StatusCode, new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating prompt for {FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>Edit an existing prompt.</summary>
+    [HttpPatch("prompts/{file-type-code}/{prompt-id:int}")]
+    [SwaggerOperation(OperationId = "patch_api_v4_file_loading_ai_review_prompts_id")]
+    [Tags("AI Review")]
+    [ProducesResponseType(typeof(AiFileTypePromptRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateFileTypePrompt(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromRoute(Name = "prompt-id")] int promptId,
+        [FromBody] AiFileTypePromptUpdateRequest request)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("patch_api_v4_file_loading_ai_review_prompts_id");
+            var result = await _aiReviewService.UpdateFileTypePromptAsync(fileTypeCode, promptId, request, securityContext);
+            if (result.IsSuccess) return Ok(result.Data);
+            return StatusCode(result.StatusCode, new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating prompt {PromptId}", promptId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>Set a prompt as the current active prompt for this file type.</summary>
+    [HttpPatch("prompts/{file-type-code}/{prompt-id:int}/activate")]
+    [SwaggerOperation(OperationId = "patch_api_v4_file_loading_ai_review_prompts_id_activate")]
+    [Tags("AI Review")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> ActivateFileTypePrompt(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromRoute(Name = "prompt-id")] int promptId)
+    {
+        try
+        {
+            var result = await _aiReviewService.ActivateFileTypePromptAsync(fileTypeCode, promptId);
+            if (result.IsSuccess) return Ok(new { Message = $"Prompt {promptId} is now the current prompt for {fileTypeCode}." });
+            return StatusCode(result.StatusCode, new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error activating prompt {PromptId}", promptId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>Delete a prompt version.</summary>
+    [HttpDelete("prompts/{file-type-code}/{prompt-id:int}")]
+    [SwaggerOperation(OperationId = "delete_api_v4_file_loading_ai_review_prompts_id")]
+    [Tags("AI Review")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> DeleteFileTypePrompt(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromRoute(Name = "prompt-id")] int promptId)
+    {
+        try
+        {
+            var result = await _aiReviewService.DeleteFileTypePromptAsync(promptId);
+            if (result.IsSuccess) return Ok(new { Message = $"Prompt {promptId} deleted." });
+            return StatusCode(result.StatusCode, new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting prompt {PromptId}", promptId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    // ============================================
     // AI Instruction File CRUD
     // ============================================
 

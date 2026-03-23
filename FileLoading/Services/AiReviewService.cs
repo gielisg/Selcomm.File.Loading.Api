@@ -229,6 +229,198 @@ public class AiReviewService : IAiReviewService
     }
 
     // ============================================
+    // AI Analysis Results (persisted per file-type)
+    // ============================================
+
+    public async Task<DataResult<List<AiAnalysisResultRecord>>> GetAnalysisResultsAsync(string fileTypeCode)
+    {
+        return await _repository.GetAnalysisResultsAsync(fileTypeCode);
+    }
+
+    public async Task<DataResult<AiAnalysisResultRecord>> GetAnalysisResultAsync(int analysisId)
+    {
+        return await _repository.GetAnalysisResultAsync(analysisId);
+    }
+
+    public async Task<DataResult<AiAnalysisResultRecord>> UpdateAnalysisResultAsync(
+        int analysisId, AiAnalysisResultUpdateRequest request, SecurityContext securityContext)
+    {
+        var existing = await _repository.GetAnalysisResultAsync(analysisId);
+        if (!existing.IsSuccess || existing.Data == null)
+            return existing;
+
+        var record = existing.Data;
+        if (request.Summary != null) record.Summary = request.Summary;
+        if (request.IngestionReadiness != null) record.IngestionReadiness = request.IngestionReadiness;
+        if (request.AnalysisJson != null) record.AnalysisJson = request.AnalysisJson;
+        record.UpdatedBy = securityContext.UserCode;
+
+        var result = await _repository.UpdateAnalysisResultAsync(record);
+        if (!result.IsSuccess)
+            return new DataResult<AiAnalysisResultRecord> { StatusCode = result.StatusCode, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
+
+        return new DataResult<AiAnalysisResultRecord> { StatusCode = 200, Data = record };
+    }
+
+    public async Task<RawCommandResult> DeleteAnalysisResultAsync(int analysisId)
+    {
+        return await _repository.DeleteAnalysisResultAsync(analysisId);
+    }
+
+    // ============================================
+    // AI File-Type Prompts (versioned per file-type)
+    // ============================================
+
+    public async Task<DataResult<List<AiFileTypePromptRecord>>> GetFileTypePromptsAsync(string fileTypeCode)
+    {
+        return await _repository.GetFileTypePromptsAsync(fileTypeCode);
+    }
+
+    public async Task<DataResult<AiFileTypePromptRecord>> GetCurrentFileTypePromptAsync(string fileTypeCode)
+    {
+        return await _repository.GetCurrentFileTypePromptAsync(fileTypeCode);
+    }
+
+    public async Task<DataResult<AiFileTypePromptRecord>> CreateFileTypePromptAsync(
+        string fileTypeCode, AiFileTypePromptCreateRequest request, SecurityContext securityContext)
+    {
+        if (string.IsNullOrWhiteSpace(request.PromptContent))
+            return new DataResult<AiFileTypePromptRecord> { StatusCode = 400, ErrorCode = "VALIDATION_ERROR", ErrorMessage = "PromptContent is required" };
+
+        // Get next version number
+        var existing = await _repository.GetFileTypePromptsAsync(fileTypeCode);
+        var nextVersion = (existing.Data?.Count > 0 ? existing.Data.Max(p => p.Version) : 0) + 1;
+
+        // Deactivate existing current and make this one current
+        await _repository.ActivateFileTypePromptAsync(fileTypeCode, -1); // deactivate all
+
+        var record = new AiFileTypePromptRecord
+        {
+            FileTypeCode = fileTypeCode,
+            PromptContent = request.PromptContent,
+            IsCurrent = true,
+            Version = nextVersion,
+            Description = request.Description,
+            Source = "USER",
+            CreatedBy = securityContext.UserCode ?? "SYSTEM"
+        };
+
+        var result = await _repository.InsertFileTypePromptAsync(record);
+        if (!result.IsSuccess)
+            return new DataResult<AiFileTypePromptRecord> { StatusCode = result.StatusCode, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
+
+        record.PromptId = result.Value;
+        return new DataResult<AiFileTypePromptRecord> { StatusCode = 201, Data = record };
+    }
+
+    public async Task<DataResult<AiFileTypePromptRecord>> GenerateFileTypePromptAsync(
+        string fileTypeCode, AiFileTypePromptGenerateRequest request, SecurityContext securityContext)
+    {
+        // 1. Load the specified analysis result
+        var analysisResult = await _repository.GetAnalysisResultAsync(request.AnalysisId);
+        if (!analysisResult.IsSuccess || analysisResult.Data == null)
+        {
+            return new DataResult<AiFileTypePromptRecord>
+            {
+                StatusCode = 404,
+                ErrorCode = "FileLoading.AnalysisNotFound",
+                ErrorMessage = $"Analysis result {request.AnalysisId} not found"
+            };
+        }
+
+        // 2. Load file-class instructions as base
+        var fileTypeResult = await _repository.GetFileTypeRecordAsync(fileTypeCode);
+        var fileClassCode = fileTypeResult.Data?.FileClassCode ?? "CHG";
+        var classInstructions = await LoadInstructionContentAsync(fileClassCode);
+
+        // 3. Ask AI to generate a file-type-specific prompt
+        var systemPrompt = @"You are a billing file analysis expert. Generate a detailed validation/parsing prompt for a specific file type based on the analysis results provided. The prompt should:
+1. Describe the exact file structure (columns, types, delimiters)
+2. Specify validation rules for each column
+3. Define the billing concept mappings
+4. Include data quality checks specific to this file type
+5. Be ready to use for validating/parsing future instances of this file type
+
+Return ONLY the prompt text as markdown, no JSON wrapping.";
+
+        var userPrompt = $@"## File Type: {fileTypeCode}
+## File Class: {fileClassCode}
+
+## Base File-Class Instructions:
+{classInstructions ?? "(none)"}
+
+## Analysis Results:
+{analysisResult.Data.AnalysisJson ?? analysisResult.Data.Summary ?? "(no analysis data)"}
+
+Generate a detailed, file-type-specific validation/parsing prompt based on the above analysis.";
+
+        var apiResult = await CallGatewayAsync(systemPrompt, userPrompt, "prompt-generation");
+        if (!apiResult.IsSuccess)
+            return Forward<AiFileTypePromptRecord>(apiResult);
+
+        var (promptContent, _) = apiResult.Data!;
+
+        // 4. Get next version number
+        var existing = await _repository.GetFileTypePromptsAsync(fileTypeCode);
+        var nextVersion = (existing.Data?.Count > 0 ? existing.Data.Max(p => p.Version) : 0) + 1;
+
+        // 5. Deactivate existing current
+        await _repository.ActivateFileTypePromptAsync(fileTypeCode, -1);
+
+        // 6. Save new prompt as current
+        var record = new AiFileTypePromptRecord
+        {
+            FileTypeCode = fileTypeCode,
+            PromptContent = promptContent,
+            IsCurrent = true,
+            Version = nextVersion,
+            Description = $"Auto-generated from analysis #{request.AnalysisId}",
+            Source = "AI",
+            CreatedBy = securityContext.UserCode ?? "SYSTEM"
+        };
+
+        var insertResult = await _repository.InsertFileTypePromptAsync(record);
+        if (!insertResult.IsSuccess)
+            return new DataResult<AiFileTypePromptRecord> { StatusCode = insertResult.StatusCode, ErrorCode = insertResult.ErrorCode, ErrorMessage = insertResult.ErrorMessage };
+
+        record.PromptId = insertResult.Value;
+
+        _logger.LogInformation("Generated file-type prompt for {FileTypeCode} v{Version} from analysis #{AnalysisId}",
+            fileTypeCode, nextVersion, request.AnalysisId);
+
+        return new DataResult<AiFileTypePromptRecord> { StatusCode = 201, Data = record };
+    }
+
+    public async Task<DataResult<AiFileTypePromptRecord>> UpdateFileTypePromptAsync(
+        string fileTypeCode, int promptId, AiFileTypePromptUpdateRequest request, SecurityContext securityContext)
+    {
+        var existing = await _repository.GetFileTypePromptAsync(promptId);
+        if (!existing.IsSuccess || existing.Data == null)
+            return existing;
+
+        if (request.PromptContent != null) existing.Data.PromptContent = request.PromptContent;
+        if (request.Description != null) existing.Data.Description = request.Description;
+        existing.Data.Source = "USER";
+        existing.Data.UpdatedBy = securityContext.UserCode;
+
+        var result = await _repository.UpdateFileTypePromptAsync(existing.Data);
+        if (!result.IsSuccess)
+            return new DataResult<AiFileTypePromptRecord> { StatusCode = result.StatusCode, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
+
+        return new DataResult<AiFileTypePromptRecord> { StatusCode = 200, Data = existing.Data };
+    }
+
+    public async Task<RawCommandResult> ActivateFileTypePromptAsync(string fileTypeCode, int promptId)
+    {
+        return await _repository.ActivateFileTypePromptAsync(fileTypeCode, promptId);
+    }
+
+    public async Task<RawCommandResult> DeleteFileTypePromptAsync(int promptId)
+    {
+        return await _repository.DeleteFileTypePromptAsync(promptId);
+    }
+
+    // ============================================
     // AI Instruction File CRUD
     // ============================================
 
@@ -490,24 +682,41 @@ public class AiReviewService : IAiReviewService
             };
         }
 
-        // 3. Load instruction content: DB first, then default file, then fallback
-        var instructionContent = await LoadInstructionContentAsync(fileClassCode);
+        // 3. Build prompt — either file-class instructions (discovery) or file-type prompt (validation)
+        string systemPrompt;
+        if (request?.UseFileTypePrompt == true)
+        {
+            var currentPrompt = await _repository.GetCurrentFileTypePromptAsync(fileTypeCode);
+            if (!currentPrompt.IsSuccess || currentPrompt.Data == null)
+            {
+                return new DataResult<AiFileAnalysisResponse>
+                {
+                    StatusCode = 404,
+                    ErrorCode = "FileLoading.NoCurrentPrompt",
+                    ErrorMessage = $"No current file-type prompt found for '{fileTypeCode}'. Generate one first via POST /ai-review/prompts/{fileTypeCode}/generate"
+                };
+            }
+            systemPrompt = BuildAnalysisSystemPrompt(fileClassCode, currentPrompt.Data.PromptContent);
+        }
+        else
+        {
+            var instructionContent = await LoadInstructionContentAsync(fileClassCode);
+            systemPrompt = BuildAnalysisSystemPrompt(fileClassCode, instructionContent);
+        }
 
-        // 4. Build analysis prompt
-        var systemPrompt = BuildAnalysisSystemPrompt(fileClassCode, instructionContent);
         var userPrompt = BuildAnalysisUserPrompt(fileTypeCode, exampleContent, request?.FocusAreas);
 
-        // 3. Call AI Gateway
+        // 4. Call AI Gateway
         var apiResult = await CallGatewayAsync(systemPrompt, userPrompt, "file-analysis");
         if (!apiResult.IsSuccess)
             return Forward<AiFileAnalysisResponse>(apiResult);
 
         var (textContent, usage) = apiResult.Data!;
 
-        // 4. Parse analysis result
+        // 5. Parse analysis result
         var analysisResult = ParseAnalysisResult(textContent);
 
-        // 5. Build response
+        // 6. Build response
         var response = new AiFileAnalysisResponse
         {
             FileTypeCode = fileTypeCode,
@@ -522,6 +731,17 @@ public class AiReviewService : IAiReviewService
             Usage = usage,
             AnalysedAt = DateTime.Now
         };
+
+        // 7. Persist analysis result
+        var analysisRecord = new AiAnalysisResultRecord
+        {
+            FileTypeCode = fileTypeCode,
+            IngestionReadiness = response.IngestionReadiness,
+            Summary = response.Summary,
+            AnalysisJson = JsonSerializer.Serialize(response, JsonOpts),
+            CreatedBy = securityContext.UserCode ?? "SYSTEM"
+        };
+        await _repository.InsertAnalysisResultAsync(analysisRecord);
 
         _logger.LogInformation("AI file analysis completed for {FileTypeCode}: readiness={Readiness}, {ColumnCount} columns, {MappingCount} mappings",
             fileTypeCode, response.IngestionReadiness, response.Columns.Count, response.BillingConceptMappings.Count);
@@ -1235,7 +1455,7 @@ Return your analysis as a JSON object with this exact structure:
       ""Name"": ""column header name"",
       ""DataType"": ""String|Integer|Decimal|Date|DateTime|GUID"",
       ""SampleValues"": [""val1"", ""val2"", ""val3""],
-      ""SuggestedTargetField"": ""AccountCode|ServiceId|ChargeType|CostAmount|TaxAmount|Quantity|UOM|FromDate|ToDate|Description|ExternalRef|Generic01..Generic20|null""
+      ""SuggestedTargetField"": ""AccountCode|ServiceId|ChargeType|CostAmount|TaxAmount|Quantity|UOM|FromDate|ToDate|Description|ExternalRef|{snake_cased_header_name}|null""
     }
   ],
   ""BillingConceptMappings"": [
@@ -1277,6 +1497,12 @@ Return your analysis as a JSON object with this exact structure:
     ]
   }
 }
+
+IMPORTANT — Target Field Naming:
+- For columns that map to well-known billing concepts, use these exact names: AccountCode, ServiceId, ChargeType, CostAmount, TaxAmount, Quantity, UOM, FromDate, ToDate, Description, ExternalRef
+- For ALL OTHER columns, use the source column header name converted to snake_case (e.g. ResellerName -> reseller_name, BillableRatio -> billable_ratio, SubTotalRrp -> sub_total_rrp, UnitPriceRrp -> unit_price_rrp)
+- Do NOT use Generic01, Generic02, etc. Always use meaningful names derived from the header.
+- This applies to both SuggestedTargetField in Columns[] and TargetField in SuggestedParserConfig.ColumnMappings[]
 
 Return ONLY the JSON object, no markdown fences or other text.");
 
