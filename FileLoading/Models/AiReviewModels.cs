@@ -10,21 +10,17 @@ namespace FileLoading.Models;
 /// </summary>
 public class AiReviewOptions
 {
-    /// <summary>Base URL for the Claude API.</summary>
-    /// <example>https://api.anthropic.com</example>
-    public string BaseUrl { get; set; } = "https://api.anthropic.com";
-
-    /// <summary>Anthropic API version header value.</summary>
-    /// <example>2023-06-01</example>
-    public string AnthropicVersion { get; set; } = "2023-06-01";
+    /// <summary>Base URL for the AI Gateway (Selcomm.Ai.Api).</summary>
+    /// <example>http://localhost:5300</example>
+    public string GatewayUrl { get; set; } = "http://localhost:5142";
 
     /// <summary>Maximum number of sample records to send for AI review.</summary>
     /// <example>80</example>
     public int MaxSampleRecords { get; set; } = 80;
 
-    /// <summary>HTTP request timeout in seconds for Claude API calls.</summary>
-    /// <example>60</example>
-    public int TimeoutSeconds { get; set; } = 60;
+    /// <summary>HTTP request timeout in seconds for AI gateway calls.</summary>
+    /// <example>120</example>
+    public int TimeoutSeconds { get; set; } = 120;
 
     /// <summary>Duration in minutes to cache AI review results before requiring a refresh.</summary>
     /// <example>1440</example>
@@ -345,114 +341,277 @@ public class AiConfigStatusResponse
 }
 
 // ============================================
-// Internal Models (Claude API)
+// File Analysis Response Models (discovery/configuration)
 // ============================================
 
 /// <summary>
-/// Claude Messages API request body (internal use only).
+/// Request body for POST /ai-review/analyse/{file-type-code}.
+/// Triggers AI analysis of example files to discover structure and generate parser config.
 /// </summary>
-internal class ClaudeMessagesRequest
+public class AiFileAnalysisRequest
 {
-    /// <summary>Claude model identifier.</summary>
-    public string Model { get; set; } = string.Empty;
+    /// <summary>File class hint to select the right analysis instructions (Charge, Usage, Payment).</summary>
+    /// <example>Charge</example>
+    public string? FileClass { get; set; }
 
-    /// <summary>Maximum tokens in the response.</summary>
-    public int Max_tokens { get; set; }
-
-    /// <summary>System prompt for the conversation.</summary>
-    public string? System { get; set; }
-
-    /// <summary>List of conversation messages.</summary>
-    public List<ClaudeMessage> Messages { get; set; } = new();
+    /// <summary>Optional focus areas for the analysis.</summary>
+    public List<string>? FocusAreas { get; set; }
 }
 
 /// <summary>
-/// A single message in a Claude API conversation (internal use only).
+/// AI file analysis response — discovers file structure, maps billing concepts, and suggests parser config.
 /// </summary>
-internal class ClaudeMessage
+public class AiFileAnalysisResponse
 {
-    /// <summary>Message role (user or assistant).</summary>
-    public string Role { get; set; } = string.Empty;
+    /// <summary>File type code that was analysed.</summary>
+    /// <example>CRAYON_SUB</example>
+    public string FileTypeCode { get; set; } = string.Empty;
 
-    /// <summary>Message content text.</summary>
+    /// <summary>Ingestion readiness rating (HIGH, MEDIUM, LOW).</summary>
+    /// <example>HIGH</example>
+    public string IngestionReadiness { get; set; } = string.Empty;
+
+    /// <summary>Prose summary of the analysis findings.</summary>
+    public string Summary { get; set; } = string.Empty;
+
+    /// <summary>Detected file format details.</summary>
+    public DetectedFileFormat DetectedFormat { get; set; } = new();
+
+    /// <summary>Discovered column structure.</summary>
+    public List<DiscoveredColumn> Columns { get; set; } = new();
+
+    /// <summary>Billing concept to column mappings with confidence.</summary>
+    public List<BillingConceptMapping> BillingConceptMappings { get; set; } = new();
+
+    /// <summary>Data quality issues found during analysis.</summary>
+    public List<AiReviewIssue> DataQualityIssues { get; set; } = new();
+
+    /// <summary>Key observations about the file.</summary>
+    public List<string> Observations { get; set; } = new();
+
+    /// <summary>Suggested parser configuration ready to save via the parser config endpoint.</summary>
+    public SuggestedParserConfig? SuggestedParserConfig { get; set; }
+
+    /// <summary>Token usage details.</summary>
+    public AiReviewUsage? Usage { get; set; }
+
+    /// <summary>Timestamp of the analysis.</summary>
+    public DateTime AnalysedAt { get; set; }
+}
+
+/// <summary>
+/// Detected file format from AI analysis.
+/// </summary>
+public class DetectedFileFormat
+{
+    /// <summary>File format (CSV, XLSX, Delimited).</summary>
+    /// <example>CSV</example>
+    public string FileFormat { get; set; } = string.Empty;
+
+    /// <summary>Detected delimiter character.</summary>
+    /// <example>,</example>
+    public string? Delimiter { get; set; }
+
+    /// <summary>Whether the file has a header row.</summary>
+    public bool HasHeaderRow { get; set; }
+
+    /// <summary>Detected file encoding.</summary>
+    /// <example>UTF-8</example>
+    public string? Encoding { get; set; }
+
+    /// <summary>Number of header rows detected.</summary>
+    public int HeaderRowCount { get; set; }
+
+    /// <summary>Number of trailer/footer rows detected.</summary>
+    public int TrailerRowCount { get; set; }
+
+    /// <summary>Number of data rows.</summary>
+    public int DataRowCount { get; set; }
+}
+
+/// <summary>
+/// A column discovered during AI file analysis.
+/// </summary>
+public class DiscoveredColumn
+{
+    /// <summary>Zero-based column index.</summary>
+    /// <example>0</example>
+    public int Index { get; set; }
+
+    /// <summary>Column name from header row (if present).</summary>
+    /// <example>ResellerName</example>
+    public string? Name { get; set; }
+
+    /// <summary>Detected data type (String, Integer, Decimal, Date, DateTime, GUID).</summary>
+    /// <example>String</example>
+    public string DataType { get; set; } = "String";
+
+    /// <summary>Sample values from the column.</summary>
+    public List<string> SampleValues { get; set; } = new();
+
+    /// <summary>Suggested target field from GenericTargetField enum.</summary>
+    /// <example>AccountCode</example>
+    public string? SuggestedTargetField { get; set; }
+}
+
+/// <summary>
+/// Mapping from a billing concept to a source column, with confidence level.
+/// </summary>
+public class BillingConceptMapping
+{
+    /// <summary>Business billing concept (e.g., "Customer Name", "Buy Price", "Period Start").</summary>
+    /// <example>Customer Name</example>
+    public string BillingConcept { get; set; } = string.Empty;
+
+    /// <summary>Source column name.</summary>
+    /// <example>CustomerName</example>
+    public string SourceColumn { get; set; } = string.Empty;
+
+    /// <summary>Zero-based column index.</summary>
+    /// <example>15</example>
+    public int ColumnIndex { get; set; }
+
+    /// <summary>Confidence level (HIGH, MEDIUM, LOW).</summary>
+    /// <example>HIGH</example>
+    public string Confidence { get; set; } = "MEDIUM";
+}
+
+/// <summary>
+/// Suggested parser configuration generated by AI analysis.
+/// Can be saved directly via the parser config endpoints.
+/// </summary>
+public class SuggestedParserConfig
+{
+    /// <summary>File format (CSV, XLSX, Delimited).</summary>
+    public string FileFormat { get; set; } = "CSV";
+
+    /// <summary>Field delimiter.</summary>
+    public string? Delimiter { get; set; }
+
+    /// <summary>Whether file has a header row.</summary>
+    public bool HasHeaderRow { get; set; }
+
+    /// <summary>Rows to skip at top.</summary>
+    public int SkipRowsTop { get; set; }
+
+    /// <summary>Rows to skip at bottom.</summary>
+    public int SkipRowsBottom { get; set; }
+
+    /// <summary>Row identification mode (POSITION, INDICATOR, PATTERN).</summary>
+    public string RowIdMode { get; set; } = "POSITION";
+
+    /// <summary>Default date format.</summary>
+    public string? DateFormat { get; set; }
+
+    /// <summary>Suggested column mappings.</summary>
+    public List<SuggestedColumnMapping> ColumnMappings { get; set; } = new();
+}
+
+/// <summary>
+/// A suggested column mapping from AI analysis.
+/// </summary>
+public class SuggestedColumnMapping
+{
+    /// <summary>Zero-based column index.</summary>
+    public int ColumnIndex { get; set; }
+
+    /// <summary>Source column name from header.</summary>
+    public string? SourceColumnName { get; set; }
+
+    /// <summary>Target field (GenericTargetField enum value or Generic01-20).</summary>
+    public string TargetField { get; set; } = string.Empty;
+
+    /// <summary>Data type (String, Int, Decimal, Date, DateTime).</summary>
+    public string DataType { get; set; } = "String";
+
+    /// <summary>Date format if applicable.</summary>
+    public string? DateFormat { get; set; }
+
+    /// <summary>Whether this column is required.</summary>
+    public bool IsRequired { get; set; }
+}
+
+// ============================================
+// Internal Models (AI Gateway)
+// ============================================
+
+/// <summary>
+/// Request body for the AI Gateway completions endpoint (internal use only).
+/// </summary>
+internal class GatewayCompletionRequest
+{
+    public string? Model { get; set; }
+    public int MaxTokens { get; set; } = 4096;
+    public string? System { get; set; }
+    public List<GatewayMessage> Messages { get; set; } = new();
+    public string AppName { get; set; } = "file-loading";
+    public string? AgentName { get; set; }
+    public string? RequestId { get; set; }
+    public double? Temperature { get; set; }
+}
+
+/// <summary>
+/// A message in a gateway completion request (internal use only).
+/// </summary>
+internal class GatewayMessage
+{
+    public string Role { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
 }
 
 /// <summary>
-/// Claude Messages API response body (internal use only).
+/// Response from the AI Gateway completions endpoint (internal use only).
 /// </summary>
-internal class ClaudeMessagesResponse
+internal class GatewayCompletionResponse
 {
-    /// <summary>Unique message ID.</summary>
     public string? Id { get; set; }
-
-    /// <summary>Response type.</summary>
-    public string? Type { get; set; }
-
-    /// <summary>Role of the responder (always "assistant").</summary>
-    public string? Role { get; set; }
-
-    /// <summary>Content blocks in the response.</summary>
-    public List<ClaudeContentBlock>? Content { get; set; }
-
-    /// <summary>Reason the response stopped generating.</summary>
-    public string? Stop_reason { get; set; }
-
-    /// <summary>Token usage statistics.</summary>
-    public ClaudeUsage? Usage { get; set; }
-
-    /// <summary>Error details if the request failed.</summary>
-    public ClaudeError? Error { get; set; }
+    public string Model { get; set; } = string.Empty;
+    public string? StopReason { get; set; }
+    public List<GatewayContentBlock>? Content { get; set; }
+    public GatewayUsage? Usage { get; set; }
+    public int? UsageLogId { get; set; }
 }
 
 /// <summary>
-/// A content block within a Claude API response (internal use only).
+/// Content block in a gateway response (internal use only).
 /// </summary>
-internal class ClaudeContentBlock
+internal class GatewayContentBlock
 {
-    /// <summary>Content block type (e.g., "text").</summary>
     public string Type { get; set; } = string.Empty;
-
-    /// <summary>Text content of the block.</summary>
     public string Text { get; set; } = string.Empty;
 }
 
 /// <summary>
-/// Token usage statistics from a Claude API response (internal use only).
+/// Usage info from gateway response (internal use only).
 /// </summary>
-internal class ClaudeUsage
+internal class GatewayUsage
 {
-    /// <summary>Number of input tokens consumed.</summary>
-    public int Input_tokens { get; set; }
-
-    /// <summary>Number of output tokens generated.</summary>
-    public int Output_tokens { get; set; }
-}
-
-/// <summary>
-/// Error details from a Claude API response (internal use only).
-/// </summary>
-internal class ClaudeError
-{
-    /// <summary>Error type identifier.</summary>
-    public string? Type { get; set; }
-
-    /// <summary>Human-readable error message.</summary>
-    public string? Message { get; set; }
+    public int InputTokens { get; set; }
+    public int OutputTokens { get; set; }
+    public decimal? CostEstimate { get; set; }
 }
 
 /// <summary>
 /// Structured JSON response expected from Claude for file review (internal use only).
-/// Parsed from the Claude API text response into this typed structure.
 /// </summary>
 internal class ClaudeReviewResult
 {
-    /// <summary>Overall assessment of the file (Acceptable, Warning, Rejected).</summary>
     public string OverallAssessment { get; set; } = "Acceptable";
-
-    /// <summary>Summary of the review findings.</summary>
     public string Summary { get; set; } = string.Empty;
-
-    /// <summary>List of specific issues identified.</summary>
     public List<AiReviewIssue> Issues { get; set; } = new();
+}
+
+/// <summary>
+/// Structured JSON response expected from Claude for file analysis (internal use only).
+/// </summary>
+internal class ClaudeAnalysisResult
+{
+    public string IngestionReadiness { get; set; } = "MEDIUM";
+    public string Summary { get; set; } = string.Empty;
+    public DetectedFileFormat DetectedFormat { get; set; } = new();
+    public List<DiscoveredColumn> Columns { get; set; } = new();
+    public List<BillingConceptMapping> BillingConceptMappings { get; set; } = new();
+    public List<AiReviewIssue> DataQualityIssues { get; set; } = new();
+    public List<string> Observations { get; set; } = new();
+    public SuggestedParserConfig? SuggestedParserConfig { get; set; }
 }

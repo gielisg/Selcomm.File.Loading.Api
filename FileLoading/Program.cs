@@ -173,13 +173,12 @@ builder.Services.AddScoped<ValidationEngine>();
 builder.Services.AddScoped<IValidationConfigProvider, ValidationConfigProvider>();
 builder.Services.AddScoped<ErrorAggregator>();
 
-// AI Review services
+// AI Review services — calls go through the AI Gateway (Selcomm.Ai.Api)
 builder.Services.Configure<AiReviewOptions>(builder.Configuration.GetSection("AiReview"));
-builder.Services.AddHttpClient("ClaudeApi", (sp, client) =>
+builder.Services.AddHttpClient("AiGateway", (sp, client) =>
 {
     var config = sp.GetRequiredService<IOptions<AiReviewOptions>>().Value;
-    client.BaseAddress = new Uri(config.BaseUrl ?? "https://api.anthropic.com");
-    client.DefaultRequestHeaders.Add("anthropic-version", config.AnthropicVersion ?? "2023-06-01");
+    client.BaseAddress = new Uri(config.GatewayUrl ?? "http://localhost:5300");
     client.Timeout = TimeSpan.FromSeconds(config.TimeoutSeconds);
 });
 builder.Services.AddScoped<IAiReviewService, AiReviewService>();

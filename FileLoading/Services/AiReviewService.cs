@@ -17,6 +17,7 @@ public class AiReviewService : IAiReviewService
     private readonly IFileLoaderRepository _repository;
     private readonly IValidationConfigProvider _validationConfigProvider;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IConfiguration _configuration;
     private readonly AiReviewOptions _options;
     private readonly ILogger<AiReviewService> _logger;
@@ -32,6 +33,7 @@ public class AiReviewService : IAiReviewService
         IFileLoaderRepository repository,
         IValidationConfigProvider validationConfigProvider,
         IHttpClientFactory httpClientFactory,
+        IHttpContextAccessor httpContextAccessor,
         IConfiguration configuration,
         IOptions<AiReviewOptions> options,
         ILogger<AiReviewService> logger)
@@ -39,6 +41,7 @@ public class AiReviewService : IAiReviewService
         _repository = repository;
         _validationConfigProvider = validationConfigProvider;
         _httpClientFactory = httpClientFactory;
+        _httpContextAccessor = httpContextAccessor;
         _configuration = configuration;
         _options = options.Value;
         _logger = logger;
@@ -51,13 +54,7 @@ public class AiReviewService : IAiReviewService
     public async Task<DataResult<AiReviewResponse>> ReviewFileAsync(
         int ntFileNum, AiReviewRequest? request, SecurityContext securityContext)
     {
-        // 1. Load & validate domain config
-        var configCheck = await ValidateDomainConfigAsync();
-        if (!configCheck.IsSuccess)
-            return Forward<AiReviewResponse>(configCheck);
-        var domainConfig = configCheck.Data!;
-
-        // 2. Load file metadata
+        // 1. Load file metadata
         var fileResult = await _repository.GetFileStatusAsync(ntFileNum, securityContext);
         if (!fileResult.IsSuccess)
         {
@@ -71,7 +68,7 @@ public class AiReviewService : IAiReviewService
 
         var fileStatus = fileResult.Data!;
 
-        // 3. Check for cached review (unless ForceRefresh)
+        // 2. Check for cached review (unless ForceRefresh)
         if (request?.ForceRefresh != true)
         {
             var cachedResult = await _repository.GetCachedAiReviewAsync(ntFileNum);
@@ -83,10 +80,10 @@ public class AiReviewService : IAiReviewService
             }
         }
 
-        // 4. Load file specification
+        // 3. Load file specification
         var validationConfig = _validationConfigProvider.GetConfig(fileStatus.FileType);
 
-        // 5. Get file path and sample content
+        // 4. Get file path and sample content
         var filePath = await ResolveFilePathAsync(ntFileNum);
         if (filePath == null || !File.Exists(filePath))
         {
@@ -100,26 +97,29 @@ public class AiReviewService : IAiReviewService
 
         var sample = await SampleFileContentAsync(filePath, _options.MaxSampleRecords);
 
-        // 6. Load existing validation summary
+        // 5. Load existing validation summary
         var validationSummary = await _repository.GetValidationSummaryAsync(ntFileNum);
 
-        // 7. Load example files
+        // 6. Load example files
         string? exampleContent = request?.ExampleFileContent;
         if (string.IsNullOrEmpty(exampleContent))
         {
             exampleContent = await LoadExampleContentForTypeAsync(fileStatus.FileType);
         }
 
-        // 8. Build prompt
+        // 7. Build prompt
         var systemPrompt = BuildSystemPrompt();
         var userPrompt = BuildUserPrompt(fileStatus, validationConfig, sample, validationSummary.Data, exampleContent, request?.FocusAreas);
 
-        // 9. Call Claude API
-        var apiResult = await CallClaudeApiAsync(domainConfig, systemPrompt, userPrompt);
+        // 8. Call AI Gateway
+        var apiResult = await CallGatewayAsync(systemPrompt, userPrompt, "file-review");
         if (!apiResult.IsSuccess)
             return Forward<AiReviewResponse>(apiResult);
 
-        var (reviewResult, usage) = apiResult.Data!;
+        var (textContent, usage) = apiResult.Data!;
+
+        // 9. Parse review result
+        var reviewResult = ParseReviewResult(textContent);
 
         // 10. Build response
         var response = new AiReviewResponse
@@ -136,10 +136,9 @@ public class AiReviewService : IAiReviewService
             Usage = usage
         };
 
-        // 11. Store result and increment count
+        // 11. Store result
         var expiresAt = DateTime.Now.AddMinutes(_options.CacheDurationMinutes);
         await _repository.StoreAiReviewAsync(response, securityContext.UserCode ?? "system", expiresAt);
-        await _repository.IncrementAiReviewCountAsync();
 
         _logger.LogInformation("AI review completed for file {NtFileNum}: {Assessment}, {IssueCount} issues",
             ntFileNum, response.OverallAssessment, response.Issues.Count);
@@ -154,12 +153,6 @@ public class AiReviewService : IAiReviewService
     public async Task<DataResult<AiReviewResponse>> ReviewContentAsync(
         AiContentReviewRequest request, SecurityContext securityContext)
     {
-        // 1. Validate domain config (same checks as file review)
-        var configCheck = await ValidateDomainConfigAsync();
-        if (!configCheck.IsSuccess)
-            return Forward<AiReviewResponse>(configCheck);
-        var domainConfig = configCheck.Data!;
-
         if (string.IsNullOrWhiteSpace(request.FileContent))
         {
             return new DataResult<AiReviewResponse>
@@ -170,23 +163,23 @@ public class AiReviewService : IAiReviewService
             };
         }
 
-        // 2. Sample from provided content
+        // 1. Sample from provided content
         var lines = request.FileContent.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
         var sample = SampleFromLines(lines, _options.MaxSampleRecords);
 
-        // 3. Load file spec if file type provided
+        // 2. Load file spec if file type provided
         FileValidationConfig? validationConfig = null;
         if (!string.IsNullOrEmpty(request.FileTypeCode))
             validationConfig = _validationConfigProvider.GetConfig(request.FileTypeCode);
 
-        // 4. Load example files
+        // 3. Load example files
         string? exampleContent = request.ExampleFileContent;
         if (string.IsNullOrEmpty(exampleContent) && !string.IsNullOrEmpty(request.FileTypeCode))
         {
             exampleContent = await LoadExampleContentForTypeAsync(request.FileTypeCode);
         }
 
-        // 5. Build prompt — use a lightweight FileStatusResponse for prompt construction
+        // 4. Build prompt
         var pseudoStatus = new FileStatusResponse
         {
             FileType = request.FileTypeCode ?? "UNKNOWN",
@@ -196,14 +189,16 @@ public class AiReviewService : IAiReviewService
         var systemPrompt = BuildSystemPrompt();
         var userPrompt = BuildUserPrompt(pseudoStatus, validationConfig, sample, null, exampleContent, request.FocusAreas);
 
-        // 6. Call Claude API
-        var apiResult = await CallClaudeApiAsync(domainConfig, systemPrompt, userPrompt);
+        // 5. Call AI Gateway
+        var apiResult = await CallGatewayAsync(systemPrompt, userPrompt, "file-review");
         if (!apiResult.IsSuccess)
             return Forward<AiReviewResponse>(apiResult);
 
-        var (reviewResult, usage) = apiResult.Data!;
+        var (textContent, usage) = apiResult.Data!;
 
-        // 7. Build response (no caching for ad-hoc content reviews)
+        // 6. Parse and build response (no caching for ad-hoc content reviews)
+        var reviewResult = ParseReviewResult(textContent);
+
         var response = new AiReviewResponse
         {
             NtFileNum = 0,
@@ -217,8 +212,6 @@ public class AiReviewService : IAiReviewService
             IsCached = false,
             Usage = usage
         };
-
-        await _repository.IncrementAiReviewCountAsync();
 
         _logger.LogInformation("AI content review completed: {Assessment}, {IssueCount} issues",
             response.OverallAssessment, response.Issues.Count);
@@ -378,7 +371,66 @@ public class AiReviewService : IAiReviewService
     }
 
     // ============================================
-    // Domain AI Config CRUD
+    // AI File Analysis (discovery/configuration)
+    // ============================================
+
+    public async Task<DataResult<AiFileAnalysisResponse>> AnalyseExampleFileAsync(
+        string fileTypeCode, AiFileAnalysisRequest? request, SecurityContext securityContext)
+    {
+        // 1. Load example files for this file type
+        var exampleContent = await LoadExampleContentForTypeAsync(fileTypeCode);
+        if (string.IsNullOrEmpty(exampleContent))
+        {
+            return new DataResult<AiFileAnalysisResponse>
+            {
+                StatusCode = 404,
+                ErrorCode = "FileLoading.NoExampleFiles",
+                ErrorMessage = $"No example files found for file type '{fileTypeCode}'. Upload one via POST /ai-review/example-files/{fileTypeCode}"
+            };
+        }
+
+        // 2. Build analysis prompt
+        var systemPrompt = BuildAnalysisSystemPrompt(request?.FileClass);
+        var userPrompt = BuildAnalysisUserPrompt(fileTypeCode, exampleContent, request?.FocusAreas);
+
+        // 3. Call AI Gateway
+        var apiResult = await CallGatewayAsync(systemPrompt, userPrompt, "file-analysis");
+        if (!apiResult.IsSuccess)
+            return Forward<AiFileAnalysisResponse>(apiResult);
+
+        var (textContent, usage) = apiResult.Data!;
+
+        // 4. Parse analysis result
+        var analysisResult = ParseAnalysisResult(textContent);
+
+        // 5. Build response
+        var response = new AiFileAnalysisResponse
+        {
+            FileTypeCode = fileTypeCode,
+            IngestionReadiness = analysisResult.IngestionReadiness,
+            Summary = analysisResult.Summary,
+            DetectedFormat = analysisResult.DetectedFormat,
+            Columns = analysisResult.Columns,
+            BillingConceptMappings = analysisResult.BillingConceptMappings,
+            DataQualityIssues = analysisResult.DataQualityIssues,
+            Observations = analysisResult.Observations,
+            SuggestedParserConfig = analysisResult.SuggestedParserConfig,
+            Usage = usage,
+            AnalysedAt = DateTime.Now
+        };
+
+        _logger.LogInformation("AI file analysis completed for {FileTypeCode}: readiness={Readiness}, {ColumnCount} columns, {MappingCount} mappings",
+            fileTypeCode, response.IngestionReadiness, response.Columns.Count, response.BillingConceptMappings.Count);
+
+        return new DataResult<AiFileAnalysisResponse>
+        {
+            StatusCode = 200,
+            Data = response
+        };
+    }
+
+    // ============================================
+    // Domain AI Config CRUD (proxied to AI Gateway)
     // ============================================
 
     public async Task<DataResult<AiDomainConfig>> GetDomainConfigAsync()
@@ -386,7 +438,6 @@ public class AiReviewService : IAiReviewService
         var result = await _repository.GetAiDomainConfigAsync();
         if (result.IsSuccess && result.Data != null)
         {
-            // Mask API key for display
             result.Data.ApiKey = MaskApiKey(result.Data.ApiKey);
         }
         return result;
@@ -464,7 +515,6 @@ public class AiReviewService : IAiReviewService
 
         var config = configResult.Data;
 
-        // Reset count if needed
         var reviewsToday = config.ReviewsToday;
         if (config.ReviewsResetDt == null || config.ReviewsResetDt.Value.Date < DateTime.Today)
             reviewsToday = 0;
@@ -481,67 +531,6 @@ public class AiReviewService : IAiReviewService
                 MaxReviewsPerDay = config.MaxReviewsPerDay
             }
         };
-    }
-
-    // ============================================
-    // Domain Config Validation (shared)
-    // ============================================
-
-    private async Task<DataResult<AiDomainConfig>> ValidateDomainConfigAsync()
-    {
-        var configResult = await _repository.GetAiDomainConfigAsync();
-        if (configResult.StatusCode == 404)
-        {
-            return new DataResult<AiDomainConfig>
-            {
-                StatusCode = 400,
-                ErrorCode = "FileLoading.AiNotConfigured",
-                ErrorMessage = "AI review has not been configured. Use PUT /ai-review/config to set up your API key."
-            };
-        }
-        if (!configResult.IsSuccess)
-            return configResult;
-
-        var domainConfig = configResult.Data!;
-
-        if (!domainConfig.Enabled)
-        {
-            return new DataResult<AiDomainConfig>
-            {
-                StatusCode = 400,
-                ErrorCode = "FileLoading.AiReviewDisabled",
-                ErrorMessage = "AI review is disabled."
-            };
-        }
-
-        if (string.IsNullOrWhiteSpace(domainConfig.ApiKey))
-        {
-            return new DataResult<AiDomainConfig>
-            {
-                StatusCode = 400,
-                ErrorCode = "FileLoading.AiNotConfigured",
-                ErrorMessage = "No API key configured. Use PUT /ai-review/config to set your Anthropic API key."
-            };
-        }
-
-        // Reset daily count if needed
-        if (domainConfig.ReviewsResetDt == null || domainConfig.ReviewsResetDt.Value.Date < DateTime.Today)
-        {
-            await _repository.ResetAiReviewCountAsync();
-            domainConfig.ReviewsToday = 0;
-        }
-
-        if (domainConfig.ReviewsToday >= domainConfig.MaxReviewsPerDay)
-        {
-            return new DataResult<AiDomainConfig>
-            {
-                StatusCode = 429,
-                ErrorCode = "FileLoading.AiRateLimited",
-                ErrorMessage = $"Daily review limit reached ({domainConfig.ReviewsToday}/{domainConfig.MaxReviewsPerDay}). Resets at midnight."
-            };
-        }
-
-        return configResult;
     }
 
     // ============================================
@@ -914,33 +903,48 @@ Return ONLY the JSON object, no markdown fences or other text.";
     }
 
     // ============================================
-    // Claude API Integration
+    // AI Gateway Integration
     // ============================================
 
-    private async Task<DataResult<(ClaudeReviewResult, AiReviewUsage)>> CallClaudeApiAsync(
-        AiDomainConfig domainConfig, string systemPrompt, string userPrompt)
+    /// <summary>
+    /// Call the AI Gateway (Selcomm.Ai.Api) to get a completion.
+    /// Forwards the caller's JWT so the gateway knows the domain.
+    /// Returns the raw text content and usage info.
+    /// </summary>
+    private async Task<DataResult<(string TextContent, AiReviewUsage Usage)>> CallGatewayAsync(
+        string systemPrompt, string userPrompt, string agentName)
     {
-        var client = _httpClientFactory.CreateClient("ClaudeApi");
+        var client = _httpClientFactory.CreateClient("AiGateway");
 
-        var requestBody = new ClaudeMessagesRequest
+        var requestBody = new GatewayCompletionRequest
         {
-            Model = domainConfig.Model,
-            Max_tokens = domainConfig.MaxOutputTokens,
             System = systemPrompt,
-            Messages = new List<ClaudeMessage>
+            Messages = new List<GatewayMessage>
             {
                 new() { Role = "user", Content = userPrompt }
-            }
+            },
+            AppName = "file-loading",
+            AgentName = agentName,
+            Temperature = 0.0
         };
 
         var json = JsonSerializer.Serialize(requestBody, JsonOpts);
-        var httpRequest = new HttpRequestMessage(HttpMethod.Post, "/v1/messages")
+        var httpRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v4/ai/completions")
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json")
         };
-        httpRequest.Headers.Add("x-api-key", domainConfig.ApiKey);
 
-        _logger.LogDebug("Calling Claude API with model {Model}", domainConfig.Model);
+        // Forward the caller's auth token to the gateway
+        var authHeader = _httpContextAccessor.HttpContext?.Request.Headers["Authorization"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(authHeader))
+            httpRequest.Headers.TryAddWithoutValidation("Authorization", authHeader);
+
+        // Forward API key if present
+        var apiKeyHeader = _httpContextAccessor.HttpContext?.Request.Headers["X-API-Key"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(apiKeyHeader))
+            httpRequest.Headers.TryAddWithoutValidation("X-API-Key", apiKeyHeader);
+
+        _logger.LogDebug("Calling AI Gateway: agent={AgentName}", agentName);
 
         HttpResponseMessage httpResponse;
         try
@@ -949,100 +953,265 @@ Return ONLY the JSON object, no markdown fences or other text.";
         }
         catch (TaskCanceledException)
         {
-            return new DataResult<(ClaudeReviewResult, AiReviewUsage)>
+            return new DataResult<(string, AiReviewUsage)>
             {
                 StatusCode = 504,
                 ErrorCode = "FileLoading.AiApiTimeout",
-                ErrorMessage = "AI review timed out. Try again or reduce file complexity."
+                ErrorMessage = "AI request timed out. Try again or reduce file complexity."
             };
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error calling Claude API");
-            return new DataResult<(ClaudeReviewResult, AiReviewUsage)>
+            _logger.LogError(ex, "Error calling AI Gateway");
+            return new DataResult<(string, AiReviewUsage)>
             {
                 StatusCode = 502,
                 ErrorCode = "FileLoading.AiApiError",
-                ErrorMessage = "Anthropic API returned an error. Try again later."
+                ErrorMessage = "AI Gateway is unavailable. Try again later."
             };
         }
 
         var responseBody = await httpResponse.Content.ReadAsStringAsync();
 
-        if (httpResponse.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            return new DataResult<(ClaudeReviewResult, AiReviewUsage)>
-            {
-                StatusCode = 502,
-                ErrorCode = "FileLoading.AiApiAuthError",
-                ErrorMessage = "The configured API key was rejected by Anthropic. Check your key in PUT /ai-review/config."
-            };
-        }
-
         if (!httpResponse.IsSuccessStatusCode)
         {
-            _logger.LogWarning("Claude API error: {StatusCode} {Body}", httpResponse.StatusCode, responseBody);
-            return new DataResult<(ClaudeReviewResult, AiReviewUsage)>
+            _logger.LogWarning("AI Gateway error: {StatusCode} {Body}", (int)httpResponse.StatusCode, responseBody);
+            return new DataResult<(string, AiReviewUsage)>
             {
-                StatusCode = 502,
+                StatusCode = (int)httpResponse.StatusCode,
                 ErrorCode = "FileLoading.AiApiError",
-                ErrorMessage = "Anthropic API returned an error. Try again later."
+                ErrorMessage = $"AI Gateway returned {httpResponse.StatusCode}. Check gateway config and API key."
             };
         }
 
-        // Parse response
-        var claudeResponse = JsonSerializer.Deserialize<ClaudeMessagesResponse>(responseBody, JsonOpts);
-        if (claudeResponse == null || claudeResponse.Content == null || claudeResponse.Content.Count == 0)
+        // Parse gateway response
+        var gatewayResponse = JsonSerializer.Deserialize<GatewayCompletionResponse>(responseBody, JsonOpts);
+        if (gatewayResponse?.Content == null || gatewayResponse.Content.Count == 0)
         {
-            return new DataResult<(ClaudeReviewResult, AiReviewUsage)>
+            return new DataResult<(string, AiReviewUsage)>
             {
                 StatusCode = 502,
                 ErrorCode = "FileLoading.AiApiError",
-                ErrorMessage = "Empty response from Anthropic API."
+                ErrorMessage = "Empty response from AI Gateway."
             };
         }
 
-        var textContent = claudeResponse.Content.FirstOrDefault(c => c.Type == "text")?.Text ?? string.Empty;
+        var textContent = gatewayResponse.Content.FirstOrDefault(c => c.Type == "text")?.Text ?? string.Empty;
 
-        // Strip markdown fences if present
-        textContent = textContent.Trim();
-        if (textContent.StartsWith("```json"))
-            textContent = textContent[7..];
-        else if (textContent.StartsWith("```"))
-            textContent = textContent[3..];
-        if (textContent.EndsWith("```"))
-            textContent = textContent[..^3];
-        textContent = textContent.Trim();
+        var usage = new AiReviewUsage
+        {
+            InputTokens = gatewayResponse.Usage?.InputTokens ?? 0,
+            OutputTokens = gatewayResponse.Usage?.OutputTokens ?? 0,
+            Model = gatewayResponse.Model
+        };
 
-        ClaudeReviewResult? reviewResult;
+        return new DataResult<(string, AiReviewUsage)>
+        {
+            StatusCode = 200,
+            Data = (textContent, usage)
+        };
+    }
+
+    // ============================================
+    // Response Parsing
+    // ============================================
+
+    private ClaudeReviewResult ParseReviewResult(string textContent)
+    {
+        textContent = StripMarkdownFences(textContent);
+
         try
         {
-            reviewResult = JsonSerializer.Deserialize<ClaudeReviewResult>(textContent, JsonOpts);
+            return JsonSerializer.Deserialize<ClaudeReviewResult>(textContent, JsonOpts)
+                ?? new ClaudeReviewResult { Summary = textContent[..Math.Min(2000, textContent.Length)] };
         }
         catch (JsonException ex)
         {
-            _logger.LogWarning(ex, "Failed to parse Claude review JSON: {Text}", textContent[..Math.Min(500, textContent.Length)]);
-            // Fallback: wrap raw text as summary
-            reviewResult = new ClaudeReviewResult
+            _logger.LogWarning(ex, "Failed to parse review JSON: {Text}", textContent[..Math.Min(500, textContent.Length)]);
+            return new ClaudeReviewResult
             {
                 OverallAssessment = "Acceptable",
                 Summary = textContent[..Math.Min(2000, textContent.Length)],
                 Issues = new List<AiReviewIssue>()
             };
         }
+    }
 
-        var usage = new AiReviewUsage
-        {
-            InputTokens = claudeResponse.Usage?.Input_tokens ?? 0,
-            OutputTokens = claudeResponse.Usage?.Output_tokens ?? 0,
-            Model = domainConfig.Model
-        };
+    private ClaudeAnalysisResult ParseAnalysisResult(string textContent)
+    {
+        textContent = StripMarkdownFences(textContent);
 
-        return new DataResult<(ClaudeReviewResult, AiReviewUsage)>
+        try
         {
-            StatusCode = 200,
-            Data = (reviewResult!, usage)
-        };
+            return JsonSerializer.Deserialize<ClaudeAnalysisResult>(textContent, JsonOpts)
+                ?? new ClaudeAnalysisResult { Summary = textContent[..Math.Min(2000, textContent.Length)] };
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse analysis JSON: {Text}", textContent[..Math.Min(500, textContent.Length)]);
+            return new ClaudeAnalysisResult
+            {
+                IngestionReadiness = "MEDIUM",
+                Summary = textContent[..Math.Min(2000, textContent.Length)]
+            };
+        }
+    }
+
+    private static string StripMarkdownFences(string text)
+    {
+        text = text.Trim();
+        if (text.StartsWith("```json"))
+            text = text[7..];
+        else if (text.StartsWith("```"))
+            text = text[3..];
+        if (text.EndsWith("```"))
+            text = text[..^3];
+        return text.Trim();
+    }
+
+    // ============================================
+    // Analysis Prompt Construction
+    // ============================================
+
+    private static string BuildAnalysisSystemPrompt(string? fileClass)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine(@"You are a data analyst specialising in billing file ingestion for a telecom/IT billing platform.
+Your task is to analyse example file(s) and produce a structured analysis that will be used to configure an automated file parser.
+
+Return your analysis as a JSON object with this exact structure:
+{
+  ""IngestionReadiness"": ""HIGH|MEDIUM|LOW"",
+  ""Summary"": ""A narrative paragraph summarizing your findings"",
+  ""DetectedFormat"": {
+    ""FileFormat"": ""CSV|XLSX|Delimited"",
+    ""Delimiter"": "","" or ""\\t"" or ""|"",
+    ""HasHeaderRow"": true/false,
+    ""Encoding"": ""UTF-8"",
+    ""HeaderRowCount"": 1,
+    ""TrailerRowCount"": 0,
+    ""DataRowCount"": 100
+  },
+  ""Columns"": [
+    {
+      ""Index"": 0,
+      ""Name"": ""column header name"",
+      ""DataType"": ""String|Integer|Decimal|Date|DateTime|GUID"",
+      ""SampleValues"": [""val1"", ""val2"", ""val3""],
+      ""SuggestedTargetField"": ""AccountCode|ServiceId|ChargeType|CostAmount|TaxAmount|Quantity|UOM|FromDate|ToDate|Description|ExternalRef|Generic01..Generic20|null""
+    }
+  ],
+  ""BillingConceptMappings"": [
+    {
+      ""BillingConcept"": ""Customer Name"",
+      ""SourceColumn"": ""CustomerName"",
+      ""ColumnIndex"": 15,
+      ""Confidence"": ""HIGH|MEDIUM|LOW""
+    }
+  ],
+  ""DataQualityIssues"": [
+    {
+      ""Severity"": ""Critical|Warning|Info"",
+      ""Category"": ""Format|DataQuality|Structure|Anomaly"",
+      ""Description"": ""description"",
+      ""AffectedField"": ""field name or null"",
+      ""Examples"": [""example values""],
+      ""Suggestion"": ""how to handle""
+    }
+  ],
+  ""Observations"": [""key finding 1"", ""key finding 2""],
+  ""SuggestedParserConfig"": {
+    ""FileFormat"": ""CSV"",
+    ""Delimiter"": "","",
+    ""HasHeaderRow"": true,
+    ""SkipRowsTop"": 0,
+    ""SkipRowsBottom"": 0,
+    ""RowIdMode"": ""POSITION"",
+    ""DateFormat"": ""yyyy-MM-dd"",
+    ""ColumnMappings"": [
+      {
+        ""ColumnIndex"": 0,
+        ""SourceColumnName"": ""header name"",
+        ""TargetField"": ""AccountCode"",
+        ""DataType"": ""String"",
+        ""DateFormat"": null,
+        ""IsRequired"": true
+      }
+    ]
+  }
+}
+
+Return ONLY the JSON object, no markdown fences or other text.");
+
+        if (!string.IsNullOrEmpty(fileClass))
+        {
+            sb.AppendLine();
+            sb.AppendLine($"## File Class: {fileClass}");
+
+            switch (fileClass.ToUpperInvariant())
+            {
+                case "CHARGE":
+                    sb.AppendLine(@"This is a CHARGE file. Pay special attention to identifying:
+- Which column identifies the customer (account code, customer name, or tenant/domain)
+- Which column identifies the service this charge is for (service ID, subscription ID, phone number)
+- The charge type or product name column
+- Charge dates: period start (FromDate) and period end (ToDate)
+- Cost/buy price amount (what the reseller pays)
+- RRP/sell price amount (what the end customer pays) — map to Generic01 if found
+- Unit of measure (UOM) and quantity
+- Any line item description
+- Any external reference or invoice number
+- BillableRatio or proration factors — map to Generic02 if found
+- Currency indicators — note if non-AUD pricing is present");
+                    break;
+
+                case "USAGE":
+                    sb.AppendLine(@"This is a USAGE/CDR file. Pay special attention to identifying:
+- Service identifier (phone number, circuit ID, username)
+- Call/event date and time
+- Duration or data volume
+- Source and destination (A-number, B-number)
+- Call type or event type
+- Rated amount
+- Direction (inbound/outbound)");
+                    break;
+
+                case "PAYMENT":
+                    sb.AppendLine(@"This is a PAYMENT file. Pay special attention to identifying:
+- Customer/account identifier
+- Payment date
+- Payment amount
+- Payment method (credit card, direct debit, etc.)
+- Reference/transaction number
+- Payment status");
+                    break;
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static string BuildAnalysisUserPrompt(string fileTypeCode, string exampleContent, List<string>? focusAreas)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine($"## File Type: {fileTypeCode}");
+        sb.AppendLine();
+        sb.AppendLine("## Example File Content");
+        sb.AppendLine("Analyse the following example file(s) and produce the structured analysis:");
+        sb.AppendLine();
+        sb.AppendLine(exampleContent);
+
+        if (focusAreas?.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Focus Areas");
+            sb.AppendLine("Pay special attention to:");
+            foreach (var area in focusAreas)
+                sb.AppendLine($"  - {area}");
+        }
+
+        return sb.ToString();
     }
 
     // ============================================
@@ -1056,27 +1225,7 @@ Return ONLY the JSON object, no markdown fences or other text.";
         return apiKey[..8] + "..." + apiKey[^4..];
     }
 
-    private static DataResult<T> Forward<T>(DataResult<AiDomainConfig> source)
-    {
-        return new DataResult<T>
-        {
-            StatusCode = source.StatusCode,
-            ErrorCode = source.ErrorCode,
-            ErrorMessage = source.ErrorMessage
-        };
-    }
-
-    private static DataResult<T> Forward<T>(DataResult<(ClaudeReviewResult, AiReviewUsage)> source)
-    {
-        return new DataResult<T>
-        {
-            StatusCode = source.StatusCode,
-            ErrorCode = source.ErrorCode,
-            ErrorMessage = source.ErrorMessage
-        };
-    }
-
-    private static DataResult<T> Forward<T>(DataResult<AiConfigStatusResponse> source)
+    private static DataResult<T> Forward<T>(StoredProcedureResult source)
     {
         return new DataResult<T>
         {

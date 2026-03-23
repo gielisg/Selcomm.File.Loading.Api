@@ -241,6 +241,57 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     }
 
     // ============================================
+    // AI File Analysis (discovery/configuration)
+    // ============================================
+
+    /// <summary>
+    /// Analyse example files for a file type to discover structure, map billing concepts,
+    /// and generate a suggested parser configuration.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code to analyse</param>
+    /// <param name="request">Optional analysis parameters (file class, focus areas)</param>
+    /// <response code="200">Analysis completed successfully</response>
+    /// <response code="400">Invalid request</response>
+    /// <response code="401">Unauthorized</response>
+    /// <response code="404">No example files found for this file type</response>
+    /// <response code="500">Internal server error</response>
+    /// <response code="502">AI service unavailable</response>
+    /// <response code="504">AI service timeout</response>
+    [HttpPost("analyse/{file-type-code}")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_ai_review_analyse")]
+    [Tags("AI Review")]
+    [ProducesResponseType(typeof(AiFileAnalysisResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status502BadGateway)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status504GatewayTimeout)]
+    public async Task<IActionResult> AnalyseExampleFile(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromBody] AiFileAnalysisRequest? request = null)
+    {
+        try
+        {
+            _logger.LogInformation("AI file analysis requested for type {FileTypeCode}", fileTypeCode);
+
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_ai_review_analyse");
+            var result = await _aiReviewService.AnalyseExampleFileAsync(fileTypeCode, request, securityContext);
+
+            if (result.IsSuccess)
+                return Ok(result.Data);
+
+            return StatusCode(result.StatusCode,
+                new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error analysing example files for type {FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    // ============================================
     // Example File CRUD
     // ============================================
 

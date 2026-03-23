@@ -14,7 +14,7 @@ public interface IAiReviewService
     // ============================================
 
     /// <summary>
-    /// Trigger an AI review of a file. Samples content, builds a prompt, calls Claude API.
+    /// Trigger an AI review of a file. Samples content, builds a prompt, calls AI gateway.
     /// </summary>
     Task<DataResult<AiReviewResponse>> ReviewFileAsync(int ntFileNum, AiReviewRequest? request, SecurityContext securityContext);
 
@@ -27,6 +27,16 @@ public interface IAiReviewService
     /// Get a cached AI review for a file.
     /// </summary>
     Task<DataResult<AiReviewResponse>> GetCachedReviewAsync(int ntFileNum);
+
+    // ============================================
+    // AI File Analysis (discovery/configuration)
+    // ============================================
+
+    /// <summary>
+    /// Analyse example files for a file type to discover structure, map billing concepts,
+    /// and generate a suggested parser configuration.
+    /// </summary>
+    Task<DataResult<AiFileAnalysisResponse>> AnalyseExampleFileAsync(string fileTypeCode, AiFileAnalysisRequest? request, SecurityContext securityContext);
 
     // ============================================
     // Example File CRUD

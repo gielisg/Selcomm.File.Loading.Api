@@ -1,0 +1,31 @@
+Develop plan to explore the feasibility of performing AI analysis of example
+files for file-types.
+
+I imagine the process to be something like
+
+1. User uploads an example file of a file-type.
+2. The users selects an example file to perform an AI analysis on. the file type belongs to one of a small number of file classes, examples are charge file, usage/call file, external payments file. The user needs to select the appropriate AI analysis to perform (maybe we should add this indicator to the file-class entity of the file-type so the user does not have to select this?
+3. The API loads an instruction file for this file class, performs an analysis of the example file and presents results to the user. the instruction files are global for now, we may allow the user to edit a copy for their domain in a future enhancement
+4. review C:\Claude\projects\customer\manage-protect\analysis-supplier-crayon.md as an example of this analysis. this is for a charge file. 
+5. We will start with CHarge files in first release for the manage-protect project refer to c:\claude\projects\customer\manage-protect 
+6. The analysis should reveal the following;
+  *** for all file-types
+    - is the example consistent with other example files for this file-type 
+    - does the file have header, footer, sub-total, total rows
+    - are any of the header/footer rows control rows detailing the number of rows in file, file sequence number 
+    - is the file name meaningful, i.e. indicates transaction types, file sequencing, dates?
+    - does the file mix non charges with charges transactions
+    - do the data rows have a consistent structure e.g. column numbers and count, data types
+    - is the file media type supported, xls, csv, tab delimited etc
+  *** for charge files
+    - we need to identify which column identifies the customer service this charge is for, if not service then fall back to the customer account#
+    - identify the column identifying the charge type
+    - identify the column with charge dates, from and to dates, not all charges have a to date
+    - identify the cost of the charge 
+    - identify the RRP of the charge (often optional)
+    - identify the UOM
+    - identtify the number of units
+    - anything else you can think of
+  7. This analysis should be presented to the user via the UI
+  8. If the user accepts this analysis configure the database with the parser configuration for this file-type OR update the parser configuration
+  
