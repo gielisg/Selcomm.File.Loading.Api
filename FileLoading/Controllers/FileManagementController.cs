@@ -76,6 +76,44 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     // ============================================
 
     /// <summary>
+    /// Search NT files by file number or name for autocomplete.
+    /// Returns up to 10 matching results.
+    /// </summary>
+    /// <param name="search">Search term (minimum 3 characters)</param>
+    /// <response code="200">Matching files returned successfully</response>
+    /// <response code="400">Search term too short</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("files/search")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_files_search")]
+    [Tags("File Management")]
+    [ProducesResponseType(typeof(List<NtFileSearchResult>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> SearchFiles(
+        [FromQuery(Name = "search")] string search)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(search) || search.Trim().Length < 3)
+            {
+                return BadRequest(new ErrorResponse("Search term must be at least 3 characters", "VALIDATION_ERROR"));
+            }
+
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_files_search");
+            var result = await _managementService.SearchNtFilesAsync(search.Trim(), securityContext);
+
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error searching files for search={Search}", search);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
     /// List files in the transfer workflow with filtering.
     /// </summary>
     /// <param name="request">Filter parameters including file type, folder, status, date range, and filename search</param>
@@ -2258,6 +2296,41 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error deleting test load {NtFileNum} for fileTypeCode={FileTypeCode}", ntFileNum, fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    // ============================================
+    // Configuration Readiness
+    // ============================================
+
+    /// <summary>
+    /// Get holistic configuration readiness status for a file type.
+    /// Returns a tiered breakdown of what's configured vs what's missing.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <response code="200">Readiness status returned</response>
+    /// <response code="404">File type not found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("readiness/{file-type-code}")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_readiness")]
+    [Tags("File Management")]
+    [ProducesResponseType(typeof(FileTypeReadinessResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetReadiness(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_readiness");
+            var result = await _managementService.GetReadinessAsync(fileTypeCode, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting readiness for fileTypeCode={FileTypeCode}", fileTypeCode);
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }

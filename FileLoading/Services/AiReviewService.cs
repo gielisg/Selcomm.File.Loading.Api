@@ -766,6 +766,379 @@ Generate a detailed, file-type-specific validation/parsing prompt based on the a
     }
 
     // ============================================
+    // AI Charge Map Seeding
+    // ============================================
+
+    public async Task<DataResult<AiChargeMapSeedResponse>> SeedChargeMapsAsync(
+        string fileTypeCode, AiChargeMapSeedRequest? request, SecurityContext securityContext)
+    {
+        // 1. Validate file type exists and get file class
+        var ftResult = await _repository.GetFileTypeRecordAsync(fileTypeCode);
+        if (!ftResult.IsSuccess || ftResult.Data == null)
+            return new DataResult<AiChargeMapSeedResponse> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = $"File type '{fileTypeCode}' not found" };
+
+        var fileClassCode = ftResult.Data.FileClassCode?.Trim() ?? "";
+
+        // 2. Load analysis result
+        AiAnalysisResultRecord? analysis = null;
+        if (request?.AnalysisId != null)
+        {
+            var arResult = await _repository.GetAnalysisResultAsync(request.AnalysisId.Value);
+            if (arResult.IsSuccess) analysis = arResult.Data;
+        }
+        else
+        {
+            var arList = await _repository.GetAnalysisResultsAsync(fileTypeCode);
+            analysis = arList.Data?.FirstOrDefault();
+        }
+
+        if (analysis == null)
+            return new DataResult<AiChargeMapSeedResponse> { StatusCode = 404, ErrorCode = "FileLoading.NoAnalysis", ErrorMessage = "No analysis results found for this file type" };
+
+        // 3. Deserialize analysis to extract charge descriptions
+        AiFileAnalysisResponse? analysisResponse = null;
+        if (!string.IsNullOrEmpty(analysis.AnalysisJson))
+        {
+            try { analysisResponse = JsonSerializer.Deserialize<AiFileAnalysisResponse>(analysis.AnalysisJson, JsonOpts); }
+            catch { /* ignore parse errors */ }
+        }
+
+        var chargeDescriptions = new List<string>();
+        if (analysisResponse?.Columns != null)
+        {
+            var chargeCol = analysisResponse.Columns.FirstOrDefault(c =>
+                c.SuggestedTargetField?.Equals("ChargeType", StringComparison.OrdinalIgnoreCase) == true);
+            if (chargeCol?.SampleValues != null)
+                chargeDescriptions.AddRange(chargeCol.SampleValues.Where(v => !string.IsNullOrWhiteSpace(v)).Distinct());
+        }
+
+        if (chargeDescriptions.Count == 0)
+            return new DataResult<AiChargeMapSeedResponse> { StatusCode = 400, ErrorCode = "FileLoading.NoChargeData", ErrorMessage = "Analysis did not discover a ChargeType column with sample values" };
+
+        // 4. Get charge code dictionary
+        var chgCodesResult = await _repository.GetChargeCodesAsync();
+        var chargeCodes = chgCodesResult.Data ?? new List<ChargeCodeLookup>();
+
+        // 5. Get cross-reference mappings from sibling file types
+        var crossRefMappings = new List<NtflChgMapRecord>();
+        if (request?.UseCrossReference != false && !string.IsNullOrEmpty(fileClassCode))
+        {
+            var crossRefResult = await _repository.GetChargeMapsByFileClassAsync(fileClassCode);
+            if (crossRefResult.IsSuccess && crossRefResult.Data != null)
+                crossRefMappings = crossRefResult.Data.Where(m => m.FileTypeCode.Trim() != fileTypeCode).ToList();
+        }
+
+        // 6. Get existing mappings to avoid duplicates
+        var existingResult = await _repository.GetChargeMapsAsync(fileTypeCode);
+        var existingPatterns = existingResult.Data?.Select(m => m.FileChgDesc.Trim().ToUpperInvariant()).ToHashSet() ?? new HashSet<string>();
+        var maxSeqNo = existingResult.Data?.Max(m => (int?)m.SeqNo) ?? 0;
+
+        // 7. Build AI prompt
+        var systemPrompt = BuildChargeMapSeedSystemPrompt();
+        var userPrompt = BuildChargeMapSeedUserPrompt(fileTypeCode, chargeDescriptions, chargeCodes, crossRefMappings, existingPatterns);
+
+        // 8. Call AI Gateway
+        var apiResult = await CallGatewayAsync(systemPrompt, userPrompt, "charge-map-seed", 4096);
+        if (!apiResult.IsSuccess)
+            return new DataResult<AiChargeMapSeedResponse> { StatusCode = apiResult.StatusCode, ErrorCode = apiResult.ErrorCode, ErrorMessage = apiResult.ErrorMessage };
+
+        var (textContent, usage) = apiResult.Data!;
+
+        // 9. Parse AI response
+        var suggestions = ParseChargeMapSeedResponse(textContent);
+
+        // 10. Validate and persist
+        var validChgCodes = chargeCodes.Select(c => c.ChgCode.Trim().ToUpperInvariant()).ToHashSet();
+        var chgCodeNarrs = chargeCodes.ToDictionary(c => c.ChgCode.Trim().ToUpperInvariant(), c => c.ChgNarr);
+        var created = new List<AiChargeMapSuggestion>();
+        var skipped = 0;
+        var seqNo = maxSeqNo + 10;
+        var userName = securityContext.FullName ?? securityContext.UserCode ?? "AI_SEED";
+
+        foreach (var suggestion in suggestions)
+        {
+            var chgCodeUpper = suggestion.ChgCode?.Trim().ToUpperInvariant() ?? "";
+            if (!validChgCodes.Contains(chgCodeUpper))
+            {
+                skipped++;
+                continue;
+            }
+
+            var pattern = suggestion.FileChgDesc?.Trim() ?? "";
+            if (string.IsNullOrEmpty(pattern) || existingPatterns.Contains(pattern.ToUpperInvariant()))
+            {
+                skipped++;
+                continue;
+            }
+
+            // Insert charge map with AI_SUGGESTED source
+            var record = new NtflChgMapRecord
+            {
+                FileTypeCode = fileTypeCode,
+                FileChgDesc = pattern,
+                SeqNo = seqNo,
+                ChgCode = suggestion.ChgCode!.Trim(),
+                Source = "AI_SUGGESTED",
+                UpdatedBy = userName
+            };
+
+            var insertResult = await _repository.InsertChargeMapAsync(record);
+            if (!insertResult.IsSuccess) { skipped++; continue; }
+
+            var chgMapId = insertResult.Value;
+
+            // Insert AI reason
+            chgCodeNarrs.TryGetValue(chgCodeUpper, out var narr);
+            var reasonRecord = new ChgMapAiReasonRecord
+            {
+                ChgMapId = chgMapId,
+                AnalysisId = analysis.AnalysisId,
+                FileChgDesc = suggestion.FileChgDesc ?? "",
+                MatchedChgCode = suggestion.ChgCode!.Trim(),
+                MatchedChgNarr = narr,
+                Confidence = suggestion.Confidence ?? "MEDIUM",
+                Reasoning = suggestion.Reasoning ?? "",
+                MatchMethod = suggestion.MatchMethod ?? "PATTERN_MATCH",
+                CreatedBy = userName
+            };
+            await _repository.InsertChgMapAiReasonAsync(reasonRecord);
+
+            created.Add(new AiChargeMapSuggestion
+            {
+                ChgMapId = chgMapId,
+                FileChgDesc = pattern,
+                ChgCode = suggestion.ChgCode!.Trim(),
+                ChgNarr = narr ?? "",
+                Confidence = suggestion.Confidence ?? "MEDIUM",
+                Reasoning = suggestion.Reasoning ?? "",
+                MatchMethod = suggestion.MatchMethod ?? "PATTERN_MATCH"
+            });
+
+            existingPatterns.Add(pattern.ToUpperInvariant());
+            seqNo += 10;
+        }
+
+        return new DataResult<AiChargeMapSeedResponse>
+        {
+            StatusCode = 201,
+            Data = new AiChargeMapSeedResponse
+            {
+                FileTypeCode = fileTypeCode,
+                SuggestionsCreated = created.Count,
+                SkippedExisting = skipped,
+                Suggestions = created,
+                Usage = usage
+            }
+        };
+    }
+
+    private string BuildChargeMapSeedSystemPrompt() => @"You are a charge mapping specialist. Your job is to map file charge descriptions to Selcomm charge codes.
+
+You will be given:
+1. Sample charge descriptions found in a vendor file
+2. A dictionary of valid Selcomm charge codes with their narratives
+3. Optionally, existing charge mappings from similar file types for cross-reference
+
+For each distinct charge concept, create a LIKE pattern (using % wildcards) that will match variations of that charge description, and map it to the most appropriate Selcomm charge code.
+
+Respond with ONLY a JSON array. Each element must have:
+- FileChgDesc: SQL LIKE pattern (e.g., ""%Monthly Service%"")
+- ChgCode: The matched Selcomm charge code (must be from the provided dictionary)
+- Confidence: HIGH, MEDIUM, or LOW
+- Reasoning: Brief explanation of why this mapping was chosen
+- MatchMethod: NARRATIVE_MATCH (matched charge_code narrative), CROSS_REFERENCE (found in sibling file type), or PATTERN_MATCH (inferred from patterns)
+
+Do not include patterns that already exist. Only use charge codes from the provided dictionary.";
+
+    private string BuildChargeMapSeedUserPrompt(
+        string fileTypeCode,
+        List<string> chargeDescriptions,
+        List<ChargeCodeLookup> chargeCodes,
+        List<NtflChgMapRecord> crossRefMappings,
+        HashSet<string> existingPatterns)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"File Type: {fileTypeCode}");
+        sb.AppendLine();
+        sb.AppendLine("## Charge Descriptions Found in File:");
+        foreach (var desc in chargeDescriptions.Take(100))
+            sb.AppendLine($"- {desc}");
+
+        sb.AppendLine();
+        sb.AppendLine("## Valid Selcomm Charge Codes:");
+        foreach (var cc in chargeCodes)
+            sb.AppendLine($"- {cc.ChgCode}: {cc.ChgNarr}");
+
+        if (crossRefMappings.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Cross-Reference: Existing Mappings from Similar File Types:");
+            foreach (var m in crossRefMappings.Take(50))
+                sb.AppendLine($"- [{m.FileTypeCode.Trim()}] {m.FileChgDesc} → {m.ChgCode.Trim()}");
+        }
+
+        if (existingPatterns.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Already Mapped (skip these):");
+            foreach (var p in existingPatterns.Take(50))
+                sb.AppendLine($"- {p}");
+        }
+
+        return sb.ToString();
+    }
+
+    private List<AiChargeMapSuggestion> ParseChargeMapSeedResponse(string textContent)
+    {
+        try
+        {
+            // Extract JSON array from response (may have markdown wrapping)
+            var jsonStart = textContent.IndexOf('[');
+            var jsonEnd = textContent.LastIndexOf(']');
+            if (jsonStart < 0 || jsonEnd < 0) return new List<AiChargeMapSuggestion>();
+
+            var json = textContent.Substring(jsonStart, jsonEnd - jsonStart + 1);
+            return JsonSerializer.Deserialize<List<AiChargeMapSuggestion>>(json, JsonOpts) ?? new List<AiChargeMapSuggestion>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse charge map seed response");
+            return new List<AiChargeMapSuggestion>();
+        }
+    }
+
+    public async Task<DataResult<List<AiChargeMapSuggestion>>> GetPendingSuggestionsAsync(
+        string fileTypeCode, SecurityContext securityContext)
+    {
+        var pendingMaps = await _repository.GetPendingAiSuggestionsAsync(fileTypeCode);
+        var pendingReasons = await _repository.GetPendingAiReasonsAsync(fileTypeCode);
+
+        if (!pendingMaps.IsSuccess || pendingMaps.Data == null)
+            return new DataResult<List<AiChargeMapSuggestion>> { StatusCode = 200, Data = new List<AiChargeMapSuggestion>() };
+
+        var reasonsByMapId = (pendingReasons.Data ?? new List<ChgMapAiReasonRecord>())
+            .GroupBy(r => r.ChgMapId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var suggestions = pendingMaps.Data.Select(m =>
+        {
+            reasonsByMapId.TryGetValue(m.Id, out var reason);
+            return new AiChargeMapSuggestion
+            {
+                ChgMapId = m.Id,
+                FileChgDesc = m.FileChgDesc,
+                ChgCode = m.ChgCode,
+                ChgNarr = reason?.MatchedChgNarr ?? "",
+                Confidence = reason?.Confidence ?? "MEDIUM",
+                Reasoning = reason?.Reasoning ?? "",
+                MatchMethod = reason?.MatchMethod ?? ""
+            };
+        }).ToList();
+
+        return new DataResult<List<AiChargeMapSuggestion>> { StatusCode = 200, Data = suggestions };
+    }
+
+    public async Task<DataResult<NtflChgMapRecord>> ReviewSuggestionAsync(
+        string fileTypeCode, int chgMapId, AiChargeMapReviewRequest request, SecurityContext securityContext)
+    {
+        var action = request.Action?.Trim().ToUpperInvariant() ?? "";
+        if (action != "ACCEPT" && action != "REJECT" && action != "MODIFY")
+            return new DataResult<NtflChgMapRecord> { StatusCode = 400, ErrorCode = "FileLoading.InvalidAction", ErrorMessage = "Action must be ACCEPT, REJECT, or MODIFY" };
+
+        var mapResult = await _repository.GetChargeMapAsync(chgMapId);
+        if (!mapResult.IsSuccess || mapResult.Data == null)
+            return new DataResult<NtflChgMapRecord> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = $"Charge mapping {chgMapId} not found" };
+
+        var map = mapResult.Data;
+        if (map.Source != "AI_SUGGESTED")
+            return new DataResult<NtflChgMapRecord> { StatusCode = 409, ErrorCode = "FileLoading.AlreadyReviewed", ErrorMessage = "This mapping is not an AI suggestion pending review" };
+
+        var reviewer = securityContext.FullName ?? securityContext.UserCode ?? "SYSTEM";
+
+        // Update reason record
+        var reasons = await _repository.GetChgMapAiReasonsAsync(chgMapId);
+        var reason = reasons.Data?.FirstOrDefault(r => r.ReviewStatus == "PENDING");
+
+        if (action == "REJECT")
+        {
+            if (reason != null)
+                await _repository.UpdateChgMapAiReasonReviewAsync(reason.ReasonId, "REJECTED", reviewer);
+            await _repository.DeleteChargeMapAsync(chgMapId);
+            return new DataResult<NtflChgMapRecord> { StatusCode = 200, Data = map };
+        }
+
+        if (action == "MODIFY")
+        {
+            if (!string.IsNullOrEmpty(request.CorrectedChgCode)) map.ChgCode = request.CorrectedChgCode;
+            if (!string.IsNullOrEmpty(request.CorrectedFileChgDesc)) map.FileChgDesc = request.CorrectedFileChgDesc;
+            map.Source = "AI_ACCEPTED";
+            map.UpdatedBy = reviewer;
+            await _repository.UpdateChargeMapAsync(map);
+            if (reason != null)
+                await _repository.UpdateChgMapAiReasonReviewAsync(reason.ReasonId, "MODIFIED", reviewer);
+        }
+        else // ACCEPT
+        {
+            await _repository.UpdateChargeMapSourceAsync(chgMapId, "AI_ACCEPTED");
+            map.Source = "AI_ACCEPTED";
+            if (reason != null)
+                await _repository.UpdateChgMapAiReasonReviewAsync(reason.ReasonId, "ACCEPTED", reviewer);
+        }
+
+        var saved = await _repository.GetChargeMapAsync(chgMapId);
+        return new DataResult<NtflChgMapRecord> { StatusCode = 200, Data = saved.Data ?? map };
+    }
+
+    public async Task<DataResult<int>> AcceptAllSuggestionsAsync(string fileTypeCode, SecurityContext securityContext)
+    {
+        var pending = await _repository.GetPendingAiSuggestionsAsync(fileTypeCode);
+        if (!pending.IsSuccess || pending.Data == null)
+            return new DataResult<int> { StatusCode = 200, Data = 0 };
+
+        var reviewer = securityContext.FullName ?? securityContext.UserCode ?? "SYSTEM";
+        var count = 0;
+
+        foreach (var map in pending.Data)
+        {
+            await _repository.UpdateChargeMapSourceAsync(map.Id, "AI_ACCEPTED");
+            var reasons = await _repository.GetChgMapAiReasonsAsync(map.Id);
+            var reason = reasons.Data?.FirstOrDefault(r => r.ReviewStatus == "PENDING");
+            if (reason != null)
+                await _repository.UpdateChgMapAiReasonReviewAsync(reason.ReasonId, "ACCEPTED", reviewer);
+            count++;
+        }
+
+        return new DataResult<int> { StatusCode = 200, Data = count };
+    }
+
+    public async Task<DataResult<int>> RejectAllSuggestionsAsync(string fileTypeCode, SecurityContext securityContext)
+    {
+        var pending = await _repository.GetPendingAiSuggestionsAsync(fileTypeCode);
+        if (!pending.IsSuccess || pending.Data == null)
+            return new DataResult<int> { StatusCode = 200, Data = 0 };
+
+        var reviewer = securityContext.FullName ?? securityContext.UserCode ?? "SYSTEM";
+        var count = 0;
+
+        foreach (var map in pending.Data)
+        {
+            var reasons = await _repository.GetChgMapAiReasonsAsync(map.Id);
+            var reason = reasons.Data?.FirstOrDefault(r => r.ReviewStatus == "PENDING");
+            if (reason != null)
+                await _repository.UpdateChgMapAiReasonReviewAsync(reason.ReasonId, "REJECTED", reviewer);
+            await _repository.DeleteChargeMapAsync(map.Id);
+            count++;
+        }
+
+        return new DataResult<int> { StatusCode = 200, Data = count };
+    }
+
+    public async Task<DataResult<List<ChgMapAiReasonRecord>>> GetAiReasonsAsync(int chgMapId, SecurityContext securityContext)
+    {
+        return await _repository.GetChgMapAiReasonsAsync(chgMapId);
+    }
+
+    // ============================================
     // Domain AI Config CRUD (proxied to AI Gateway)
     // ============================================
 

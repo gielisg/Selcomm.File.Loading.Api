@@ -61,6 +61,12 @@ public interface IFileLoaderRepository
         SecurityContext securityContext);
 
     /// <summary>
+    /// Search NT files by file number or file name for autocomplete.
+    /// </summary>
+    /// <param name="search">Search term (matches nt_file_num or nt_file_name)</param>
+    Task<DataResult<List<NtFileSearchResult>>> SearchNtFilesAsync(string search);
+
+    /// <summary>
     /// List files with pagination and filtering.
     /// Uses ss_file_loading_nt_file_api stored procedure.
     /// </summary>
@@ -642,6 +648,34 @@ public interface IFileLoaderRepository
 
     /// <summary>Delete a charge mapping.</summary>
     Task<RawCommandResult> DeleteChargeMapAsync(int id);
+
+    // ============================================
+    // Charge Map AI Seeding
+    // ============================================
+
+    /// <summary>Get all charge codes with narratives for AI context.</summary>
+    Task<DataResult<List<ChargeCodeLookup>>> GetChargeCodesAsync();
+
+    /// <summary>Get all charge maps for file types in a given file class (for cross-reference).</summary>
+    Task<DataResult<List<NtflChgMapRecord>>> GetChargeMapsByFileClassAsync(string fileClassCode);
+
+    /// <summary>Insert an AI reason record.</summary>
+    Task<ValueResult<int>> InsertChgMapAiReasonAsync(ChgMapAiReasonRecord record);
+
+    /// <summary>Get AI reason records for a specific charge map.</summary>
+    Task<DataResult<List<ChgMapAiReasonRecord>>> GetChgMapAiReasonsAsync(int chgMapId);
+
+    /// <summary>Get all pending AI suggestions for a file type (source=AI_SUGGESTED).</summary>
+    Task<DataResult<List<NtflChgMapRecord>>> GetPendingAiSuggestionsAsync(string fileTypeCode);
+
+    /// <summary>Get pending AI reason records for a file type.</summary>
+    Task<DataResult<List<ChgMapAiReasonRecord>>> GetPendingAiReasonsAsync(string fileTypeCode);
+
+    /// <summary>Update review status on an AI reason record.</summary>
+    Task<RawCommandResult> UpdateChgMapAiReasonReviewAsync(int reasonId, string reviewStatus, string reviewedBy);
+
+    /// <summary>Update the source column on a charge map record.</summary>
+    Task<RawCommandResult> UpdateChargeMapSourceAsync(int id, string source);
 
     // ============================================
     // AI Analysis Results

@@ -170,6 +170,51 @@ public class FileLoaderRepository : IFileLoaderRepository
         };
     }
 
+    public async Task<DataResult<List<NtFileSearchResult>>> SearchNtFilesAsync(string search)
+    {
+        _logger.LogDebug("Searching NT files: Search={Search}", search);
+
+        var parameters = new List<(string, object?, DbType, int?)>
+        {
+            ("@p1", $"%{search}%", DbType.String, 80)
+        };
+
+        var sql = new StringBuilder(@"SELECT FIRST 10
+                f.nt_file_num, f.nt_file_name, f.file_type_code, f.status_id, s.status_narr
+            FROM nt_file f
+            JOIN nt_file_stat s ON f.status_id = s.status_id
+            WHERE f.nt_file_name LIKE ?");
+
+        if (int.TryParse(search, out _))
+        {
+            sql.Append(" OR CAST(f.nt_file_num AS VARCHAR(10)) LIKE ?");
+            parameters.Add(("@p2", $"{search}%", DbType.String, 10));
+        }
+
+        sql.Append(" ORDER BY f.nt_file_num DESC");
+
+        var result = _dbContext.ExecuteRawQuery(
+            sql.ToString(),
+            reader => new NtFileSearchResult
+            {
+                NtFileNum = reader.GetInt32(0),
+                FileName = reader.IsDBNull(1) ? string.Empty : reader.GetString(1).Trim(),
+                FileType = reader.IsDBNull(2) ? string.Empty : reader.GetString(2).Trim(),
+                StatusId = reader.IsDBNull(3) ? 0 : reader.GetInt32(3),
+                Status = reader.IsDBNull(4) ? string.Empty : reader.GetString(4).Trim()
+            },
+            parameters.ToArray()
+        );
+
+        return new DataResult<List<NtFileSearchResult>>
+        {
+            StatusCode = result.IsSuccess ? 200 : result.StatusCode,
+            Data = result.Data,
+            ErrorCode = result.ErrorCode,
+            ErrorMessage = result.ErrorMessage
+        };
+    }
+
     public async Task<DataResult<FileListResponse>> ListFilesAsync(
         string? fileTypeCode,
         string? ntCustNum,
@@ -4094,7 +4139,7 @@ public class FileLoaderRepository : IFileLoaderRepository
         var sql = @"SELECT id, file_type_code, file_chg_desc, seq_no, chg_code,
                            auto_exclude, use_net_price, net_prc_prorated,
                            uplift_perc, uplift_amt, use_net_desc,
-                           last_updated, updated_by
+                           source, last_updated, updated_by
                     FROM ntfl_chg_map
                     WHERE file_type_code = ?
                     ORDER BY seq_no";
@@ -4114,8 +4159,9 @@ public class FileLoaderRepository : IFileLoaderRepository
                 UpliftPerc = reader.GetDecimal(8),
                 UpliftAmt = reader.IsDBNull(9) ? null : reader.GetDecimal(9),
                 UseNetDesc = reader.GetString(10).Trim(),
-                LastUpdated = reader.GetDateTime(11),
-                UpdatedBy = reader.GetString(12).Trim()
+                Source = reader.IsDBNull(11) ? "USER" : reader.GetString(11).Trim(),
+                LastUpdated = reader.GetDateTime(12),
+                UpdatedBy = reader.GetString(13).Trim()
             },
             ("@p1", (object)fileTypeCode, DbType.String, (int?)10)
         );
@@ -4134,7 +4180,7 @@ public class FileLoaderRepository : IFileLoaderRepository
         var sql = @"SELECT id, file_type_code, file_chg_desc, seq_no, chg_code,
                            auto_exclude, use_net_price, net_prc_prorated,
                            uplift_perc, uplift_amt, use_net_desc,
-                           last_updated, updated_by
+                           source, last_updated, updated_by
                     FROM ntfl_chg_map
                     WHERE id = ?";
 
@@ -4153,8 +4199,9 @@ public class FileLoaderRepository : IFileLoaderRepository
                 UpliftPerc = reader.GetDecimal(8),
                 UpliftAmt = reader.IsDBNull(9) ? null : reader.GetDecimal(9),
                 UseNetDesc = reader.GetString(10).Trim(),
-                LastUpdated = reader.GetDateTime(11),
-                UpdatedBy = reader.GetString(12).Trim()
+                Source = reader.IsDBNull(11) ? "USER" : reader.GetString(11).Trim(),
+                LastUpdated = reader.GetDateTime(12),
+                UpdatedBy = reader.GetString(13).Trim()
             },
             ("@p1", (object)id, DbType.Int32, (int?)null)
         );
@@ -4171,8 +4218,8 @@ public class FileLoaderRepository : IFileLoaderRepository
         var sql = @"INSERT INTO ntfl_chg_map
                     (file_type_code, file_chg_desc, seq_no, chg_code,
                      auto_exclude, use_net_price, net_prc_prorated,
-                     uplift_perc, uplift_amt, use_net_desc, updated_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                     uplift_perc, uplift_amt, use_net_desc, source, updated_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         var result = _dbContext.ExecuteRawCommand(
             sql,
@@ -4186,7 +4233,8 @@ public class FileLoaderRepository : IFileLoaderRepository
             ("@p8", (object)record.UpliftPerc, DbType.Decimal, (int?)null),
             ("@p9", (object)(record.UpliftAmt ?? (object)DBNull.Value), DbType.Decimal, (int?)null),
             ("@p10", (object)record.UseNetDesc, DbType.String, (int?)1),
-            ("@p11", (object)record.UpdatedBy, DbType.String, (int?)18)
+            ("@p11", (object)record.Source, DbType.String, (int?)20),
+            ("@p12", (object)record.UpdatedBy, DbType.String, (int?)18)
         );
 
         if (!result.IsSuccess)
@@ -4204,7 +4252,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             @"UPDATE ntfl_chg_map
               SET file_type_code = ?, file_chg_desc = ?, seq_no = ?, chg_code = ?,
                   auto_exclude = ?, use_net_price = ?, net_prc_prorated = ?,
-                  uplift_perc = ?, uplift_amt = ?, use_net_desc = ?, updated_by = ?
+                  uplift_perc = ?, uplift_amt = ?, use_net_desc = ?, source = ?, updated_by = ?
               WHERE id = ?",
             ("@p1", (object)record.FileTypeCode, DbType.String, (int?)10),
             ("@p2", (object)record.FileChgDesc, DbType.String, (int?)500),
@@ -4216,8 +4264,9 @@ public class FileLoaderRepository : IFileLoaderRepository
             ("@p8", (object)record.UpliftPerc, DbType.Decimal, (int?)null),
             ("@p9", (object)(record.UpliftAmt ?? (object)DBNull.Value), DbType.Decimal, (int?)null),
             ("@p10", (object)record.UseNetDesc, DbType.String, (int?)1),
-            ("@p11", (object)record.UpdatedBy, DbType.String, (int?)18),
-            ("@p12", (object)record.Id, DbType.Int32, (int?)null)
+            ("@p11", (object)record.Source, DbType.String, (int?)20),
+            ("@p12", (object)record.UpdatedBy, DbType.String, (int?)18),
+            ("@p13", (object)record.Id, DbType.Int32, (int?)null)
         );
     }
 
@@ -4226,6 +4275,227 @@ public class FileLoaderRepository : IFileLoaderRepository
         return _dbContext.ExecuteRawCommand(
             "DELETE FROM ntfl_chg_map WHERE id = ?",
             ("@p1", (object)id, DbType.Int32, (int?)null)
+        );
+    }
+
+    // ============================================
+    // Charge Map AI Seeding
+    // ============================================
+
+    public async Task<DataResult<List<ChargeCodeLookup>>> GetChargeCodesAsync()
+    {
+        var result = _dbContext.ExecuteRawQuery(
+            "SELECT chg_code, chg_narr FROM charge_code ORDER BY chg_code",
+            reader => new ChargeCodeLookup
+            {
+                ChgCode = reader.GetString(0).Trim(),
+                ChgNarr = reader.IsDBNull(1) ? string.Empty : reader.GetString(1).Trim()
+            }
+        );
+
+        return new DataResult<List<ChargeCodeLookup>>
+        {
+            StatusCode = result.IsSuccess ? 200 : result.StatusCode,
+            Data = result.Data,
+            ErrorCode = result.ErrorCode,
+            ErrorMessage = result.ErrorMessage
+        };
+    }
+
+    public async Task<DataResult<List<NtflChgMapRecord>>> GetChargeMapsByFileClassAsync(string fileClassCode)
+    {
+        var sql = @"SELECT cm.id, cm.file_type_code, cm.file_chg_desc, cm.seq_no, cm.chg_code,
+                           cm.auto_exclude, cm.use_net_price, cm.net_prc_prorated,
+                           cm.uplift_perc, cm.uplift_amt, cm.use_net_desc,
+                           cm.source, cm.last_updated, cm.updated_by
+                    FROM ntfl_chg_map cm
+                    JOIN file_type ft ON cm.file_type_code = ft.file_type_code
+                    WHERE ft.file_class_code = ?
+                    ORDER BY cm.file_type_code, cm.seq_no";
+
+        var result = _dbContext.ExecuteRawQuery(
+            sql,
+            reader => new NtflChgMapRecord
+            {
+                Id = reader.GetInt32(0),
+                FileTypeCode = reader.GetString(1).Trim(),
+                FileChgDesc = reader.IsDBNull(2) ? string.Empty : reader.GetString(2).Trim(),
+                SeqNo = reader.GetInt32(3),
+                ChgCode = reader.GetString(4).Trim(),
+                AutoExclude = reader.GetString(5).Trim(),
+                UseNetPrice = reader.GetString(6).Trim(),
+                NetPrcProrated = reader.GetString(7).Trim(),
+                UpliftPerc = reader.GetDecimal(8),
+                UpliftAmt = reader.IsDBNull(9) ? null : reader.GetDecimal(9),
+                UseNetDesc = reader.GetString(10).Trim(),
+                Source = reader.IsDBNull(11) ? "USER" : reader.GetString(11).Trim(),
+                LastUpdated = reader.GetDateTime(12),
+                UpdatedBy = reader.GetString(13).Trim()
+            },
+            ("@p1", (object)fileClassCode, DbType.String, (int?)10)
+        );
+
+        return new DataResult<List<NtflChgMapRecord>>
+        {
+            StatusCode = result.IsSuccess ? 200 : result.StatusCode,
+            Data = result.Data,
+            ErrorCode = result.ErrorCode,
+            ErrorMessage = result.ErrorMessage
+        };
+    }
+
+    public async Task<DataResult<List<NtflChgMapRecord>>> GetPendingAiSuggestionsAsync(string fileTypeCode)
+    {
+        var sql = @"SELECT id, file_type_code, file_chg_desc, seq_no, chg_code,
+                           auto_exclude, use_net_price, net_prc_prorated,
+                           uplift_perc, uplift_amt, use_net_desc,
+                           source, last_updated, updated_by
+                    FROM ntfl_chg_map
+                    WHERE file_type_code = ? AND source = 'AI_SUGGESTED'
+                    ORDER BY seq_no";
+
+        var result = _dbContext.ExecuteRawQuery(
+            sql,
+            reader => new NtflChgMapRecord
+            {
+                Id = reader.GetInt32(0),
+                FileTypeCode = reader.GetString(1).Trim(),
+                FileChgDesc = reader.IsDBNull(2) ? string.Empty : reader.GetString(2).Trim(),
+                SeqNo = reader.GetInt32(3),
+                ChgCode = reader.GetString(4).Trim(),
+                AutoExclude = reader.GetString(5).Trim(),
+                UseNetPrice = reader.GetString(6).Trim(),
+                NetPrcProrated = reader.GetString(7).Trim(),
+                UpliftPerc = reader.GetDecimal(8),
+                UpliftAmt = reader.IsDBNull(9) ? null : reader.GetDecimal(9),
+                UseNetDesc = reader.GetString(10).Trim(),
+                Source = reader.IsDBNull(11) ? "USER" : reader.GetString(11).Trim(),
+                LastUpdated = reader.GetDateTime(12),
+                UpdatedBy = reader.GetString(13).Trim()
+            },
+            ("@p1", (object)fileTypeCode, DbType.String, (int?)10)
+        );
+
+        return new DataResult<List<NtflChgMapRecord>>
+        {
+            StatusCode = result.IsSuccess ? 200 : result.StatusCode,
+            Data = result.Data,
+            ErrorCode = result.ErrorCode,
+            ErrorMessage = result.ErrorMessage
+        };
+    }
+
+    private ChgMapAiReasonRecord ReadChgMapAiReason(IDataReader reader) => new()
+    {
+        ReasonId = reader.GetInt32(0),
+        ChgMapId = reader.GetInt32(1),
+        AnalysisId = reader.IsDBNull(2) ? null : reader.GetInt32(2),
+        FileChgDesc = reader.GetString(3).Trim(),
+        MatchedChgCode = reader.GetString(4).Trim(),
+        MatchedChgNarr = reader.IsDBNull(5) ? null : reader.GetString(5).Trim(),
+        Confidence = reader.GetString(6).Trim(),
+        Reasoning = reader.GetString(7).Trim(),
+        MatchMethod = reader.GetString(8).Trim(),
+        CrossRefFileType = reader.IsDBNull(9) ? null : reader.GetString(9).Trim(),
+        SampleValues = reader.IsDBNull(10) ? null : reader.GetString(10).Trim(),
+        CreatedAt = reader.GetDateTime(11),
+        CreatedBy = reader.GetString(12).Trim(),
+        ReviewStatus = reader.GetString(13).Trim(),
+        ReviewedAt = reader.IsDBNull(14) ? null : reader.GetDateTime(14),
+        ReviewedBy = reader.IsDBNull(15) ? null : reader.GetString(15).Trim()
+    };
+
+    private const string ChgMapAiReasonSelectColumns = @"reason_id, chg_map_id, analysis_id,
+        file_chg_desc, matched_chg_code, matched_chg_narr, confidence, reasoning, match_method,
+        cross_ref_file_type, sample_values, created_at, created_by, review_status, reviewed_at, reviewed_by";
+
+    public async Task<ValueResult<int>> InsertChgMapAiReasonAsync(ChgMapAiReasonRecord record)
+    {
+        var sql = @"INSERT INTO ntfl_chg_map_ai_reason
+                    (chg_map_id, analysis_id, file_chg_desc, matched_chg_code, matched_chg_narr,
+                     confidence, reasoning, match_method, cross_ref_file_type, sample_values, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+        var result = _dbContext.ExecuteRawCommand(
+            sql,
+            ("@p1", (object)record.ChgMapId, DbType.Int32, (int?)null),
+            ("@p2", record.AnalysisId.HasValue ? (object)record.AnalysisId.Value : DBNull.Value, DbType.Int32, (int?)null),
+            ("@p3", (object)record.FileChgDesc, DbType.String, (int?)500),
+            ("@p4", (object)record.MatchedChgCode, DbType.String, (int?)4),
+            ("@p5", record.MatchedChgNarr != null ? (object)record.MatchedChgNarr : DBNull.Value, DbType.String, (int?)200),
+            ("@p6", (object)record.Confidence, DbType.String, (int?)10),
+            ("@p7", (object)record.Reasoning, DbType.String, (int?)2000),
+            ("@p8", (object)record.MatchMethod, DbType.String, (int?)30),
+            ("@p9", record.CrossRefFileType != null ? (object)record.CrossRefFileType : DBNull.Value, DbType.String, (int?)10),
+            ("@p10", record.SampleValues != null ? (object)record.SampleValues : DBNull.Value, DbType.String, (int?)1000),
+            ("@p11", (object)record.CreatedBy, DbType.String, (int?)50)
+        );
+
+        if (!result.IsSuccess)
+            return new ValueResult<int> { StatusCode = 500, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
+
+        var idResult = _dbContext.ExecuteRawScalar<int>("SELECT DBINFO('sqlca.sqlerrd1') FROM systables WHERE tabid = 1");
+        return new ValueResult<int> { StatusCode = 201, Value = idResult.IsSuccess ? idResult.Value : 0 };
+    }
+
+    public async Task<DataResult<List<ChgMapAiReasonRecord>>> GetChgMapAiReasonsAsync(int chgMapId)
+    {
+        var result = _dbContext.ExecuteRawQuery<ChgMapAiReasonRecord>(
+            $"SELECT {ChgMapAiReasonSelectColumns} FROM ntfl_chg_map_ai_reason WHERE chg_map_id = ? ORDER BY reason_id",
+            ReadChgMapAiReason,
+            ("@p1", (object)chgMapId, DbType.Int32, (int?)null)
+        );
+
+        return new DataResult<List<ChgMapAiReasonRecord>>
+        {
+            StatusCode = result.IsSuccess ? 200 : result.StatusCode,
+            Data = result.Data,
+            ErrorCode = result.ErrorCode,
+            ErrorMessage = result.ErrorMessage
+        };
+    }
+
+    public async Task<DataResult<List<ChgMapAiReasonRecord>>> GetPendingAiReasonsAsync(string fileTypeCode)
+    {
+        var sqlFull = @"SELECT r.reason_id, r.chg_map_id, r.analysis_id,
+                        r.file_chg_desc, r.matched_chg_code, r.matched_chg_narr, r.confidence, r.reasoning, r.match_method,
+                        r.cross_ref_file_type, r.sample_values, r.created_at, r.created_by, r.review_status, r.reviewed_at, r.reviewed_by
+                     FROM ntfl_chg_map_ai_reason r
+                     JOIN ntfl_chg_map cm ON r.chg_map_id = cm.id
+                     WHERE cm.file_type_code = ? AND r.review_status = 'PENDING'
+                     ORDER BY r.reason_id";
+
+        var result = _dbContext.ExecuteRawQuery<ChgMapAiReasonRecord>(
+            sqlFull,
+            ReadChgMapAiReason,
+            ("@p1", (object)fileTypeCode, DbType.String, (int?)10)
+        );
+
+        return new DataResult<List<ChgMapAiReasonRecord>>
+        {
+            StatusCode = result.IsSuccess ? 200 : result.StatusCode,
+            Data = result.Data,
+            ErrorCode = result.ErrorCode,
+            ErrorMessage = result.ErrorMessage
+        };
+    }
+
+    public async Task<RawCommandResult> UpdateChgMapAiReasonReviewAsync(int reasonId, string reviewStatus, string reviewedBy)
+    {
+        return _dbContext.ExecuteRawCommand(
+            "UPDATE ntfl_chg_map_ai_reason SET review_status = ?, reviewed_at = CURRENT, reviewed_by = ? WHERE reason_id = ?",
+            ("@p1", (object)reviewStatus, DbType.String, (int?)20),
+            ("@p2", (object)reviewedBy, DbType.String, (int?)50),
+            ("@p3", (object)reasonId, DbType.Int32, (int?)null)
+        );
+    }
+
+    public async Task<RawCommandResult> UpdateChargeMapSourceAsync(int id, string source)
+    {
+        return _dbContext.ExecuteRawCommand(
+            "UPDATE ntfl_chg_map SET source = ? WHERE id = ?",
+            ("@p1", (object)source, DbType.String, (int?)20),
+            ("@p2", (object)id, DbType.Int32, (int?)null)
         );
     }
 

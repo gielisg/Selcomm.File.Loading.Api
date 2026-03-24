@@ -486,6 +486,11 @@ public class FileManagementService : IFileManagementService
         return dashboardResult;
     }
 
+    public async Task<DataResult<List<NtFileSearchResult>>> SearchNtFilesAsync(string search, SecurityContext context)
+    {
+        return await _repository.SearchNtFilesAsync(search);
+    }
+
     public async Task<DataResult<FileWithStatusResponse>> ListFilesAsync(
         FileListFilter filter, SecurityContext context)
     {
@@ -1531,6 +1536,133 @@ public class FileManagementService : IFileManagementService
 
         var result = await _repository.DeleteChargeMapAsync(id);
         return new DataResult<bool> { StatusCode = result.IsSuccess ? 200 : 500, Data = result.IsSuccess, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
+    }
+
+    // ============================================
+    // Configuration Readiness
+    // ============================================
+
+    public async Task<DataResult<FileTypeReadinessResponse>> GetReadinessAsync(string fileTypeCode, SecurityContext context)
+    {
+        // Load file type record first — if not found, 404
+        var ftResult = await _repository.GetFileTypeRecordAsync(fileTypeCode);
+        if (!ftResult.IsSuccess || ftResult.Data == null)
+            return new DataResult<FileTypeReadinessResponse> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = $"File type '{fileTypeCode}' not found" };
+
+        var ft = ftResult.Data;
+        var fileClassCode = ft.FileClassCode?.Trim() ?? "";
+        var isChgClass = fileClassCode.Equals("CHG", StringComparison.OrdinalIgnoreCase);
+
+        // Run all lookups in parallel
+        var ntTask = _repository.GetFileTypeNtRecordAsync(fileTypeCode);
+        var parserTask = _repository.GetGenericFileFormatConfigAsync(fileTypeCode);
+        var customTableTask = _repository.GetActiveCustomTableAsync(fileTypeCode);
+        var chargeMapsTask = _repository.GetChargeMapsAsync(fileTypeCode);
+        var exampleFilesTask = _repository.GetExampleFilesByTypeAsync(fileTypeCode);
+        var analysisTask = _repository.GetAnalysisResultsAsync(fileTypeCode);
+        var promptTask = _repository.GetCurrentFileTypePromptAsync(fileTypeCode);
+
+        await Task.WhenAll(ntTask, parserTask, customTableTask, chargeMapsTask, exampleFilesTask, analysisTask, promptTask);
+
+        var ntResult = await ntTask;
+        var parserResult = await parserTask;
+        var customTableResult = await customTableTask;
+        var chargeMapsResult = await chargeMapsTask;
+        var exampleFilesResult = await exampleFilesTask;
+        var analysisResult = await analysisTask;
+        var promptResult = await promptTask;
+
+        var tiers = new List<ReadinessTier>();
+        var missing = new List<string>();
+        var completed = new List<string>();
+
+        // Tier 1: Core Identity
+        var tier1Checks = new List<ReadinessCheck>();
+        tier1Checks.Add(new ReadinessCheck { Item = "File Type Record", IsConfigured = true, IsRequired = true, Detail = $"{ft.FileTypeCode?.Trim()} - {ft.FileType?.Trim()}" });
+        completed.Add("File type record exists");
+
+        var hasNt = ntResult.IsSuccess && ntResult.Data != null;
+        tier1Checks.Add(new ReadinessCheck { Item = "File Type NT Record", IsConfigured = hasNt, IsRequired = true, Detail = hasNt ? "Configured" : "No file_type_nt record" });
+        if (hasNt) completed.Add("File type NT record configured");
+        else missing.Add("Configure file_type_nt record (Tier 1)");
+
+        tiers.Add(new ReadinessTier { Tier = 1, Name = "Core Identity", Status = tier1Checks.All(c => !c.IsRequired || c.IsConfigured) ? "READY" : "PARTIAL", Checks = tier1Checks });
+
+        // Tier 2: Parser Configuration
+        var tier2Checks = new List<ReadinessCheck>();
+        var hasParser = parserResult != null && parserResult.ColumnMappings?.Count > 0;
+        var parserDetail = hasParser ? $"{parserResult!.FileFormat}, {parserResult.ColumnMappings!.Count} column mappings, {(parserResult.Active ? "active" : "inactive")}" : "No parser configuration";
+        tier2Checks.Add(new ReadinessCheck { Item = "Parser Config", IsConfigured = hasParser, IsRequired = true, Detail = parserDetail });
+        if (hasParser) completed.Add($"Parser configuration active with {parserResult!.ColumnMappings!.Count} column mappings");
+        else missing.Add("Set up parser configuration with column mappings (Tier 2)");
+
+        var hasCustomTable = customTableResult != null;
+        var ctDetail = hasCustomTable ? $"{customTableResult!.TableName} (ACTIVE, {customTableResult.ColumnCount} columns)" : "Using generic detail table";
+        tier2Checks.Add(new ReadinessCheck { Item = "Custom Staging Table", IsConfigured = hasCustomTable, IsRequired = false, Detail = ctDetail });
+        if (hasCustomTable) completed.Add($"Custom staging table {customTableResult!.TableName} active");
+
+        tiers.Add(new ReadinessTier { Tier = 2, Name = "Parser Configuration", Status = tier2Checks.All(c => !c.IsRequired || c.IsConfigured) ? "READY" : "NOT_CONFIGURED", Checks = tier2Checks });
+
+        // Tier 3: Transfer & Folders — simplified (folder config always has a default)
+        var tier3Checks = new List<ReadinessCheck>();
+        tier3Checks.Add(new ReadinessCheck { Item = "Folder Configuration", IsConfigured = true, IsRequired = true, Detail = "Available (default or file-type specific)" });
+        completed.Add("Folder configuration available");
+        tiers.Add(new ReadinessTier { Tier = 3, Name = "Transfer & Folders", Status = "READY", Checks = tier3Checks });
+
+        // Tier 4: Charge Mappings
+        var tier4Checks = new List<ReadinessCheck>();
+        var chargeMapCount = chargeMapsResult.IsSuccess && chargeMapsResult.Data != null ? chargeMapsResult.Data.Count : 0;
+        var hasMaps = chargeMapCount > 0;
+        var mapDetail = isChgClass
+            ? (hasMaps ? $"{chargeMapCount} charge mapping(s) configured" : "No charge mappings configured (required for CHG file class)")
+            : "Not applicable for this file class";
+        tier4Checks.Add(new ReadinessCheck { Item = "Charge Maps", IsConfigured = hasMaps, IsRequired = isChgClass, Detail = mapDetail });
+        if (isChgClass && hasMaps) completed.Add($"{chargeMapCount} charge mapping(s) configured");
+        else if (isChgClass && !hasMaps) missing.Add("Add charge mappings to map vendor charges to Selcomm charge codes (Tier 4)");
+
+        var tier4Status = !isChgClass ? "NOT_APPLICABLE" : (hasMaps ? "READY" : "NOT_CONFIGURED");
+        tiers.Add(new ReadinessTier { Tier = 4, Name = "Charge Mappings", Status = tier4Status, Checks = tier4Checks });
+
+        // Tier 5: AI Configuration (optional)
+        var tier5Checks = new List<ReadinessCheck>();
+        var exampleCount = exampleFilesResult.IsSuccess && exampleFilesResult.Data != null ? exampleFilesResult.Data.Count : 0;
+        tier5Checks.Add(new ReadinessCheck { Item = "Example Files", IsConfigured = exampleCount > 0, IsRequired = false, Detail = exampleCount > 0 ? $"{exampleCount} example file(s) uploaded" : "No example files" });
+        if (exampleCount > 0) completed.Add($"{exampleCount} example file(s) uploaded");
+
+        var analysisCount = analysisResult.IsSuccess && analysisResult.Data != null ? analysisResult.Data.Count : 0;
+        var latestAnalysis = analysisResult.Data?.FirstOrDefault();
+        tier5Checks.Add(new ReadinessCheck { Item = "Analysis Result", IsConfigured = analysisCount > 0, IsRequired = false, Detail = latestAnalysis != null ? $"{latestAnalysis.IngestionReadiness} readiness ({latestAnalysis.CreatedTm:yyyy-MM-dd})" : "No analysis results" });
+        if (analysisCount > 0) completed.Add($"AI analysis completed ({latestAnalysis!.IngestionReadiness} readiness)");
+
+        var hasPrompt = promptResult.IsSuccess && promptResult.Data != null;
+        tier5Checks.Add(new ReadinessCheck { Item = "Active Prompt", IsConfigured = hasPrompt, IsRequired = false, Detail = hasPrompt ? $"v{promptResult.Data!.Version} ({promptResult.Data.Source})" : "No active file-type prompt" });
+        if (hasPrompt) completed.Add("Active file-type prompt configured");
+
+        var tier5Configured = tier5Checks.Count(c => c.IsConfigured);
+        tiers.Add(new ReadinessTier { Tier = 5, Name = "AI Configuration", Status = tier5Configured == tier5Checks.Count ? "READY" : tier5Configured > 0 ? "PARTIAL" : "NOT_CONFIGURED", Checks = tier5Checks });
+
+        // Calculate score from required items only
+        var requiredChecks = tiers.SelectMany(t => t.Checks).Where(c => c.IsRequired).ToList();
+        var configuredRequired = requiredChecks.Count(c => c.IsConfigured);
+        var totalRequired = requiredChecks.Count;
+        var score = totalRequired > 0 ? (int)Math.Round((double)configuredRequired / totalRequired * 100) : 0;
+        var level = score >= 100 ? "READY" : score > 0 ? "PARTIAL" : "NOT_CONFIGURED";
+
+        return new DataResult<FileTypeReadinessResponse>
+        {
+            StatusCode = 200,
+            Data = new FileTypeReadinessResponse
+            {
+                FileTypeCode = fileTypeCode,
+                FileType = ft.FileType?.Trim(),
+                FileClassCode = fileClassCode,
+                ReadinessLevel = level,
+                ReadinessScore = score,
+                Tiers = tiers,
+                MissingSteps = missing,
+                CompletedSteps = completed
+            }
+        };
     }
 
     public async Task<DataResult<ChargeMapMatch?>> ResolveChargeMapAsync(string fileTypeCode, string chargeDescription, SecurityContext context)

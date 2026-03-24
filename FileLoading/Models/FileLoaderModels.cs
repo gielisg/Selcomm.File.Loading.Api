@@ -274,6 +274,32 @@ public class FileListResponse
 }
 
 /// <summary>
+/// Lightweight result for NT file autocomplete/search.
+/// </summary>
+public class NtFileSearchResult
+{
+    /// <summary>NT file number.</summary>
+    /// <example>12345</example>
+    public int NtFileNum { get; set; }
+
+    /// <summary>File name.</summary>
+    /// <example>CDR_20250315_001.csv</example>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>File type code.</summary>
+    /// <example>CDR</example>
+    public string FileType { get; set; } = string.Empty;
+
+    /// <summary>Status ID.</summary>
+    /// <example>4</example>
+    public int StatusId { get; set; }
+
+    /// <summary>Status description.</summary>
+    /// <example>Processed</example>
+    public string Status { get; set; } = string.Empty;
+}
+
+/// <summary>
 /// Response containing a list of available file types.
 /// </summary>
 public class FileTypeListResponse

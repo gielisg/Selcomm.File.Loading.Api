@@ -109,6 +109,13 @@ public interface IFileManagementService
         SecurityContext context);
 
     /// <summary>
+    /// Search NT files by file number or file name for autocomplete.
+    /// </summary>
+    /// <param name="search">Search term (min 3 characters)</param>
+    /// <param name="context">Security context</param>
+    Task<DataResult<List<NtFileSearchResult>>> SearchNtFilesAsync(string search, SecurityContext context);
+
+    /// <summary>
     /// List files with filtering and pagination.
     /// </summary>
     /// <param name="filter">Filter criteria</param>
@@ -292,6 +299,13 @@ public interface IFileManagementService
     Task<DataResult<NtflChgMapRecord>> UpdateChargeMapAsync(int id, NtflChgMapRequest request, SecurityContext context);
     Task<DataResult<bool>> DeleteChargeMapAsync(int id, SecurityContext context);
     Task<DataResult<ChargeMapMatch?>> ResolveChargeMapAsync(string fileTypeCode, string chargeDescription, SecurityContext context);
+
+    // ============================================
+    // Configuration Readiness
+    // ============================================
+
+    /// <summary>Get holistic configuration readiness status for a file type.</summary>
+    Task<DataResult<FileTypeReadinessResponse>> GetReadinessAsync(string fileTypeCode, SecurityContext context);
 
     // ============================================
     // Custom Table Management

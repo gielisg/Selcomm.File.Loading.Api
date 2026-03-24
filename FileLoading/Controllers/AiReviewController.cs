@@ -933,4 +933,186 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }
+
+    // ============================================
+    // AI Charge Map Seeding
+    // ============================================
+
+    /// <summary>
+    /// Trigger AI charge map seeding for a file type. Analyses charge descriptions from the AI analysis
+    /// and suggests mappings to Selcomm charge codes.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <param name="request">Optional seeding parameters</param>
+    /// <response code="201">Suggestions created successfully</response>
+    /// <response code="400">No ChargeType column found in analysis</response>
+    /// <response code="404">File type or analysis not found</response>
+    /// <response code="502">AI gateway error</response>
+    [HttpPost("charge-map-seed/{file-type-code}")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_ai_review_charge_map_seed")]
+    [Tags("AI Charge Map Seeding")]
+    [ProducesResponseType(typeof(AiChargeMapSeedResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status502BadGateway)]
+    public async Task<IActionResult> SeedChargeMaps(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromBody] AiChargeMapSeedRequest? request = null)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_ai_review_charge_map_seed");
+            var result = await _aiReviewService.SeedChargeMapsAsync(fileTypeCode, request, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error seeding charge maps for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// List pending AI charge map suggestions with reasoning for a file type.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <response code="200">Pending suggestions returned</response>
+    [HttpGet("charge-map-seed/{file-type-code}/suggestions")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_ai_review_charge_map_seed_suggestions")]
+    [Tags("AI Charge Map Seeding")]
+    [ProducesResponseType(typeof(List<AiChargeMapSuggestion>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetPendingSuggestions(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_ai_review_charge_map_seed_suggestions");
+            var result = await _aiReviewService.GetPendingSuggestionsAsync(fileTypeCode, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting pending suggestions for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Accept, reject, or modify a single AI charge map suggestion.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <param name="chgMapId">Charge mapping ID</param>
+    /// <param name="request">Review action (ACCEPT, REJECT, MODIFY)</param>
+    /// <response code="200">Suggestion reviewed successfully</response>
+    /// <response code="404">Charge mapping not found</response>
+    /// <response code="409">Already reviewed</response>
+    [HttpPost("charge-map-seed/{file-type-code}/review/{chg-map-id:int}")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_ai_review_charge_map_seed_review")]
+    [Tags("AI Charge Map Seeding")]
+    [ProducesResponseType(typeof(NtflChgMapRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> ReviewSuggestion(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromRoute(Name = "chg-map-id")] int chgMapId,
+        [FromBody] AiChargeMapReviewRequest request)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_ai_review_charge_map_seed_review");
+            var result = await _aiReviewService.ReviewSuggestionAsync(fileTypeCode, chgMapId, request, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error reviewing suggestion chgMapId={ChgMapId}", chgMapId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Bulk accept all pending AI charge map suggestions for a file type.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <response code="200">All suggestions accepted</response>
+    [HttpPost("charge-map-seed/{file-type-code}/accept-all")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_ai_review_charge_map_seed_accept_all")]
+    [Tags("AI Charge Map Seeding")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> AcceptAllSuggestions(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_ai_review_charge_map_seed_accept_all");
+            var result = await _aiReviewService.AcceptAllSuggestionsAsync(fileTypeCode, securityContext);
+            if (result.IsSuccess) return Ok(new { Accepted = result.Data });
+            return StatusCode(result.StatusCode, new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error accepting all suggestions for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Bulk reject all pending AI charge map suggestions for a file type.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <response code="200">All suggestions rejected</response>
+    [HttpPost("charge-map-seed/{file-type-code}/reject-all")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_ai_review_charge_map_seed_reject_all")]
+    [Tags("AI Charge Map Seeding")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> RejectAllSuggestions(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_ai_review_charge_map_seed_reject_all");
+            var result = await _aiReviewService.RejectAllSuggestionsAsync(fileTypeCode, securityContext);
+            if (result.IsSuccess) return Ok(new { Rejected = result.Data });
+            return StatusCode(result.StatusCode, new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error rejecting all suggestions for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Get AI reasoning records for a specific charge mapping.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <param name="chgMapId">Charge mapping ID</param>
+    /// <response code="200">Reasoning records returned</response>
+    [HttpGet("charge-map-seed/{file-type-code}/reasons/{chg-map-id:int}")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_ai_review_charge_map_seed_reasons")]
+    [Tags("AI Charge Map Seeding")]
+    [ProducesResponseType(typeof(List<ChgMapAiReasonRecord>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetAiReasons(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromRoute(Name = "chg-map-id")] int chgMapId)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_ai_review_charge_map_seed_reasons");
+            var result = await _aiReviewService.GetAiReasonsAsync(chgMapId, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting AI reasons for chgMapId={ChgMapId}", chgMapId);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
 }

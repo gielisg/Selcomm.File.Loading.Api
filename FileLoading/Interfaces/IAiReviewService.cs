@@ -78,6 +78,28 @@ public interface IAiReviewService
     Task<DataResult<ExampleFileRecord>> DeleteExampleFileAsync(int exampleFileId);
 
     // ============================================
+    // AI Charge Map Seeding
+    // ============================================
+
+    /// <summary>Trigger AI charge map seeding for a file type.</summary>
+    Task<DataResult<AiChargeMapSeedResponse>> SeedChargeMapsAsync(string fileTypeCode, AiChargeMapSeedRequest? request, SecurityContext securityContext);
+
+    /// <summary>List pending AI charge map suggestions with reasoning.</summary>
+    Task<DataResult<List<AiChargeMapSuggestion>>> GetPendingSuggestionsAsync(string fileTypeCode, SecurityContext securityContext);
+
+    /// <summary>Accept/reject/modify a single AI charge map suggestion.</summary>
+    Task<DataResult<NtflChgMapRecord>> ReviewSuggestionAsync(string fileTypeCode, int chgMapId, AiChargeMapReviewRequest request, SecurityContext securityContext);
+
+    /// <summary>Bulk accept all pending suggestions for a file type.</summary>
+    Task<DataResult<int>> AcceptAllSuggestionsAsync(string fileTypeCode, SecurityContext securityContext);
+
+    /// <summary>Bulk reject all pending suggestions for a file type.</summary>
+    Task<DataResult<int>> RejectAllSuggestionsAsync(string fileTypeCode, SecurityContext securityContext);
+
+    /// <summary>Get AI reasoning for a specific charge mapping.</summary>
+    Task<DataResult<List<ChgMapAiReasonRecord>>> GetAiReasonsAsync(int chgMapId, SecurityContext securityContext);
+
+    // ============================================
     // Domain AI Config CRUD
     // ============================================
 
