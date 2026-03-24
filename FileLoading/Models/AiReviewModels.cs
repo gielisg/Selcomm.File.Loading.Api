@@ -561,6 +561,10 @@ public class AiFileAnalysisRequest
 /// </summary>
 public class AiFileAnalysisResponse
 {
+    /// <summary>Persisted analysis result ID (from ntfl_ai_analysis_result).</summary>
+    /// <example>5</example>
+    public int? AnalysisId { get; set; }
+
     /// <summary>File type code that was analysed.</summary>
     /// <example>CRAYON_SUB</example>
     public string FileTypeCode { get; set; } = string.Empty;

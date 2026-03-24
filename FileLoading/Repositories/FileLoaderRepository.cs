@@ -4060,6 +4060,15 @@ public class FileLoaderRepository : IFileLoaderRepository
             ("@p1", (object)fileTypeCode, DbType.String, (int?)null)
         );
 
+        if (result.IsSuccess && result.Data != null)
+        {
+            // Reconstitute overflow for each record
+            foreach (var record in result.Data)
+            {
+                record.AnalysisJson = await ReconstituteJsonAsync(record.AnalysisId, record.AnalysisJson);
+            }
+        }
+
         return new DataResult<List<AiAnalysisResultRecord>>
         {
             StatusCode = result.IsSuccess ? 200 : result.StatusCode,
@@ -4068,6 +4077,8 @@ public class FileLoaderRepository : IFileLoaderRepository
             ErrorMessage = result.ErrorMessage
         };
     }
+
+    private const int JsonChunkSize = 15000; // Leave margin below LVARCHAR(16000)
 
     public async Task<DataResult<AiAnalysisResultRecord>> GetAnalysisResultAsync(int analysisId)
     {
@@ -4095,18 +4106,25 @@ public class FileLoaderRepository : IFileLoaderRepository
         if (record == null)
             return new DataResult<AiAnalysisResultRecord> { StatusCode = 404, ErrorCode = "FileLoading.AnalysisNotFound", ErrorMessage = $"Analysis result {analysisId} not found" };
 
+        // Reconstitute overflow if present
+        record.AnalysisJson = await ReconstituteJsonAsync(analysisId, record.AnalysisJson);
+
         return new DataResult<AiAnalysisResultRecord> { StatusCode = 200, Data = record };
     }
 
     public async Task<ValueResult<int>> InsertAnalysisResultAsync(AiAnalysisResultRecord record)
     {
+        // Split JSON into chunks if needed
+        var json = record.AnalysisJson ?? "";
+        var parentJson = json.Length <= JsonChunkSize ? json : json[..JsonChunkSize];
+
         var cmd = _dbContext.ExecuteRawCommand(
             @"INSERT INTO ntfl_ai_analysis_result (file_type_code, ingestion_readiness, summary, analysis_json, created_by, created_tm)
               VALUES (?, ?, ?, ?, ?, CURRENT YEAR TO SECOND)",
             ("@p1", (object)record.FileTypeCode, DbType.String, (int?)null),
             ("@p2", (object?)record.IngestionReadiness ?? DBNull.Value, DbType.String, (int?)null),
             ("@p3", (object?)record.Summary ?? DBNull.Value, DbType.String, (int?)null),
-            ("@p4", (object?)record.AnalysisJson ?? DBNull.Value, DbType.String, (int?)null),
+            ("@p4", (object)parentJson, DbType.String, (int?)null),
             ("@p5", (object?)record.CreatedBy ?? DBNull.Value, DbType.String, (int?)null)
         );
 
@@ -4115,27 +4133,100 @@ public class FileLoaderRepository : IFileLoaderRepository
 
         // Get inserted ID
         var idResult = _dbContext.ExecuteRawScalar<int>("SELECT DBINFO('sqlca.sqlerrd1') FROM systables WHERE tabid = 1");
-        return new ValueResult<int> { StatusCode = 201, Value = idResult.IsSuccess ? idResult.Value : 0 };
+        var analysisId = idResult.IsSuccess ? idResult.Value : 0;
+
+        // Insert overflow chunks if JSON was split
+        if (json.Length > JsonChunkSize && analysisId > 0)
+        {
+            var remaining = json[JsonChunkSize..];
+            var partNumber = 1;
+            while (remaining.Length > 0)
+            {
+                var chunk = remaining.Length <= JsonChunkSize ? remaining : remaining[..JsonChunkSize];
+                _dbContext.ExecuteRawCommand(
+                    "INSERT INTO ntfl_ai_analysis_overflow (analysis_id, part_number, json_content) VALUES (?, ?, ?)",
+                    ("@p1", (object)analysisId, DbType.Int32, (int?)null),
+                    ("@p2", (object)partNumber, DbType.Int32, (int?)null),
+                    ("@p3", (object)chunk, DbType.String, (int?)null)
+                );
+                remaining = remaining.Length <= JsonChunkSize ? "" : remaining[JsonChunkSize..];
+                partNumber++;
+            }
+        }
+
+        return new ValueResult<int> { StatusCode = 201, Value = analysisId };
     }
 
     public async Task<RawCommandResult> UpdateAnalysisResultAsync(AiAnalysisResultRecord record)
     {
-        return _dbContext.ExecuteRawCommand(
+        var json = record.AnalysisJson ?? "";
+        var parentJson = json.Length <= JsonChunkSize ? json : json[..JsonChunkSize];
+
+        var result = _dbContext.ExecuteRawCommand(
             @"UPDATE ntfl_ai_analysis_result SET ingestion_readiness = ?, summary = ?, analysis_json = ?, updated_by = ?, last_updated = CURRENT YEAR TO SECOND WHERE analysis_id = ?",
             ("@p1", (object?)record.IngestionReadiness ?? DBNull.Value, DbType.String, (int?)null),
             ("@p2", (object?)record.Summary ?? DBNull.Value, DbType.String, (int?)null),
-            ("@p3", (object?)record.AnalysisJson ?? DBNull.Value, DbType.String, (int?)null),
+            ("@p3", (object)parentJson, DbType.String, (int?)null),
             ("@p4", (object?)record.UpdatedBy ?? DBNull.Value, DbType.String, (int?)null),
             ("@p5", (object)record.AnalysisId, DbType.Int32, (int?)null)
         );
+
+        // Replace overflow chunks
+        _dbContext.ExecuteRawCommand(
+            "DELETE FROM ntfl_ai_analysis_overflow WHERE analysis_id = ?",
+            ("@p1", (object)record.AnalysisId, DbType.Int32, (int?)null)
+        );
+
+        if (json.Length > JsonChunkSize)
+        {
+            var remaining = json[JsonChunkSize..];
+            var partNumber = 1;
+            while (remaining.Length > 0)
+            {
+                var chunk = remaining.Length <= JsonChunkSize ? remaining : remaining[..JsonChunkSize];
+                _dbContext.ExecuteRawCommand(
+                    "INSERT INTO ntfl_ai_analysis_overflow (analysis_id, part_number, json_content) VALUES (?, ?, ?)",
+                    ("@p1", (object)record.AnalysisId, DbType.Int32, (int?)null),
+                    ("@p2", (object)partNumber, DbType.Int32, (int?)null),
+                    ("@p3", (object)chunk, DbType.String, (int?)null)
+                );
+                remaining = remaining.Length <= JsonChunkSize ? "" : remaining[JsonChunkSize..];
+                partNumber++;
+            }
+        }
+
+        return result;
     }
 
     public async Task<RawCommandResult> DeleteAnalysisResultAsync(int analysisId)
     {
+        // Delete overflow first (FK constraint)
+        _dbContext.ExecuteRawCommand(
+            "DELETE FROM ntfl_ai_analysis_overflow WHERE analysis_id = ?",
+            ("@p1", (object)analysisId, DbType.Int32, (int?)null)
+        );
+
         return _dbContext.ExecuteRawCommand(
             "DELETE FROM ntfl_ai_analysis_result WHERE analysis_id = ?",
             ("@p1", (object)analysisId, DbType.Int32, (int?)null)
         );
+    }
+
+    /// <summary>Reconstitute JSON from parent + overflow chunks.</summary>
+    private async Task<string?> ReconstituteJsonAsync(int analysisId, string? parentJson)
+    {
+        if (string.IsNullOrEmpty(parentJson)) return parentJson;
+
+        var overflow = _dbContext.ExecuteRawQuery<string>(
+            "SELECT json_content FROM ntfl_ai_analysis_overflow WHERE analysis_id = ? ORDER BY part_number",
+            reader => reader.GetString(0).Trim(),
+            ("@p1", (object)analysisId, DbType.Int32, (int?)null)
+        );
+
+        if (!overflow.IsSuccess || overflow.Data == null || overflow.Data.Count == 0)
+            return parentJson;
+
+        return parentJson + string.Concat(overflow.Data);
     }
 
     // ============================================

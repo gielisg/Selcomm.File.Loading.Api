@@ -354,7 +354,7 @@ Return ONLY the prompt text as markdown, no JSON wrapping.";
 
 Generate a detailed, file-type-specific validation/parsing prompt based on the above analysis.";
 
-        var apiResult = await CallGatewayAsync(systemPrompt, userPrompt, "prompt-generation");
+        var apiResult = await CallGatewayAsync(systemPrompt, userPrompt, "prompt-generation", 8192);
         if (!apiResult.IsSuccess)
             return Forward<AiFileTypePromptRecord>(apiResult);
 
@@ -706,8 +706,8 @@ Generate a detailed, file-type-specific validation/parsing prompt based on the a
 
         var userPrompt = BuildAnalysisUserPrompt(fileTypeCode, exampleContent, request?.FocusAreas);
 
-        // 4. Call AI Gateway
-        var apiResult = await CallGatewayAsync(systemPrompt, userPrompt, "file-analysis");
+        // 4. Call AI Gateway (8192 tokens for analysis — large JSON with many column mappings)
+        var apiResult = await CallGatewayAsync(systemPrompt, userPrompt, "file-analysis", 8192);
         if (!apiResult.IsSuccess)
             return Forward<AiFileAnalysisResponse>(apiResult);
 
@@ -741,7 +741,18 @@ Generate a detailed, file-type-specific validation/parsing prompt based on the a
             AnalysisJson = JsonSerializer.Serialize(response, JsonOpts),
             CreatedBy = securityContext.UserCode ?? "SYSTEM"
         };
-        await _repository.InsertAnalysisResultAsync(analysisRecord);
+        var insertResult = await _repository.InsertAnalysisResultAsync(analysisRecord);
+        if (insertResult.IsSuccess)
+        {
+            response.AnalysisId = insertResult.Value;
+            _logger.LogInformation("Persisted analysis result {AnalysisId} for {FileTypeCode} (JSON length: {JsonLength})",
+                insertResult.Value, fileTypeCode, analysisRecord.AnalysisJson?.Length ?? 0);
+        }
+        else
+        {
+            _logger.LogWarning("Failed to persist analysis result for {FileTypeCode}: {ErrorCode} {ErrorMessage}",
+                fileTypeCode, insertResult.ErrorCode, insertResult.ErrorMessage);
+        }
 
         _logger.LogInformation("AI file analysis completed for {FileTypeCode}: readiness={Readiness}, {ColumnCount} columns, {MappingCount} mappings",
             fileTypeCode, response.IngestionReadiness, response.Columns.Count, response.BillingConceptMappings.Count);
@@ -1236,7 +1247,7 @@ Return ONLY the JSON object, no markdown fences or other text.";
     /// Returns the raw text content and usage info.
     /// </summary>
     private async Task<DataResult<(string TextContent, AiReviewUsage Usage)>> CallGatewayAsync(
-        string systemPrompt, string userPrompt, string agentName)
+        string systemPrompt, string userPrompt, string agentName, int maxTokens = 4096)
     {
         var client = _httpClientFactory.CreateClient("AiGateway");
 
@@ -1249,6 +1260,7 @@ Return ONLY the JSON object, no markdown fences or other text.";
             },
             AppName = "file-loading",
             AgentName = agentName,
+            MaxTokens = maxTokens,
             Temperature = 0.0
         };
 
