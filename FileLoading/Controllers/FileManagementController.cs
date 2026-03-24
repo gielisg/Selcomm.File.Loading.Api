@@ -1970,9 +1970,281 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         return result.StatusCode switch
         {
             200 => Ok(result.Data),
+            201 => StatusCode(201, result.Data),
             204 => NoContent(),
+            400 => BadRequest(new ErrorResponse(result.ErrorMessage ?? "Bad request", result.ErrorCode)),
             404 => NotFound(new ErrorResponse(result.ErrorMessage ?? "Not found", result.ErrorCode)),
+            409 => Conflict(new ErrorResponse(result.ErrorMessage ?? "Conflict", result.ErrorCode)),
             _ => StatusCode(result.StatusCode, new ErrorResponse(result.ErrorMessage ?? "An error occurred", result.ErrorCode))
         };
+    }
+
+    // ============================================
+    // Custom Table Management
+    // ============================================
+
+    /// <summary>
+    /// Get all custom table versions for a file type.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <response code="200">Custom table info returned successfully</response>
+    /// <response code="204">No custom table exists for this file type</response>
+    /// <response code="401">Unauthorized</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("parsers/{file-type-code}/custom-table")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_parsers_file_type_code_custom_table")]
+    [Tags("Custom Tables")]
+    [ProducesResponseType(typeof(CustomTableInfo), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetCustomTable([FromRoute(Name = "file-type-code")] string fileTypeCode)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_parsers_file_type_code_custom_table");
+            var result = await _managementService.GetCustomTableInfoAsync(fileTypeCode, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting custom table for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Propose a new custom table based on current column mappings. No database changes are made.
+    /// Returns the proposed DDL, table name, and column definitions.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <response code="200">Proposed DDL returned successfully</response>
+    /// <response code="400">No column mappings configured</response>
+    /// <response code="404">Parser configuration not found</response>
+    /// <response code="409">Active table exists with no records (use existing or drop it)</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPost("parsers/{file-type-code}/custom-table/propose")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_parsers_file_type_code_custom_table_propose")]
+    [Tags("Custom Tables")]
+    [ProducesResponseType(typeof(CustomTableProposal), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> ProposeCustomTable([FromRoute(Name = "file-type-code")] string fileTypeCode)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_parsers_file_type_code_custom_table_propose");
+            var result = await _managementService.ProposeCustomTableAsync(fileTypeCode, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error proposing custom table for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Create the custom table in the database for this file type.
+    /// Generates and executes the CREATE TABLE DDL based on current column mappings.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <response code="201">Custom table created successfully</response>
+    /// <response code="400">No column mappings configured</response>
+    /// <response code="404">Parser configuration not found</response>
+    /// <response code="409">Active custom table already exists</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPost("parsers/{file-type-code}/custom-table")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_parsers_file_type_code_custom_table")]
+    [Tags("Custom Tables")]
+    [ProducesResponseType(typeof(CustomTableMetadata), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> CreateCustomTable([FromRoute(Name = "file-type-code")] string fileTypeCode)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_parsers_file_type_code_custom_table");
+            var result = await _managementService.CreateCustomTableAsync(fileTypeCode, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating custom table for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Create a new version of the custom table. Retires the current active version.
+    /// Only allowed when the current active version has records.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <response code="201">New version created successfully</response>
+    /// <response code="400">Current version has no records or no column mappings</response>
+    /// <response code="404">No active custom table exists</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPost("parsers/{file-type-code}/custom-table/new-version")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_parsers_file_type_code_custom_table_new_version")]
+    [Tags("Custom Tables")]
+    [ProducesResponseType(typeof(CustomTableMetadata), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> CreateCustomTableNewVersion([FromRoute(Name = "file-type-code")] string fileTypeCode)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_parsers_file_type_code_custom_table_new_version");
+            var result = await _managementService.CreateCustomTableNewVersionAsync(fileTypeCode, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating new custom table version for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Drop a specific version of a custom table. Only allowed if the table is empty.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <param name="version">Table version number</param>
+    /// <response code="200">Table dropped successfully</response>
+    /// <response code="400">Table has records and cannot be dropped</response>
+    /// <response code="404">Version not found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpDelete("parsers/{file-type-code}/custom-table/{version}")]
+    [SwaggerOperation(OperationId = "delete_api_v4_file_loading_parsers_file_type_code_custom_table_version")]
+    [Tags("Custom Tables")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DropCustomTableVersion(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromRoute] int version)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("delete_api_v4_file_loading_parsers_file_type_code_custom_table_version");
+            var result = await _managementService.DropCustomTableVersionAsync(fileTypeCode, version, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error dropping custom table v{Version} for fileTypeCode={FileTypeCode}", version, fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Get the live record count for a specific custom table version.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <param name="version">Table version number</param>
+    /// <response code="200">Record count returned</response>
+    /// <response code="400">Table has been dropped</response>
+    /// <response code="404">Version not found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("parsers/{file-type-code}/custom-table/{version}/count")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_parsers_file_type_code_custom_table_version_count")]
+    [Tags("Custom Tables")]
+    [ProducesResponseType(typeof(int), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetCustomTableRecordCount(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromRoute] int version)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_parsers_file_type_code_custom_table_version_count");
+            var result = await _managementService.GetCustomTableRecordCountAsync(fileTypeCode, version, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting record count for custom table v{Version}, fileTypeCode={FileTypeCode}", version, fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Test load a file into the custom table. Creates a temporary file record that can be cleaned up.
+    /// Use this to verify the table structure works with real data before going live.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <param name="file">File to test load</param>
+    /// <response code="201">Test load completed</response>
+    /// <response code="404">No active custom table or parser config found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPost("parsers/{file-type-code}/custom-table/test-load")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_parsers_file_type_code_custom_table_test_load")]
+    [Tags("Custom Tables")]
+    [ProducesResponseType(typeof(TestLoadResult), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> TestLoadCustomTable(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        IFormFile file)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_parsers_file_type_code_custom_table_test_load");
+            using var stream = file.OpenReadStream();
+            var result = await _managementService.TestLoadCustomTableAsync(fileTypeCode, stream, file.FileName, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error test loading file into custom table for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Delete a test-loaded file's records from the custom table and remove the file record.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <param name="ntFileNum">NT file number from the test load response</param>
+    /// <response code="200">Test load records deleted successfully</response>
+    /// <response code="404">File or custom table not found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpDelete("parsers/{file-type-code}/custom-table/test-load/{nt-file-num}")]
+    [SwaggerOperation(OperationId = "delete_api_v4_file_loading_parsers_file_type_code_custom_table_test_load_nt_file_num")]
+    [Tags("Custom Tables")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DeleteTestLoad(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromRoute(Name = "nt-file-num")] int ntFileNum)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("delete_api_v4_file_loading_parsers_file_type_code_custom_table_test_load_nt_file_num");
+            var result = await _managementService.DeleteTestLoadAsync(fileTypeCode, ntFileNum, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting test load {NtFileNum} for fileTypeCode={FileTypeCode}", ntFileNum, fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
     }
 }

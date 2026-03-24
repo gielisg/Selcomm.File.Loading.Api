@@ -1158,4 +1158,291 @@ public class FileManagementService : IFileManagementService
         var result = await _repository.DeleteFileTypeNtAsync(fileTypeCode);
         return new DataResult<bool> { StatusCode = result.IsSuccess ? 200 : 500, Data = result.IsSuccess, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
     }
+
+    // ============================================
+    // Custom Table Management
+    // ============================================
+
+    public async Task<DataResult<CustomTableInfo>> GetCustomTableInfoAsync(string fileTypeCode, SecurityContext context)
+    {
+        var tablesResult = await _repository.GetCustomTablesAsync(fileTypeCode);
+        if (!tablesResult.IsSuccess)
+            return new DataResult<CustomTableInfo> { StatusCode = 500, ErrorCode = "FileLoading.DatabaseError", ErrorMessage = tablesResult.ErrorMessage };
+
+        var allVersions = tablesResult.Data ?? new List<CustomTableMetadata>();
+        if (allVersions.Count == 0)
+            return new DataResult<CustomTableInfo> { StatusCode = 204 };
+
+        var info = new CustomTableInfo
+        {
+            FileTypeCode = fileTypeCode.Trim(),
+            ActiveVersion = allVersions.FirstOrDefault(v => v.Status == "ACTIVE"),
+            AllVersions = allVersions
+        };
+
+        return new DataResult<CustomTableInfo> { StatusCode = 200, Data = info };
+    }
+
+    public async Task<DataResult<CustomTableProposal>> ProposeCustomTableAsync(string fileTypeCode, SecurityContext context)
+    {
+        // Get parser config with column mappings
+        var config = await _repository.GetGenericFileFormatConfigAsync(fileTypeCode);
+        if (config == null)
+            return new DataResult<CustomTableProposal> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = $"No parser configuration found for '{fileTypeCode}'" };
+
+        if (config.ColumnMappings.Count == 0)
+            return new DataResult<CustomTableProposal> { StatusCode = 400, ErrorCode = "FileLoading.NoMappings", ErrorMessage = "Parser configuration has no column mappings defined" };
+
+        // Determine version
+        var existing = await _repository.GetActiveCustomTableAsync(fileTypeCode);
+        int proposedVersion;
+
+        if (existing == null)
+        {
+            // Check if there are any versions at all (all retired/dropped)
+            var allResult = await _repository.GetCustomTablesAsync(fileTypeCode);
+            var allVersions = allResult.Data ?? new List<CustomTableMetadata>();
+            proposedVersion = allVersions.Count > 0 ? allVersions.Max(v => v.Version) + 1 : 1;
+        }
+        else
+        {
+            // New version — check records exist in current
+            var recordCount = await _repository.GetLiveRecordCountAsync(existing.TableName);
+            if (recordCount == 0)
+                return new DataResult<CustomTableProposal> { StatusCode = 409, ErrorCode = "FileLoading.ActiveTableEmpty", ErrorMessage = "Active table has no records. Use the existing table or drop it first." };
+
+            proposedVersion = existing.Version + 1;
+        }
+
+        var tableName = CustomTableHelper.DeriveTableName(fileTypeCode, proposedVersion);
+        var ddl = CustomTableHelper.GenerateCreateTableDdl(tableName, config.ColumnMappings);
+        var columns = CustomTableHelper.BuildColumnDefs(config.ColumnMappings);
+
+        var proposal = new CustomTableProposal
+        {
+            FileTypeCode = fileTypeCode.Trim(),
+            TableName = tableName,
+            ProposedVersion = proposedVersion,
+            Ddl = ddl,
+            Columns = columns
+        };
+
+        return new DataResult<CustomTableProposal> { StatusCode = 200, Data = proposal };
+    }
+
+    public async Task<DataResult<CustomTableMetadata>> CreateCustomTableAsync(string fileTypeCode, SecurityContext context)
+    {
+        // Get parser config
+        var config = await _repository.GetGenericFileFormatConfigAsync(fileTypeCode);
+        if (config == null)
+            return new DataResult<CustomTableMetadata> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = $"No parser configuration found for '{fileTypeCode}'" };
+
+        if (config.ColumnMappings.Count == 0)
+            return new DataResult<CustomTableMetadata> { StatusCode = 400, ErrorCode = "FileLoading.NoMappings", ErrorMessage = "Parser configuration has no column mappings defined" };
+
+        // Check no active table exists
+        var existing = await _repository.GetActiveCustomTableAsync(fileTypeCode);
+        if (existing != null)
+            return new DataResult<CustomTableMetadata> { StatusCode = 409, ErrorCode = "FileLoading.ActiveTableExists", ErrorMessage = $"Active custom table '{existing.TableName}' already exists. Use new-version endpoint instead." };
+
+        // Determine version
+        var allResult = await _repository.GetCustomTablesAsync(fileTypeCode);
+        var allVersions = allResult.Data ?? new List<CustomTableMetadata>();
+        var version = allVersions.Count > 0 ? allVersions.Max(v => v.Version) + 1 : 1;
+
+        var tableName = CustomTableHelper.DeriveTableName(fileTypeCode, version);
+        var ddl = CustomTableHelper.GenerateCreateTableDdl(tableName, config.ColumnMappings);
+        var columns = CustomTableHelper.BuildColumnDefs(config.ColumnMappings);
+        var columnDefJson = JsonSerializer.Serialize(columns);
+
+        // Execute DDL
+        var ddlResult = await _repository.ExecuteCreateTableAsync(ddl);
+        if (!ddlResult.IsSuccess)
+            return new DataResult<CustomTableMetadata> { StatusCode = 500, ErrorCode = "FileLoading.DdlFailed", ErrorMessage = $"Failed to create table: {ddlResult.ErrorMessage}" };
+
+        // Insert metadata
+        var metadata = new CustomTableMetadata
+        {
+            FileTypeCode = fileTypeCode.Trim(),
+            TableName = tableName,
+            Version = version,
+            Status = "ACTIVE",
+            ColumnCount = config.ColumnMappings.Count,
+            ColumnDefinition = columnDefJson,
+            CreatedBy = context.UserCode
+        };
+
+        var insertResult = await _repository.InsertCustomTableMetadataAsync(metadata);
+        metadata.CustomTableId = insertResult.Value;
+
+        _logger.LogInformation("Created custom table {TableName} (v{Version}) for file type {FileTypeCode}",
+            tableName, version, fileTypeCode);
+
+        return new DataResult<CustomTableMetadata> { StatusCode = 201, Data = metadata };
+    }
+
+    public async Task<DataResult<CustomTableMetadata>> CreateCustomTableNewVersionAsync(string fileTypeCode, SecurityContext context)
+    {
+        // Check current active version exists and has records
+        var existing = await _repository.GetActiveCustomTableAsync(fileTypeCode);
+        if (existing == null)
+            return new DataResult<CustomTableMetadata> { StatusCode = 404, ErrorCode = "FileLoading.NoActiveTable", ErrorMessage = "No active custom table exists. Use create endpoint instead." };
+
+        var recordCount = await _repository.GetLiveRecordCountAsync(existing.TableName);
+        if (recordCount == 0)
+            return new DataResult<CustomTableMetadata> { StatusCode = 400, ErrorCode = "FileLoading.ActiveTableEmpty", ErrorMessage = "Current active table has no records. Cannot create new version until records exist." };
+
+        // Get current column mappings
+        var config = await _repository.GetGenericFileFormatConfigAsync(fileTypeCode);
+        if (config == null || config.ColumnMappings.Count == 0)
+            return new DataResult<CustomTableMetadata> { StatusCode = 400, ErrorCode = "FileLoading.NoMappings", ErrorMessage = "Parser configuration has no column mappings" };
+
+        var newVersion = existing.Version + 1;
+        var tableName = CustomTableHelper.DeriveTableName(fileTypeCode, newVersion);
+        var ddl = CustomTableHelper.GenerateCreateTableDdl(tableName, config.ColumnMappings);
+        var columns = CustomTableHelper.BuildColumnDefs(config.ColumnMappings);
+        var columnDefJson = JsonSerializer.Serialize(columns);
+
+        // Execute DDL for new table
+        var ddlResult = await _repository.ExecuteCreateTableAsync(ddl);
+        if (!ddlResult.IsSuccess)
+            return new DataResult<CustomTableMetadata> { StatusCode = 500, ErrorCode = "FileLoading.DdlFailed", ErrorMessage = $"Failed to create table: {ddlResult.ErrorMessage}" };
+
+        // Retire current version
+        await _repository.UpdateCustomTableStatusAsync(existing.CustomTableId, "RETIRED");
+
+        // Insert new metadata
+        var metadata = new CustomTableMetadata
+        {
+            FileTypeCode = fileTypeCode.Trim(),
+            TableName = tableName,
+            Version = newVersion,
+            Status = "ACTIVE",
+            ColumnCount = config.ColumnMappings.Count,
+            ColumnDefinition = columnDefJson,
+            CreatedBy = context.UserCode
+        };
+
+        var insertResult = await _repository.InsertCustomTableMetadataAsync(metadata);
+        metadata.CustomTableId = insertResult.Value;
+
+        _logger.LogInformation("Created new version v{Version} of custom table for {FileTypeCode}. Previous v{OldVersion} retired.",
+            newVersion, fileTypeCode, existing.Version);
+
+        return new DataResult<CustomTableMetadata> { StatusCode = 201, Data = metadata };
+    }
+
+    public async Task<DataResult<bool>> DropCustomTableVersionAsync(string fileTypeCode, int version, SecurityContext context)
+    {
+        var tableMetadata = await _repository.GetCustomTableByVersionAsync(fileTypeCode, version);
+        if (tableMetadata == null)
+            return new DataResult<bool> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = $"Custom table version {version} not found for '{fileTypeCode}'" };
+
+        if (tableMetadata.Status == "DROPPED")
+            return new DataResult<bool> { StatusCode = 400, ErrorCode = "FileLoading.AlreadyDropped", ErrorMessage = "Table has already been dropped" };
+
+        // Check table is empty
+        var recordCount = await _repository.GetLiveRecordCountAsync(tableMetadata.TableName);
+        if (recordCount > 0)
+            return new DataResult<bool> { StatusCode = 400, ErrorCode = "FileLoading.TableNotEmpty", ErrorMessage = $"Table has {recordCount} records. Cannot drop a non-empty table." };
+
+        // Drop the physical table
+        var dropResult = await _repository.DropTableAsync(tableMetadata.TableName);
+        if (!dropResult.IsSuccess)
+            return new DataResult<bool> { StatusCode = 500, ErrorCode = "FileLoading.DropFailed", ErrorMessage = $"Failed to drop table: {dropResult.ErrorMessage}" };
+
+        // Update metadata
+        await _repository.UpdateCustomTableStatusAsync(tableMetadata.CustomTableId, "DROPPED", DateTime.Now);
+
+        _logger.LogInformation("Dropped custom table {TableName} (v{Version}) for {FileTypeCode}",
+            tableMetadata.TableName, version, fileTypeCode);
+
+        return new DataResult<bool> { StatusCode = 200, Data = true };
+    }
+
+    public async Task<DataResult<int>> GetCustomTableRecordCountAsync(string fileTypeCode, int version, SecurityContext context)
+    {
+        var tableMetadata = await _repository.GetCustomTableByVersionAsync(fileTypeCode, version);
+        if (tableMetadata == null)
+            return new DataResult<int> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = $"Custom table version {version} not found for '{fileTypeCode}'" };
+
+        if (tableMetadata.Status == "DROPPED")
+            return new DataResult<int> { StatusCode = 400, ErrorCode = "FileLoading.TableDropped", ErrorMessage = "Table has been dropped" };
+
+        var count = await _repository.GetLiveRecordCountAsync(tableMetadata.TableName);
+        return new DataResult<int> { StatusCode = 200, Data = count };
+    }
+
+    public async Task<DataResult<TestLoadResult>> TestLoadCustomTableAsync(string fileTypeCode, Stream fileStream, string fileName, SecurityContext context)
+    {
+        // Check custom table exists
+        var customTable = await _repository.GetActiveCustomTableAsync(fileTypeCode);
+        if (customTable == null)
+            return new DataResult<TestLoadResult> { StatusCode = 404, ErrorCode = "FileLoading.NoActiveTable", ErrorMessage = "No active custom table exists for this file type" };
+
+        // Save uploaded file to temp location
+        var tempPath = Path.Combine(Path.GetTempPath(), $"testload_{Guid.NewGuid():N}_{fileName}");
+        try
+        {
+            using (var fs = new FileStream(tempPath, FileMode.Create))
+            {
+                await fileStream.CopyToAsync(fs);
+            }
+
+            // Use the existing file loader service to process the file
+            // It will automatically route to the custom table (once parser integration is done)
+            var loadResult = await _fileLoaderService.LoadFileAsync(
+                new LoadFileRequest
+                {
+                    FileName = tempPath,
+                    FileType = fileTypeCode
+                },
+                context);
+
+            var testResult = new TestLoadResult
+            {
+                NtFileNum = loadResult.Data?.NtFileNum ?? 0,
+                RecordsLoaded = loadResult.Data?.RecordsLoaded ?? 0,
+                RecordsFailed = loadResult.Data?.RecordsFailed ?? 0
+            };
+
+            // If the load failed, include the error message
+            if (!loadResult.IsSuccess && !string.IsNullOrEmpty(loadResult.ErrorMessage))
+                testResult.Errors.Add(loadResult.ErrorMessage);
+
+            return new DataResult<TestLoadResult> { StatusCode = 201, Data = testResult };
+        }
+        finally
+        {
+            // Clean up temp file
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
+        }
+    }
+
+    public async Task<DataResult<bool>> DeleteTestLoadAsync(string fileTypeCode, int ntFileNum, SecurityContext context)
+    {
+        // Verify this is a test file
+        var fileTypeCode2 = await _repository.GetFileTypeCodeForFileAsync(ntFileNum);
+        if (fileTypeCode2 == null)
+            return new DataResult<bool> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = "File not found" };
+
+        // Get active custom table
+        var customTable = await _repository.GetActiveCustomTableAsync(fileTypeCode);
+        if (customTable == null)
+            return new DataResult<bool> { StatusCode = 404, ErrorCode = "FileLoading.NoActiveTable", ErrorMessage = "No active custom table found" };
+
+        // Delete records from custom table
+        await _repository.DeleteCustomTableRecordsAsync(customTable.TableName, ntFileNum);
+
+        // Also delete from generic detail in case it went there
+        await _repository.UnloadFileRecordsAsync(ntFileNum, context);
+
+        // Delete the nt_file record
+        await _repository.DeleteNtFileAsync(ntFileNum);
+
+        _logger.LogInformation("Deleted test load {NtFileNum} from custom table {TableName}", ntFileNum, customTable.TableName);
+
+        return new DataResult<bool> { StatusCode = 200, Data = true };
+    }
 }

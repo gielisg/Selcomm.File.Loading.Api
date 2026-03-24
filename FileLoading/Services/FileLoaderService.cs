@@ -381,7 +381,7 @@ public class FileLoaderService : IFileLoaderService
             if (fileClassCode == "GEN")
             {
                 (recordsLoaded, recordsFailed, totalCost, recordErrors) = await ProcessGenericRecordsStreamingAsync(
-                    ntFileNum, parser, stream, context, recordNum, securityContext, options);
+                    ntFileNum, context.FileType, parser, stream, context, recordNum, securityContext, options);
             }
             else if (fileClassCode == "CHG")
             {
@@ -511,7 +511,7 @@ public class FileLoaderService : IFileLoaderService
         if (fileClassCode == "GEN")
         {
             (recordsLoaded, recordsFailed, totalCost) = await ProcessGenericRecordsAsync(
-                ntFileNum, parseResult.Records, recordNum, securityContext, options);
+                ntFileNum, context.FileType, parseResult.Records, recordNum, securityContext, options);
         }
         else if (fileClassCode == "CHG")
         {
@@ -787,6 +787,7 @@ public class FileLoaderService : IFileLoaderService
     /// </summary>
     private async Task<(int loaded, int failed, decimal totalCost, List<ParseError> errors)> ProcessGenericRecordsStreamingAsync(
         int ntFileNum,
+        string fileType,
         IFileParser parser,
         Stream fileStream,
         ParseContext context,
@@ -799,6 +800,16 @@ public class FileLoaderService : IFileLoaderService
         var totalCost = 0m;
         var recordNum = startRecordNum;
         var errors = new List<ParseError>();
+
+        // Check if a custom table exists for this file type
+        var customTable = await _repository.GetActiveCustomTableAsync(fileType);
+        List<GenericColumnMapping>? customMappings = null;
+        if (customTable != null)
+        {
+            var config = await _repository.GetGenericFileFormatConfigAsync(fileType);
+            customMappings = config?.ColumnMappings;
+            _logger.LogInformation("Using custom table {TableName} for file type {FileType}", customTable.TableName, fileType);
+        }
 
         var batch = new List<GenericDetailRecord>(options.EffectiveBatchSize);
 
@@ -836,7 +847,9 @@ public class FileLoaderService : IFileLoaderService
             // Flush batch when full
             if (batch.Count >= options.EffectiveBatchSize)
             {
-                var insertResult = await _repository.InsertGenericDetailBatchOptimizedAsync(batch, options.EffectiveTransactionBatchSize);
+                var insertResult = customTable != null && customMappings != null
+                    ? await _repository.InsertCustomTableBatchAsync(customTable.TableName, customMappings, batch, options.EffectiveTransactionBatchSize)
+                    : await _repository.InsertGenericDetailBatchOptimizedAsync(batch, options.EffectiveTransactionBatchSize);
                 if (!insertResult.IsSuccess)
                 {
                     _logger.LogError("Batch insert failed: {Error}", insertResult.ErrorMessage);
@@ -848,7 +861,9 @@ public class FileLoaderService : IFileLoaderService
         // Flush remaining records
         if (batch.Count > 0)
         {
-            var insertResult = await _repository.InsertGenericDetailBatchOptimizedAsync(batch, options.EffectiveTransactionBatchSize);
+            var insertResult = customTable != null && customMappings != null
+                ? await _repository.InsertCustomTableBatchAsync(customTable.TableName, customMappings, batch, options.EffectiveTransactionBatchSize)
+                : await _repository.InsertGenericDetailBatchOptimizedAsync(batch, options.EffectiveTransactionBatchSize);
             if (!insertResult.IsSuccess)
             {
                 _logger.LogError("Final batch insert failed: {Error}", insertResult.ErrorMessage);
@@ -863,6 +878,7 @@ public class FileLoaderService : IFileLoaderService
     /// </summary>
     private async Task<(int loaded, int failed, decimal totalCost)> ProcessGenericRecordsAsync(
         int ntFileNum,
+        string fileType,
         List<ParsedRecord> parsedRecords,
         int startRecordNum,
         SecurityContext securityContext,
@@ -872,6 +888,16 @@ public class FileLoaderService : IFileLoaderService
         var recordsFailed = 0;
         var totalCost = 0m;
         var recordNum = startRecordNum;
+
+        // Check if a custom table exists for this file type
+        var customTable = await _repository.GetActiveCustomTableAsync(fileType);
+        List<GenericColumnMapping>? customMappings = null;
+        if (customTable != null)
+        {
+            var config = await _repository.GetGenericFileFormatConfigAsync(fileType);
+            customMappings = config?.ColumnMappings;
+            _logger.LogInformation("Using custom table {TableName} for file type {FileType}", customTable.TableName, fileType);
+        }
 
         var batch = new List<GenericDetailRecord>(options.EffectiveBatchSize);
 
@@ -897,7 +923,9 @@ public class FileLoaderService : IFileLoaderService
 
             if (batch.Count >= options.EffectiveBatchSize)
             {
-                var insertResult = await _repository.InsertGenericDetailBatchOptimizedAsync(batch);
+                var insertResult = customTable != null && customMappings != null
+                    ? await _repository.InsertCustomTableBatchAsync(customTable.TableName, customMappings, batch)
+                    : await _repository.InsertGenericDetailBatchOptimizedAsync(batch);
                 if (!insertResult.IsSuccess)
                 {
                     _logger.LogError("Batch insert failed: {Error}", insertResult.ErrorMessage);
@@ -908,7 +936,9 @@ public class FileLoaderService : IFileLoaderService
 
         if (batch.Count > 0)
         {
-            var insertResult = await _repository.InsertGenericDetailBatchOptimizedAsync(batch);
+            var insertResult = customTable != null && customMappings != null
+                ? await _repository.InsertCustomTableBatchAsync(customTable.TableName, customMappings, batch)
+                : await _repository.InsertGenericDetailBatchOptimizedAsync(batch);
             if (!insertResult.IsSuccess)
             {
                 _logger.LogError("Final batch insert failed: {Error}", insertResult.ErrorMessage);

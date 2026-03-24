@@ -269,6 +269,34 @@ public interface IFileManagementService
     Task<DataResult<FileTypeNtRecord>> CreateFileTypeNtAsync(FileTypeNtRecord record, SecurityContext context);
     Task<DataResult<FileTypeNtRecord>> UpdateFileTypeNtAsync(string fileTypeCode, FileTypeNtRecord record, SecurityContext context);
     Task<DataResult<bool>> DeleteFileTypeNtAsync(string fileTypeCode, SecurityContext context);
+
+    // ============================================
+    // Custom Table Management
+    // ============================================
+
+    /// <summary>Get all custom table versions for a file type.</summary>
+    Task<DataResult<CustomTableInfo>> GetCustomTableInfoAsync(string fileTypeCode, SecurityContext context);
+
+    /// <summary>Propose a new custom table based on current column mappings (no DB changes).</summary>
+    Task<DataResult<CustomTableProposal>> ProposeCustomTableAsync(string fileTypeCode, SecurityContext context);
+
+    /// <summary>Create the custom table in the database.</summary>
+    Task<DataResult<CustomTableMetadata>> CreateCustomTableAsync(string fileTypeCode, SecurityContext context);
+
+    /// <summary>Create a new version of the custom table (retires current version).</summary>
+    Task<DataResult<CustomTableMetadata>> CreateCustomTableNewVersionAsync(string fileTypeCode, SecurityContext context);
+
+    /// <summary>Drop a specific version of a custom table (only if empty).</summary>
+    Task<DataResult<bool>> DropCustomTableVersionAsync(string fileTypeCode, int version, SecurityContext context);
+
+    /// <summary>Get live record count for a custom table version.</summary>
+    Task<DataResult<int>> GetCustomTableRecordCountAsync(string fileTypeCode, int version, SecurityContext context);
+
+    /// <summary>Test load a file into the custom table.</summary>
+    Task<DataResult<TestLoadResult>> TestLoadCustomTableAsync(string fileTypeCode, Stream fileStream, string fileName, SecurityContext context);
+
+    /// <summary>Delete a test-loaded file's records from the custom table.</summary>
+    Task<DataResult<bool>> DeleteTestLoadAsync(string fileTypeCode, int ntFileNum, SecurityContext context);
 }
 
 /// <summary>
