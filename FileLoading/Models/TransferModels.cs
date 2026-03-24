@@ -643,6 +643,32 @@ public class FileActivityLog
 }
 
 /// <summary>
+/// Paged response wrapper for activity log entries.
+/// </summary>
+public class ActivityLogResponse
+{
+    /// <summary>Total matching records (null if count was not requested).</summary>
+    /// <example>150</example>
+    public int? Count { get; set; }
+
+    /// <summary>List of activity log entries for the current page.</summary>
+    public List<FileActivityLog> Items { get; set; } = new();
+}
+
+/// <summary>
+/// Paged response wrapper for file-with-status entries.
+/// </summary>
+public class FileWithStatusResponse
+{
+    /// <summary>Total matching records (null if count was not requested).</summary>
+    /// <example>42</example>
+    public int? Count { get; set; }
+
+    /// <summary>List of files for the current page.</summary>
+    public List<FileWithStatus> Items { get; set; } = new();
+}
+
+/// <summary>
 /// Types of file activities that can be logged in the audit trail.
 /// </summary>
 public enum FileActivityType
@@ -791,9 +817,17 @@ public class FileListFilter
     /// <example>CDR_2025</example>
     public string? FileNameSearch { get; set; }
 
-    /// <summary>Maximum number of records to return.</summary>
-    /// <example>100</example>
-    public int MaxRecords { get; set; } = 100;
+    /// <summary>Number of records to skip.</summary>
+    /// <example>0</example>
+    public int SkipRecords { get; set; } = 0;
+
+    /// <summary>Number of records to return.</summary>
+    /// <example>20</example>
+    public int TakeRecords { get; set; } = 20;
+
+    /// <summary>Whether to include total count: Y=yes, N=no, F=first page only.</summary>
+    /// <example>F</example>
+    public string CountRecords { get; set; } = "F";
 }
 
 /// <summary>

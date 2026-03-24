@@ -32,7 +32,15 @@ public class FileListFilterRequest
     [FromQuery]
     public string? Search { get; set; }
 
-    /// <summary>Maximum records to return (default 100).</summary>
-    [FromQuery(Name = "maxRecords")]
-    public int MaxRecords { get; set; } = 100;
+    /// <summary>Number of records to skip (default 0).</summary>
+    [FromQuery(Name = "skipRecords")]
+    public int SkipRecords { get; set; } = 0;
+
+    /// <summary>Number of records to return (default 20).</summary>
+    [FromQuery(Name = "takeRecords")]
+    public int TakeRecords { get; set; } = 20;
+
+    /// <summary>Include total count: Y=yes, N=no, F=first page only (default F).</summary>
+    [FromQuery(Name = "countRecords")]
+    public string CountRecords { get; set; } = "F";
 }

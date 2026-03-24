@@ -85,7 +85,7 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [HttpGet("manager/files")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_manager_files")]
     [Tags("File Management")]
-    [ProducesResponseType(typeof(FileListWithStatusResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(FileWithStatusResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> ListFiles([FromQuery] FileListFilterRequest request)
@@ -102,7 +102,9 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
                 FromDate = request.FromDate,
                 ToDate = request.ToDate,
                 FileNameSearch = request.Search,
-                MaxRecords = request.MaxRecords
+                SkipRecords = request.SkipRecords,
+                TakeRecords = request.TakeRecords,
+                CountRecords = request.CountRecords ?? "F"
             };
 
             var result = await _managementService.ListFilesAsync(filter, securityContext);
@@ -440,25 +442,29 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// </summary>
     /// <param name="ntFileNum">Filter by file number</param>
     /// <param name="transferId">Filter by transfer record ID</param>
-    /// <param name="maxRecords">Maximum records to return (default 100)</param>
+    /// <param name="skipRecords">Number of records to skip (default 0)</param>
+    /// <param name="takeRecords">Number of records to return (default 20)</param>
+    /// <param name="countRecords">Include total count: Y=yes, N=no, F=first page only (default F)</param>
     /// <response code="200">Activity log entries returned successfully</response>
     /// <response code="401">Unauthorized - invalid or missing authentication</response>
     /// <response code="500">Internal server error</response>
     [HttpGet("activity")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_activity")]
     [Tags("Activity Log")]
-    [ProducesResponseType(typeof(List<FileActivityLog>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ActivityLogResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetActivityLog(
         [FromQuery(Name = "ntFileNum")] int? ntFileNum = null,
         [FromQuery(Name = "transferId")] int? transferId = null,
-        [FromQuery(Name = "maxRecords")] int maxRecords = 100)
+        [FromQuery(Name = "skipRecords")] int skipRecords = 0,
+        [FromQuery(Name = "takeRecords")] int takeRecords = 20,
+        [FromQuery(Name = "countRecords")] string countRecords = "F")
     {
         try
         {
             var securityContext = CreateSecurityContext("get_api_v4_file_loading_activity");
-            var result = await _managementService.GetActivityLogAsync(ntFileNum, transferId, maxRecords, securityContext);
+            var result = await _managementService.GetActivityLogAsync(ntFileNum, transferId, skipRecords, takeRecords, countRecords, securityContext);
 
             return HandleDataResult(result);
         }
@@ -512,24 +518,28 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Get files with processing errors.
     /// </summary>
     /// <param name="fileType">Filter by file type code</param>
-    /// <param name="maxRecords">Maximum records to return (default 100)</param>
+    /// <param name="skipRecords">Number of records to skip (default 0)</param>
+    /// <param name="takeRecords">Number of records to return (default 20)</param>
+    /// <param name="countRecords">Include total count: Y=yes, N=no, F=first page only (default F)</param>
     /// <response code="200">Error files returned successfully</response>
     /// <response code="401">Unauthorized - invalid or missing authentication</response>
     /// <response code="500">Internal server error</response>
     [HttpGet("exceptions/errors")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_exceptions_errors")]
     [Tags("Exceptions")]
-    [ProducesResponseType(typeof(List<FileWithStatus>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(FileWithStatusResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetFilesWithErrors(
         [FromQuery(Name = "fileType")] string? fileType = null,
-        [FromQuery(Name = "maxRecords")] int maxRecords = 100)
+        [FromQuery(Name = "skipRecords")] int skipRecords = 0,
+        [FromQuery(Name = "takeRecords")] int takeRecords = 20,
+        [FromQuery(Name = "countRecords")] string countRecords = "F")
     {
         try
         {
             var securityContext = CreateSecurityContext("get_api_v4_file_loading_exceptions_errors");
-            var result = await _managementService.GetFilesWithErrorsAsync(fileType, maxRecords, securityContext);
+            var result = await _managementService.GetFilesWithErrorsAsync(fileType, skipRecords, takeRecords, countRecords, securityContext);
 
             return HandleDataResult(result);
         }
@@ -544,24 +554,28 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     /// Get skipped files.
     /// </summary>
     /// <param name="fileType">Filter by file type code</param>
-    /// <param name="maxRecords">Maximum records to return (default 100)</param>
+    /// <param name="skipRecords">Number of records to skip (default 0)</param>
+    /// <param name="takeRecords">Number of records to return (default 20)</param>
+    /// <param name="countRecords">Include total count: Y=yes, N=no, F=first page only (default F)</param>
     /// <response code="200">Skipped files returned successfully</response>
     /// <response code="401">Unauthorized - invalid or missing authentication</response>
     /// <response code="500">Internal server error</response>
     [HttpGet("exceptions/skipped")]
     [SwaggerOperation(OperationId = "get_api_v4_file_loading_exceptions_skipped")]
     [Tags("Exceptions")]
-    [ProducesResponseType(typeof(List<FileWithStatus>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(FileWithStatusResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetSkippedFiles(
         [FromQuery(Name = "fileType")] string? fileType = null,
-        [FromQuery(Name = "maxRecords")] int maxRecords = 100)
+        [FromQuery(Name = "skipRecords")] int skipRecords = 0,
+        [FromQuery(Name = "takeRecords")] int takeRecords = 20,
+        [FromQuery(Name = "countRecords")] string countRecords = "F")
     {
         try
         {
             var securityContext = CreateSecurityContext("get_api_v4_file_loading_exceptions_skipped");
-            var result = await _managementService.GetSkippedFilesAsync(fileType, maxRecords, securityContext);
+            var result = await _managementService.GetSkippedFilesAsync(fileType, skipRecords, takeRecords, countRecords, securityContext);
 
             return HandleDataResult(result);
         }
@@ -2244,6 +2258,197 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error deleting test load {NtFileNum} for fileTypeCode={FileTypeCode}", ntFileNum, fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    // ============================================
+    // Charge Mappings (CRUD)
+    // ============================================
+
+    /// <summary>
+    /// List all charge mappings for a file type, ordered by sequence number.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <response code="200">Charge mappings returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("charge-maps/{file-type-code}")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_charge_maps_file_type_code")]
+    [Tags("Charge Mappings")]
+    [ProducesResponseType(typeof(List<NtflChgMapRecord>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetChargeMaps(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_charge_maps_file_type_code");
+            var result = await _managementService.GetChargeMapsAsync(fileTypeCode, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting charge maps for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Get a specific charge mapping by ID.
+    /// </summary>
+    /// <param name="id">Charge mapping ID</param>
+    /// <response code="200">Charge mapping returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Charge mapping not found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("charge-maps/by-id/{id:int}")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_charge_maps_id")]
+    [Tags("Charge Mappings")]
+    [ProducesResponseType(typeof(NtflChgMapRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetChargeMap([FromRoute] int id)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_charge_maps_id");
+            var result = await _managementService.GetChargeMapAsync(id, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting charge map id={Id}", id);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Create a new charge mapping.
+    /// </summary>
+    /// <param name="request">Charge mapping request</param>
+    /// <response code="201">Charge mapping created successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPost("charge-maps")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_charge_maps")]
+    [Tags("Charge Mappings")]
+    [ProducesResponseType(typeof(NtflChgMapRecord), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> CreateChargeMap(
+        [FromBody] NtflChgMapRequest request)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_charge_maps");
+            var result = await _managementService.CreateChargeMapAsync(request, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating charge map for fileTypeCode={FileTypeCode}", request.FileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Update an existing charge mapping.
+    /// </summary>
+    /// <param name="id">Charge mapping ID</param>
+    /// <param name="request">Charge mapping request</param>
+    /// <response code="200">Charge mapping updated successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Charge mapping not found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPatch("charge-maps/{id:int}")]
+    [SwaggerOperation(OperationId = "patch_api_v4_file_loading_charge_maps_id")]
+    [Tags("Charge Mappings")]
+    [ProducesResponseType(typeof(NtflChgMapRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> UpdateChargeMap(
+        [FromRoute] int id,
+        [FromBody] NtflChgMapRequest request)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("patch_api_v4_file_loading_charge_maps_id");
+            var result = await _managementService.UpdateChargeMapAsync(id, request, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating charge map id={Id}", id);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Delete a charge mapping.
+    /// </summary>
+    /// <param name="id">Charge mapping ID</param>
+    /// <response code="200">Charge mapping deleted successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Charge mapping not found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpDelete("charge-maps/{id:int}")]
+    [SwaggerOperation(OperationId = "delete_api_v4_file_loading_charge_maps_id")]
+    [Tags("Charge Mappings")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DeleteChargeMap([FromRoute] int id)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("delete_api_v4_file_loading_charge_maps_id");
+            var result = await _managementService.DeleteChargeMapAsync(id, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting charge map id={Id}", id);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Resolve a charge description to a charge code using the mapping table.
+    /// Tests the description against stored patterns in sequence order and returns the first match.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <param name="description">Charge description text to match</param>
+    /// <response code="200">Resolution result (null data if no match found)</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("charge-maps/{file-type-code}/resolve")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_charge_maps_file_type_code_resolve")]
+    [Tags("Charge Mappings")]
+    [ProducesResponseType(typeof(ChargeMapMatch), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> ResolveChargeMap(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromQuery(Name = "description")] string description)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_charge_maps_file_type_code_resolve");
+            var result = await _managementService.ResolveChargeMapAsync(fileTypeCode, description, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resolving charge map for fileTypeCode={FileTypeCode}", fileTypeCode);
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }

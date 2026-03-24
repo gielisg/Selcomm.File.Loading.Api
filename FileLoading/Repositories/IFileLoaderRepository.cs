@@ -314,7 +314,7 @@ public interface IFileLoaderRepository
     /// Get transfer records with combined status for UI display.
     /// </summary>
     /// <param name="filter">Filter criteria</param>
-    Task<DataResult<List<FileWithStatus>>> ListFilesWithStatusAsync(FileListFilter filter);
+    Task<DataResult<FileWithStatusResponse>> ListFilesWithStatusAsync(FileListFilter filter);
 
     /// <summary>
     /// Delete a transfer record.
@@ -352,12 +352,15 @@ public interface IFileLoaderRepository
     Task<RawCommandResult> InsertActivityLogAsync(FileActivityLog log);
 
     /// <summary>
-    /// Get activity log entries.
+    /// Get activity log entries with standard paging.
     /// </summary>
     /// <param name="ntFileNum">Optional filter by file number</param>
     /// <param name="transferId">Optional filter by transfer ID</param>
-    /// <param name="maxRecords">Maximum records to return</param>
-    Task<DataResult<List<FileActivityLog>>> GetActivityLogsAsync(int? ntFileNum, int? transferId, int maxRecords);
+    /// <param name="skipRecords">Number of records to skip</param>
+    /// <param name="takeRecords">Number of records to return</param>
+    /// <param name="countRecords">Count flag: Y=yes, N=no, F=first page only</param>
+    Task<DataResult<ActivityLogResponse>> GetActivityLogsAsync(
+        int? ntFileNum, int? transferId, int skipRecords, int takeRecords, string countRecords);
 
     // ============================================
     // Dashboard Queries
@@ -620,6 +623,25 @@ public interface IFileLoaderRepository
 
     /// <summary>Delete AI instruction file for a file class.</summary>
     Task<RawCommandResult> DeleteInstructionFileAsync(string fileClassCode);
+
+    // ============================================
+    // Charge Mappings (ntfl_chg_map)
+    // ============================================
+
+    /// <summary>Get all charge mappings for a file type, ordered by seq_no.</summary>
+    Task<DataResult<List<NtflChgMapRecord>>> GetChargeMapsAsync(string fileTypeCode);
+
+    /// <summary>Get a single charge mapping by ID.</summary>
+    Task<DataResult<NtflChgMapRecord>> GetChargeMapAsync(int id);
+
+    /// <summary>Insert a new charge mapping. Returns the new ID.</summary>
+    Task<ValueResult<int>> InsertChargeMapAsync(NtflChgMapRecord record);
+
+    /// <summary>Update an existing charge mapping.</summary>
+    Task<RawCommandResult> UpdateChargeMapAsync(NtflChgMapRecord record);
+
+    /// <summary>Delete a charge mapping.</summary>
+    Task<RawCommandResult> DeleteChargeMapAsync(int id);
 
     // ============================================
     // AI Analysis Results

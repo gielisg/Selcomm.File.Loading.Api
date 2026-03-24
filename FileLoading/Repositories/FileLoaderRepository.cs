@@ -1704,64 +1704,80 @@ public class FileLoaderRepository : IFileLoaderRepository
         };
     }
 
-    public async Task<DataResult<List<FileWithStatus>>> ListFilesWithStatusAsync(FileListFilter filter)
+    public async Task<DataResult<FileWithStatusResponse>> ListFilesWithStatusAsync(FileListFilter filter)
     {
-        _logger.LogDebug("Listing files with status: Filter={Filter}", filter);
+        _logger.LogDebug("Listing files with status: Filter={Filter}, Skip={Skip}, Take={Take}",
+            filter, filter.SkipRecords, filter.TakeRecords);
 
-        var sql = new StringBuilder(@"SELECT FIRST ");
-        sql.Append(filter.MaxRecords);
-        sql.Append(@" t.transfer_id, t.nt_file_num, t.file_name, t.status_id,
+        var whereClause = new StringBuilder("WHERE 1=1");
+        var parameters = new List<(string, object?, DbType, int?)>();
+        var paramIndex = 1;
+
+        if (!string.IsNullOrEmpty(filter.FileTypeCode))
+        {
+            whereClause.Append(" AND s.file_type_code = ?");
+            parameters.Add(($"@p{paramIndex++}", filter.FileTypeCode, DbType.String, 10));
+        }
+
+        if (!string.IsNullOrEmpty(filter.CurrentFolder))
+        {
+            whereClause.Append(" AND t.current_folder = ?");
+            parameters.Add(($"@p{paramIndex++}", filter.CurrentFolder, DbType.String, 32));
+        }
+
+        if (filter.Status.HasValue)
+        {
+            whereClause.Append(" AND t.status_id = ?");
+            parameters.Add(($"@p{paramIndex++}", (int)filter.Status.Value, DbType.Int32, null));
+        }
+
+        if (filter.FromDate.HasValue)
+        {
+            whereClause.Append(" AND t.created_dt >= ?");
+            parameters.Add(($"@p{paramIndex++}", filter.FromDate.Value, DbType.DateTime, null));
+        }
+
+        if (filter.ToDate.HasValue)
+        {
+            whereClause.Append(" AND t.created_dt <= ?");
+            parameters.Add(($"@p{paramIndex++}", filter.ToDate.Value, DbType.DateTime, null));
+        }
+
+        if (!string.IsNullOrEmpty(filter.FileNameSearch))
+        {
+            whereClause.Append(" AND t.file_name LIKE ?");
+            parameters.Add(($"@p{paramIndex++}", $"%{filter.FileNameSearch}%", DbType.String, 255));
+        }
+
+        var response = new FileWithStatusResponse();
+
+        // Count query (if requested)
+        var shouldCount = filter.CountRecords == "Y" || (filter.CountRecords == "F" && filter.SkipRecords == 0);
+        if (shouldCount)
+        {
+            var countSql = $@"SELECT COUNT(*) FROM ntfl_transfer t
+                LEFT OUTER JOIN ntfl_transfer_source s ON t.source_id = s.source_id
+                LEFT OUTER JOIN ntfl_ftp_server fs ON t.ftp_server_id = fs.server_id
+                {whereClause}";
+            var countResult = _dbContext.ExecuteRawScalar<int>(countSql, parameters.ToArray());
+            if (countResult.IsSuccess)
+                response.Count = countResult.Value;
+        }
+
+        // Data query with SKIP/FIRST
+        var sql = $@"SELECT SKIP {filter.SkipRecords} FIRST {filter.TakeRecords}
+                     t.transfer_id, t.nt_file_num, t.file_name, t.status_id,
                      t.current_folder, t.file_size, t.created_dt, t.completed_dt,
                      t.error_message, t.source_id, s.file_type_code,
                      t.ftp_server_id, fs.host
                 FROM ntfl_transfer t
                 LEFT OUTER JOIN ntfl_transfer_source s ON t.source_id = s.source_id
                 LEFT OUTER JOIN ntfl_ftp_server fs ON t.ftp_server_id = fs.server_id
-                WHERE 1=1");
-
-        var parameters = new List<(string, object?, DbType, int?)>();
-        var paramIndex = 1;
-
-        if (!string.IsNullOrEmpty(filter.FileTypeCode))
-        {
-            sql.Append($" AND s.file_type_code = ?");
-            parameters.Add(($"@p{paramIndex++}", filter.FileTypeCode, DbType.String, 10));
-        }
-
-        if (!string.IsNullOrEmpty(filter.CurrentFolder))
-        {
-            sql.Append($" AND t.current_folder = ?");
-            parameters.Add(($"@p{paramIndex++}", filter.CurrentFolder, DbType.String, 32));
-        }
-
-        if (filter.Status.HasValue)
-        {
-            sql.Append($" AND t.status_id = ?");
-            parameters.Add(($"@p{paramIndex++}", (int)filter.Status.Value, DbType.Int32, null));
-        }
-
-        if (filter.FromDate.HasValue)
-        {
-            sql.Append($" AND t.created_dt >= ?");
-            parameters.Add(($"@p{paramIndex++}", filter.FromDate.Value, DbType.DateTime, null));
-        }
-
-        if (filter.ToDate.HasValue)
-        {
-            sql.Append($" AND t.created_dt <= ?");
-            parameters.Add(($"@p{paramIndex++}", filter.ToDate.Value, DbType.DateTime, null));
-        }
-
-        if (!string.IsNullOrEmpty(filter.FileNameSearch))
-        {
-            sql.Append($" AND t.file_name LIKE ?");
-            parameters.Add(($"@p{paramIndex++}", $"%{filter.FileNameSearch}%", DbType.String, 255));
-        }
-
-        sql.Append(" ORDER BY t.created_dt DESC");
+                {whereClause}
+                ORDER BY t.created_dt DESC";
 
         var result = _dbContext.ExecuteRawQuery(
-            sql.ToString(),
+            sql,
             reader => new FileWithStatus
             {
                 TransferId = reader.GetInt32(0),
@@ -1782,12 +1798,21 @@ public class FileLoaderRepository : IFileLoaderRepository
             parameters.ToArray()
         );
 
-        return new DataResult<List<FileWithStatus>>
+        if (!result.IsSuccess)
         {
-            StatusCode = result.IsSuccess ? 200 : result.StatusCode,
-            Data = result.Data,
-            ErrorCode = result.ErrorCode,
-            ErrorMessage = result.ErrorMessage
+            return new DataResult<FileWithStatusResponse>
+            {
+                StatusCode = result.StatusCode,
+                ErrorCode = result.ErrorCode,
+                ErrorMessage = result.ErrorMessage
+            };
+        }
+
+        response.Items = result.Data;
+        return new DataResult<FileWithStatusResponse>
+        {
+            StatusCode = 200,
+            Data = response
         };
     }
 
@@ -1865,35 +1890,49 @@ public class FileLoaderRepository : IFileLoaderRepository
         );
     }
 
-    public async Task<DataResult<List<FileActivityLog>>> GetActivityLogsAsync(int? ntFileNum, int? transferId, int maxRecords)
+    public async Task<DataResult<ActivityLogResponse>> GetActivityLogsAsync(
+        int? ntFileNum, int? transferId, int skipRecords, int takeRecords, string countRecords)
     {
-        _logger.LogDebug("Getting activity logs: NtFileNum={NtFileNum}, TransferId={TransferId}", ntFileNum, transferId);
+        _logger.LogDebug("Getting activity logs: NtFileNum={NtFileNum}, TransferId={TransferId}, Skip={Skip}, Take={Take}",
+            ntFileNum, transferId, skipRecords, takeRecords);
 
-        var sql = new StringBuilder(@"SELECT FIRST ");
-        sql.Append(maxRecords);
-        sql.Append(@" activity_id, nt_file_num, transfer_id, file_name,
-                     activity_type, description, details_json, user_id, activity_dt
-                FROM ntfl_activity_log WHERE 1=1");
-
+        var whereClause = new StringBuilder("WHERE 1=1");
         var parameters = new List<(string, object?, DbType, int?)>();
         var paramIndex = 1;
 
         if (ntFileNum.HasValue)
         {
-            sql.Append($" AND nt_file_num = ?");
+            whereClause.Append(" AND nt_file_num = ?");
             parameters.Add(($"@p{paramIndex++}", ntFileNum.Value, DbType.Int32, null));
         }
 
         if (transferId.HasValue)
         {
-            sql.Append($" AND transfer_id = ?");
+            whereClause.Append(" AND transfer_id = ?");
             parameters.Add(($"@p{paramIndex++}", transferId.Value, DbType.Int32, null));
         }
 
-        sql.Append(" ORDER BY activity_dt DESC");
+        var response = new ActivityLogResponse();
+
+        // Count query (if requested)
+        var shouldCount = countRecords == "Y" || (countRecords == "F" && skipRecords == 0);
+        if (shouldCount)
+        {
+            var countSql = $"SELECT COUNT(*) FROM ntfl_activity_log {whereClause}";
+            var countResult = _dbContext.ExecuteRawScalar<int>(countSql, parameters.ToArray());
+            if (countResult.IsSuccess)
+                response.Count = countResult.Value;
+        }
+
+        // Data query with SKIP/FIRST
+        var sql = $@"SELECT SKIP {skipRecords} FIRST {takeRecords}
+                     activity_id, nt_file_num, transfer_id, file_name,
+                     activity_type, description, details_json, user_id, activity_dt
+                FROM ntfl_activity_log {whereClause}
+                ORDER BY activity_dt DESC";
 
         var result = _dbContext.ExecuteRawQuery(
-            sql.ToString(),
+            sql,
             reader => new FileActivityLog
             {
                 ActivityId = reader.GetInt64(0),
@@ -1909,12 +1948,21 @@ public class FileLoaderRepository : IFileLoaderRepository
             parameters.ToArray()
         );
 
-        return new DataResult<List<FileActivityLog>>
+        if (!result.IsSuccess)
         {
-            StatusCode = result.IsSuccess ? 200 : result.StatusCode,
-            Data = result.Data,
-            ErrorCode = result.ErrorCode,
-            ErrorMessage = result.ErrorMessage
+            return new DataResult<ActivityLogResponse>
+            {
+                StatusCode = result.StatusCode,
+                ErrorCode = result.ErrorCode,
+                ErrorMessage = result.ErrorMessage
+            };
+        }
+
+        response.Items = result.Data;
+        return new DataResult<ActivityLogResponse>
+        {
+            StatusCode = 200,
+            Data = response
         };
     }
 
@@ -4034,6 +4082,150 @@ public class FileLoaderRepository : IFileLoaderRepository
         return _dbContext.ExecuteRawCommand(
             "DELETE FROM ntfl_ai_instruction_file WHERE file_class_code = ?",
             ("@p1", (object)fileClassCode, DbType.String, (int?)null)
+        );
+    }
+
+    // ============================================
+    // Charge Mappings (ntfl_chg_map)
+    // ============================================
+
+    public async Task<DataResult<List<NtflChgMapRecord>>> GetChargeMapsAsync(string fileTypeCode)
+    {
+        var sql = @"SELECT id, file_type_code, file_chg_desc, seq_no, chg_code,
+                           auto_exclude, use_net_price, net_prc_prorated,
+                           uplift_perc, uplift_amt, use_net_desc,
+                           last_updated, updated_by
+                    FROM ntfl_chg_map
+                    WHERE file_type_code = ?
+                    ORDER BY seq_no";
+
+        var result = _dbContext.ExecuteRawQuery(
+            sql,
+            reader => new NtflChgMapRecord
+            {
+                Id = reader.GetInt32(0),
+                FileTypeCode = reader.GetString(1).Trim(),
+                FileChgDesc = reader.IsDBNull(2) ? string.Empty : reader.GetString(2).Trim(),
+                SeqNo = reader.GetInt32(3),
+                ChgCode = reader.GetString(4).Trim(),
+                AutoExclude = reader.GetString(5).Trim(),
+                UseNetPrice = reader.GetString(6).Trim(),
+                NetPrcProrated = reader.GetString(7).Trim(),
+                UpliftPerc = reader.GetDecimal(8),
+                UpliftAmt = reader.IsDBNull(9) ? null : reader.GetDecimal(9),
+                UseNetDesc = reader.GetString(10).Trim(),
+                LastUpdated = reader.GetDateTime(11),
+                UpdatedBy = reader.GetString(12).Trim()
+            },
+            ("@p1", (object)fileTypeCode, DbType.String, (int?)10)
+        );
+
+        return new DataResult<List<NtflChgMapRecord>>
+        {
+            StatusCode = result.IsSuccess ? 200 : result.StatusCode,
+            Data = result.Data,
+            ErrorCode = result.ErrorCode,
+            ErrorMessage = result.ErrorMessage
+        };
+    }
+
+    public async Task<DataResult<NtflChgMapRecord>> GetChargeMapAsync(int id)
+    {
+        var sql = @"SELECT id, file_type_code, file_chg_desc, seq_no, chg_code,
+                           auto_exclude, use_net_price, net_prc_prorated,
+                           uplift_perc, uplift_amt, use_net_desc,
+                           last_updated, updated_by
+                    FROM ntfl_chg_map
+                    WHERE id = ?";
+
+        var result = _dbContext.ExecuteRawQuery(
+            sql,
+            reader => new NtflChgMapRecord
+            {
+                Id = reader.GetInt32(0),
+                FileTypeCode = reader.GetString(1).Trim(),
+                FileChgDesc = reader.IsDBNull(2) ? string.Empty : reader.GetString(2).Trim(),
+                SeqNo = reader.GetInt32(3),
+                ChgCode = reader.GetString(4).Trim(),
+                AutoExclude = reader.GetString(5).Trim(),
+                UseNetPrice = reader.GetString(6).Trim(),
+                NetPrcProrated = reader.GetString(7).Trim(),
+                UpliftPerc = reader.GetDecimal(8),
+                UpliftAmt = reader.IsDBNull(9) ? null : reader.GetDecimal(9),
+                UseNetDesc = reader.GetString(10).Trim(),
+                LastUpdated = reader.GetDateTime(11),
+                UpdatedBy = reader.GetString(12).Trim()
+            },
+            ("@p1", (object)id, DbType.Int32, (int?)null)
+        );
+
+        var record = result.Data?.FirstOrDefault();
+        if (record == null)
+            return new DataResult<NtflChgMapRecord> { StatusCode = 404, ErrorCode = "FileLoading.ChargeMapNotFound", ErrorMessage = $"Charge mapping {id} not found" };
+
+        return new DataResult<NtflChgMapRecord> { StatusCode = 200, Data = record };
+    }
+
+    public async Task<ValueResult<int>> InsertChargeMapAsync(NtflChgMapRecord record)
+    {
+        var sql = @"INSERT INTO ntfl_chg_map
+                    (file_type_code, file_chg_desc, seq_no, chg_code,
+                     auto_exclude, use_net_price, net_prc_prorated,
+                     uplift_perc, uplift_amt, use_net_desc, updated_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+        var result = _dbContext.ExecuteRawCommand(
+            sql,
+            ("@p1", (object)record.FileTypeCode, DbType.String, (int?)10),
+            ("@p2", (object)record.FileChgDesc, DbType.String, (int?)500),
+            ("@p3", (object)record.SeqNo, DbType.Int32, (int?)null),
+            ("@p4", (object)record.ChgCode, DbType.String, (int?)4),
+            ("@p5", (object)record.AutoExclude, DbType.String, (int?)1),
+            ("@p6", (object)record.UseNetPrice, DbType.String, (int?)1),
+            ("@p7", (object)record.NetPrcProrated, DbType.String, (int?)1),
+            ("@p8", (object)record.UpliftPerc, DbType.Decimal, (int?)null),
+            ("@p9", (object)(record.UpliftAmt ?? (object)DBNull.Value), DbType.Decimal, (int?)null),
+            ("@p10", (object)record.UseNetDesc, DbType.String, (int?)1),
+            ("@p11", (object)record.UpdatedBy, DbType.String, (int?)18)
+        );
+
+        if (!result.IsSuccess)
+            return new ValueResult<int> { StatusCode = 500, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
+
+        // Retrieve the SERIAL id
+        var idResult = _dbContext.ExecuteRawScalar<int>("SELECT DBINFO('sqlca.sqlerrd1') FROM systables WHERE tabid = 1");
+        var newId = idResult.IsSuccess ? idResult.Value : 0;
+        return new ValueResult<int> { StatusCode = 201, Value = newId };
+    }
+
+    public async Task<RawCommandResult> UpdateChargeMapAsync(NtflChgMapRecord record)
+    {
+        return _dbContext.ExecuteRawCommand(
+            @"UPDATE ntfl_chg_map
+              SET file_type_code = ?, file_chg_desc = ?, seq_no = ?, chg_code = ?,
+                  auto_exclude = ?, use_net_price = ?, net_prc_prorated = ?,
+                  uplift_perc = ?, uplift_amt = ?, use_net_desc = ?, updated_by = ?
+              WHERE id = ?",
+            ("@p1", (object)record.FileTypeCode, DbType.String, (int?)10),
+            ("@p2", (object)record.FileChgDesc, DbType.String, (int?)500),
+            ("@p3", (object)record.SeqNo, DbType.Int32, (int?)null),
+            ("@p4", (object)record.ChgCode, DbType.String, (int?)4),
+            ("@p5", (object)record.AutoExclude, DbType.String, (int?)1),
+            ("@p6", (object)record.UseNetPrice, DbType.String, (int?)1),
+            ("@p7", (object)record.NetPrcProrated, DbType.String, (int?)1),
+            ("@p8", (object)record.UpliftPerc, DbType.Decimal, (int?)null),
+            ("@p9", (object)(record.UpliftAmt ?? (object)DBNull.Value), DbType.Decimal, (int?)null),
+            ("@p10", (object)record.UseNetDesc, DbType.String, (int?)1),
+            ("@p11", (object)record.UpdatedBy, DbType.String, (int?)18),
+            ("@p12", (object)record.Id, DbType.Int32, (int?)null)
+        );
+    }
+
+    public async Task<RawCommandResult> DeleteChargeMapAsync(int id)
+    {
+        return _dbContext.ExecuteRawCommand(
+            "DELETE FROM ntfl_chg_map WHERE id = ?",
+            ("@p1", (object)id, DbType.Int32, (int?)null)
         );
     }
 

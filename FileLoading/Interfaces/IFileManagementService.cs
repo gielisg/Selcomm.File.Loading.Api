@@ -114,7 +114,7 @@ public interface IFileManagementService
     /// <param name="filter">Filter criteria</param>
     /// <param name="context">Security context</param>
     /// <returns>List of files with status</returns>
-    Task<DataResult<FileListWithStatusResponse>> ListFilesAsync(
+    Task<DataResult<FileWithStatusResponse>> ListFilesAsync(
         FileListFilter filter,
         SecurityContext context);
 
@@ -137,13 +137,17 @@ public interface IFileManagementService
     /// </summary>
     /// <param name="ntFileNum">Optional filter by file number</param>
     /// <param name="transferId">Optional filter by transfer ID</param>
-    /// <param name="maxRecords">Maximum records to return</param>
+    /// <param name="skipRecords">Number of records to skip</param>
+    /// <param name="takeRecords">Number of records to return</param>
+    /// <param name="countRecords">Count flag: Y=yes, N=no, F=first page only</param>
     /// <param name="context">Security context</param>
-    /// <returns>List of activity log entries</returns>
-    Task<DataResult<List<FileActivityLog>>> GetActivityLogAsync(
+    /// <returns>Paged activity log response</returns>
+    Task<DataResult<ActivityLogResponse>> GetActivityLogAsync(
         int? ntFileNum,
         int? transferId,
-        int maxRecords,
+        int skipRecords,
+        int takeRecords,
+        string countRecords,
         SecurityContext context);
 
     /// <summary>
@@ -177,24 +181,32 @@ public interface IFileManagementService
     /// Get files with errors for the exceptions view.
     /// </summary>
     /// <param name="fileTypeCode">Optional filter by file type</param>
-    /// <param name="maxRecords">Maximum records to return</param>
+    /// <param name="skipRecords">Number of records to skip</param>
+    /// <param name="takeRecords">Number of records to return</param>
+    /// <param name="countRecords">Count flag: Y=yes, N=no, F=first page only</param>
     /// <param name="context">Security context</param>
-    /// <returns>List of files with errors</returns>
-    Task<DataResult<List<FileWithStatus>>> GetFilesWithErrorsAsync(
+    /// <returns>Paged file-with-status response</returns>
+    Task<DataResult<FileWithStatusResponse>> GetFilesWithErrorsAsync(
         string? fileTypeCode,
-        int maxRecords,
+        int skipRecords,
+        int takeRecords,
+        string countRecords,
         SecurityContext context);
 
     /// <summary>
     /// Get files in the Skipped folder.
     /// </summary>
     /// <param name="fileTypeCode">Optional filter by file type</param>
-    /// <param name="maxRecords">Maximum records to return</param>
+    /// <param name="skipRecords">Number of records to skip</param>
+    /// <param name="takeRecords">Number of records to return</param>
+    /// <param name="countRecords">Count flag: Y=yes, N=no, F=first page only</param>
     /// <param name="context">Security context</param>
-    /// <returns>List of skipped files</returns>
-    Task<DataResult<List<FileWithStatus>>> GetSkippedFilesAsync(
+    /// <returns>Paged file-with-status response</returns>
+    Task<DataResult<FileWithStatusResponse>> GetSkippedFilesAsync(
         string? fileTypeCode,
-        int maxRecords,
+        int skipRecords,
+        int takeRecords,
+        string countRecords,
         SecurityContext context);
 
     // ============================================
@@ -269,6 +281,17 @@ public interface IFileManagementService
     Task<DataResult<FileTypeNtRecord>> CreateFileTypeNtAsync(FileTypeNtRecord record, SecurityContext context);
     Task<DataResult<FileTypeNtRecord>> UpdateFileTypeNtAsync(string fileTypeCode, FileTypeNtRecord record, SecurityContext context);
     Task<DataResult<bool>> DeleteFileTypeNtAsync(string fileTypeCode, SecurityContext context);
+
+    // ============================================
+    // Charge Mappings (ntfl_chg_map)
+    // ============================================
+
+    Task<DataResult<List<NtflChgMapRecord>>> GetChargeMapsAsync(string fileTypeCode, SecurityContext context);
+    Task<DataResult<NtflChgMapRecord>> GetChargeMapAsync(int id, SecurityContext context);
+    Task<DataResult<NtflChgMapRecord>> CreateChargeMapAsync(NtflChgMapRequest request, SecurityContext context);
+    Task<DataResult<NtflChgMapRecord>> UpdateChargeMapAsync(int id, NtflChgMapRequest request, SecurityContext context);
+    Task<DataResult<bool>> DeleteChargeMapAsync(int id, SecurityContext context);
+    Task<DataResult<ChargeMapMatch?>> ResolveChargeMapAsync(string fileTypeCode, string chargeDescription, SecurityContext context);
 
     // ============================================
     // Custom Table Management

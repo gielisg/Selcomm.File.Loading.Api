@@ -486,22 +486,10 @@ public class FileManagementService : IFileManagementService
         return dashboardResult;
     }
 
-    public async Task<DataResult<FileListWithStatusResponse>> ListFilesAsync(
+    public async Task<DataResult<FileWithStatusResponse>> ListFilesAsync(
         FileListFilter filter, SecurityContext context)
     {
-        var result = await _repository.ListFilesWithStatusAsync(filter);
-
-        return new DataResult<FileListWithStatusResponse>
-        {
-            StatusCode = result.StatusCode,
-            Data = new FileListWithStatusResponse
-            {
-                Items = result.Data ?? new List<FileWithStatus>(),
-                TotalCount = result.Data?.Count ?? 0
-            },
-            ErrorCode = result.ErrorCode,
-            ErrorMessage = result.ErrorMessage
-        };
+        return await _repository.ListFilesWithStatusAsync(filter);
     }
 
     public async Task<DataResult<FileWithStatus>> GetFileDetailsAsync(int transferId, SecurityContext context)
@@ -547,10 +535,10 @@ public class FileManagementService : IFileManagementService
     // Activity Logging
     // ============================================
 
-    public async Task<DataResult<List<FileActivityLog>>> GetActivityLogAsync(
-        int? ntFileNum, int? transferId, int maxRecords, SecurityContext context)
+    public async Task<DataResult<ActivityLogResponse>> GetActivityLogAsync(
+        int? ntFileNum, int? transferId, int skipRecords, int takeRecords, string countRecords, SecurityContext context)
     {
-        return await _repository.GetActivityLogsAsync(ntFileNum, transferId, maxRecords);
+        return await _repository.GetActivityLogsAsync(ntFileNum, transferId, skipRecords, takeRecords, countRecords ?? "F");
     }
 
     public async Task LogActivityAsync(FileActivityLog activity, SecurityContext context)
@@ -594,27 +582,31 @@ public class FileManagementService : IFileManagementService
     // Exception/Error Management
     // ============================================
 
-    public async Task<DataResult<List<FileWithStatus>>> GetFilesWithErrorsAsync(
-        string? fileTypeCode, int maxRecords, SecurityContext context)
+    public async Task<DataResult<FileWithStatusResponse>> GetFilesWithErrorsAsync(
+        string? fileTypeCode, int skipRecords, int takeRecords, string countRecords, SecurityContext context)
     {
         var filter = new FileListFilter
         {
             FileTypeCode = fileTypeCode,
             Status = TransferStatus.Error,
-            MaxRecords = maxRecords
+            SkipRecords = skipRecords,
+            TakeRecords = takeRecords,
+            CountRecords = countRecords ?? "F"
         };
 
         return await _repository.ListFilesWithStatusAsync(filter);
     }
 
-    public async Task<DataResult<List<FileWithStatus>>> GetSkippedFilesAsync(
-        string? fileTypeCode, int maxRecords, SecurityContext context)
+    public async Task<DataResult<FileWithStatusResponse>> GetSkippedFilesAsync(
+        string? fileTypeCode, int skipRecords, int takeRecords, string countRecords, SecurityContext context)
     {
         var filter = new FileListFilter
         {
             FileTypeCode = fileTypeCode,
             Status = TransferStatus.Skipped,
-            MaxRecords = maxRecords
+            SkipRecords = skipRecords,
+            TakeRecords = takeRecords,
+            CountRecords = countRecords ?? "F"
         };
 
         return await _repository.ListFilesWithStatusAsync(filter);
@@ -1444,5 +1436,154 @@ public class FileManagementService : IFileManagementService
         _logger.LogInformation("Deleted test load {NtFileNum} from custom table {TableName}", ntFileNum, customTable.TableName);
 
         return new DataResult<bool> { StatusCode = 200, Data = true };
+    }
+
+    // ============================================
+    // Charge Mappings (ntfl_chg_map)
+    // ============================================
+
+    public async Task<DataResult<List<NtflChgMapRecord>>> GetChargeMapsAsync(string fileTypeCode, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "CHARGE_MAP", fileTypeCode);
+        if (!auth.IsSuccess)
+            return new DataResult<List<NtflChgMapRecord>> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        return await _repository.GetChargeMapsAsync(fileTypeCode);
+    }
+
+    public async Task<DataResult<NtflChgMapRecord>> GetChargeMapAsync(int id, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "CHARGE_MAP", "*");
+        if (!auth.IsSuccess)
+            return new DataResult<NtflChgMapRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        return await _repository.GetChargeMapAsync(id);
+    }
+
+    public async Task<DataResult<NtflChgMapRecord>> CreateChargeMapAsync(NtflChgMapRequest request, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "CHARGE_MAP", request.FileTypeCode);
+        if (!auth.IsSuccess)
+            return new DataResult<NtflChgMapRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        var record = new NtflChgMapRecord
+        {
+            FileTypeCode = request.FileTypeCode,
+            FileChgDesc = request.FileChgDesc,
+            SeqNo = request.SeqNo,
+            ChgCode = request.ChgCode,
+            AutoExclude = request.AutoExclude,
+            UseNetPrice = request.UseNetPrice,
+            NetPrcProrated = request.NetPrcProrated,
+            UpliftPerc = request.UpliftPerc,
+            UpliftAmt = request.UpliftAmt,
+            UseNetDesc = request.UseNetDesc,
+            UpdatedBy = context.UserCode ?? "SYSTEM"
+        };
+
+        var result = await _repository.InsertChargeMapAsync(record);
+        if (!result.IsSuccess)
+            return new DataResult<NtflChgMapRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
+
+        var saved = await _repository.GetChargeMapAsync(result.Value);
+        return new DataResult<NtflChgMapRecord> { StatusCode = 201, Data = saved.Data };
+    }
+
+    public async Task<DataResult<NtflChgMapRecord>> UpdateChargeMapAsync(int id, NtflChgMapRequest request, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "CHARGE_MAP", request.FileTypeCode);
+        if (!auth.IsSuccess)
+            return new DataResult<NtflChgMapRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        var existing = await _repository.GetChargeMapAsync(id);
+        if (!existing.IsSuccess || existing.Data == null)
+            return new DataResult<NtflChgMapRecord> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = $"Charge mapping {id} not found" };
+
+        var record = new NtflChgMapRecord
+        {
+            Id = id,
+            FileTypeCode = request.FileTypeCode,
+            FileChgDesc = request.FileChgDesc,
+            SeqNo = request.SeqNo,
+            ChgCode = request.ChgCode,
+            AutoExclude = request.AutoExclude,
+            UseNetPrice = request.UseNetPrice,
+            NetPrcProrated = request.NetPrcProrated,
+            UpliftPerc = request.UpliftPerc,
+            UpliftAmt = request.UpliftAmt,
+            UseNetDesc = request.UseNetDesc,
+            UpdatedBy = context.UserCode ?? "SYSTEM"
+        };
+
+        var result = await _repository.UpdateChargeMapAsync(record);
+        if (!result.IsSuccess)
+            return new DataResult<NtflChgMapRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
+
+        var saved = await _repository.GetChargeMapAsync(id);
+        return new DataResult<NtflChgMapRecord> { StatusCode = 200, Data = saved.Data };
+    }
+
+    public async Task<DataResult<bool>> DeleteChargeMapAsync(int id, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "CHARGE_MAP", "*");
+        if (!auth.IsSuccess)
+            return new DataResult<bool> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        var result = await _repository.DeleteChargeMapAsync(id);
+        return new DataResult<bool> { StatusCode = result.IsSuccess ? 200 : 500, Data = result.IsSuccess, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
+    }
+
+    public async Task<DataResult<ChargeMapMatch?>> ResolveChargeMapAsync(string fileTypeCode, string chargeDescription, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "CHARGE_MAP", fileTypeCode);
+        if (!auth.IsSuccess)
+            return new DataResult<ChargeMapMatch?> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        var mapsResult = await _repository.GetChargeMapsAsync(fileTypeCode);
+        if (!mapsResult.IsSuccess || mapsResult.Data == null || mapsResult.Data.Count == 0)
+            return new DataResult<ChargeMapMatch?> { StatusCode = 200, Data = null };
+
+        // Match in seq_no order (already sorted by repository)
+        foreach (var map in mapsResult.Data)
+        {
+            if (MatchesLikePattern(chargeDescription, map.FileChgDesc))
+            {
+                return new DataResult<ChargeMapMatch?>
+                {
+                    StatusCode = 200,
+                    Data = new ChargeMapMatch
+                    {
+                        Id = map.Id,
+                        FileChgDesc = map.FileChgDesc,
+                        ChgCode = map.ChgCode,
+                        AutoExclude = map.AutoExclude,
+                        UseNetPrice = map.UseNetPrice,
+                        NetPrcProrated = map.NetPrcProrated,
+                        UpliftPerc = map.UpliftPerc,
+                        UpliftAmt = map.UpliftAmt,
+                        UseNetDesc = map.UseNetDesc
+                    }
+                };
+            }
+        }
+
+        return new DataResult<ChargeMapMatch?> { StatusCode = 200, Data = null };
+    }
+
+    /// <summary>
+    /// Matches a value against a SQL LIKE pattern (supports % and _ wildcards).
+    /// Case-insensitive.
+    /// </summary>
+    private static bool MatchesLikePattern(string input, string pattern)
+    {
+        if (string.IsNullOrEmpty(pattern)) return string.IsNullOrEmpty(input);
+        if (string.IsNullOrEmpty(input)) return pattern == "%";
+
+        // Convert SQL LIKE pattern to regex
+        var regex = "^" + System.Text.RegularExpressions.Regex.Escape(pattern)
+            .Replace("%", ".*")
+            .Replace("_", ".") + "$";
+
+        return System.Text.RegularExpressions.Regex.IsMatch(input, regex, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
 }
