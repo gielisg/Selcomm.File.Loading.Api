@@ -138,7 +138,7 @@ public class AiReviewService : IAiReviewService
 
         // 11. Store result
         var expiresAt = DateTime.Now.AddMinutes(_options.CacheDurationMinutes);
-        await _repository.StoreAiReviewAsync(response, securityContext.UserCode ?? "system", expiresAt);
+        await _repository.StoreAiReviewAsync(response, securityContext.FullName ?? securityContext.UserCode ?? "system", expiresAt);
 
         _logger.LogInformation("AI review completed for file {NtFileNum}: {Assessment}, {IssueCount} issues",
             ntFileNum, response.OverallAssessment, response.Issues.Count);
@@ -253,7 +253,7 @@ public class AiReviewService : IAiReviewService
         if (request.Summary != null) record.Summary = request.Summary;
         if (request.IngestionReadiness != null) record.IngestionReadiness = request.IngestionReadiness;
         if (request.AnalysisJson != null) record.AnalysisJson = request.AnalysisJson;
-        record.UpdatedBy = securityContext.UserCode;
+        record.UpdatedBy = securityContext.FullName ?? securityContext.UserCode;
 
         var result = await _repository.UpdateAnalysisResultAsync(record);
         if (!result.IsSuccess)
@@ -302,7 +302,7 @@ public class AiReviewService : IAiReviewService
             Version = nextVersion,
             Description = request.Description,
             Source = "USER",
-            CreatedBy = securityContext.UserCode ?? "SYSTEM"
+            CreatedBy = securityContext.FullName ?? securityContext.UserCode ?? "SYSTEM"
         };
 
         var result = await _repository.InsertFileTypePromptAsync(record);
@@ -359,6 +359,7 @@ Generate a detailed, file-type-specific validation/parsing prompt based on the a
             return Forward<AiFileTypePromptRecord>(apiResult);
 
         var (promptContent, _) = apiResult.Data!;
+        promptContent = SanitizeForInformix(promptContent);
 
         // 4. Get next version number
         var existing = await _repository.GetFileTypePromptsAsync(fileTypeCode);
@@ -376,7 +377,7 @@ Generate a detailed, file-type-specific validation/parsing prompt based on the a
             Version = nextVersion,
             Description = $"Auto-generated from analysis #{request.AnalysisId}",
             Source = "AI",
-            CreatedBy = securityContext.UserCode ?? "SYSTEM"
+            CreatedBy = securityContext.FullName ?? securityContext.UserCode ?? "SYSTEM"
         };
 
         var insertResult = await _repository.InsertFileTypePromptAsync(record);
@@ -401,7 +402,7 @@ Generate a detailed, file-type-specific validation/parsing prompt based on the a
         if (request.PromptContent != null) existing.Data.PromptContent = request.PromptContent;
         if (request.Description != null) existing.Data.Description = request.Description;
         existing.Data.Source = "USER";
-        existing.Data.UpdatedBy = securityContext.UserCode;
+        existing.Data.UpdatedBy = securityContext.FullName ?? securityContext.UserCode;
 
         var result = await _repository.UpdateFileTypePromptAsync(existing.Data);
         if (!result.IsSuccess)
@@ -480,8 +481,8 @@ Generate a detailed, file-type-specific validation/parsing prompt based on the a
             InstructionContent = request.InstructionContent,
             IsDefault = false,
             Description = request.Description,
-            CreatedBy = securityContext.UserCode ?? "SYSTEM",
-            UpdatedBy = securityContext.UserCode ?? "SYSTEM"
+            CreatedBy = securityContext.FullName ?? securityContext.UserCode ?? "SYSTEM",
+            UpdatedBy = securityContext.FullName ?? securityContext.UserCode ?? "SYSTEM"
         };
 
         var result = await _repository.UpsertInstructionFileAsync(record);
@@ -548,8 +549,8 @@ Generate a detailed, file-type-specific validation/parsing prompt based on the a
             FilePath = filePath,
             FileName = fileName,
             Description = description,
-            CreatedBy = securityContext.UserCode ?? "SYSTEM",
-            UpdatedBy = securityContext.UserCode ?? "SYSTEM"
+            CreatedBy = securityContext.FullName ?? securityContext.UserCode ?? "SYSTEM",
+            UpdatedBy = securityContext.FullName ?? securityContext.UserCode ?? "SYSTEM"
         };
 
         var result = await _repository.InsertExampleFileAsync(record);
@@ -738,8 +739,8 @@ Generate a detailed, file-type-specific validation/parsing prompt based on the a
             FileTypeCode = fileTypeCode,
             IngestionReadiness = response.IngestionReadiness,
             Summary = response.Summary,
-            AnalysisJson = JsonSerializer.Serialize(response, JsonOpts),
-            CreatedBy = securityContext.UserCode ?? "SYSTEM"
+            AnalysisJson = SanitizeForInformix(JsonSerializer.Serialize(response, JsonOpts)),
+            CreatedBy = securityContext.FullName ?? securityContext.UserCode ?? "SYSTEM"
         };
         var insertResult = await _repository.InsertAnalysisResultAsync(analysisRecord);
         if (insertResult.IsSuccess)
@@ -799,9 +800,9 @@ Generate a detailed, file-type-specific validation/parsing prompt based on the a
             MaxReviewsPerDay = request.MaxReviewsPerDay ?? 50,
             MaxOutputTokens = request.MaxOutputTokens ?? 4096,
             CreatedAt = DateTime.Now,
-            CreatedBy = securityContext.UserCode,
+            CreatedBy = securityContext.FullName ?? securityContext.UserCode,
             UpdatedAt = DateTime.Now,
-            UpdatedBy = securityContext.UserCode
+            UpdatedBy = securityContext.FullName ?? securityContext.UserCode
         };
 
         var result = await _repository.UpsertAiDomainConfigAsync(config);
@@ -1572,6 +1573,33 @@ Return ONLY the JSON object, no markdown fences or other text.");
         if (string.IsNullOrEmpty(apiKey) || apiKey.Length < 12)
             return "***";
         return apiKey[..8] + "..." + apiKey[^4..];
+    }
+
+    /// <summary>
+    /// Sanitize text for Informix storage — replace Unicode characters that cause
+    /// "Code-set conversion function failed" errors.
+    /// </summary>
+    private static string SanitizeForInformix(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+
+        var sb = new StringBuilder(text.Length);
+        foreach (var c in text)
+        {
+            sb.Append(c switch
+            {
+                '\u2018' or '\u2019' => '\'',  // smart single quotes
+                '\u201C' or '\u201D' => '"',    // smart double quotes
+                '\u2013' => '-',                // en dash
+                '\u2014' => '-',                // em dash
+                '\u2026' => '.',                // ellipsis
+                '\u00A0' => ' ',                // non-breaking space
+                '\u2022' => '-',                // bullet
+                '\u00B7' => '-',                // middle dot
+                _ => c > 127 ? '?' : c         // replace any other non-ASCII
+            });
+        }
+        return sb.ToString();
     }
 
     private static DataResult<T> Forward<T>(StoredProcedureResult source)
