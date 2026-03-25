@@ -61,7 +61,8 @@ public class FileLoaderRepository : IFileLoaderRepository
             ("@p_nt_cust_num", ntCustNum, DbType.String, 10),
             ("@p_nt_file_name", ntFileName, DbType.String, 80),
             ("@p_status_id", statusId, DbType.Int32, null),
-            ("@p_nt_file_date", ntFileDate ?? DateTime.Today, DbType.Date, null)
+            ("@p_nt_file_date", ntFileDate ?? DateTime.Today, DbType.Date, null),
+            ("@p_seq_chars", DBNull.Value, DbType.Int32, null)
         );
 
         if (!spResult.IsSuccess)
@@ -315,7 +316,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                 var result = _dbContext.ExecuteRawCommand(sql,
                     ("@p1", record.NtFileNum, DbType.Int32, null),
                     ("@p2", record.NtFileRecNum, DbType.Int32, null),
-                    ("@p3", record.SpCnRef, DbType.Int32, null),
+                    ("@p3", record.ServiceReference, DbType.Int32, null),
                     ("@p4", record.SpPlanRef, DbType.Int32, null),
                     ("@p5", record.NumCalled, DbType.String, 64),
                     ("@p6", record.TarClassCode, DbType.Int16, null),
@@ -392,7 +393,7 @@ public class FileLoaderRepository : IFileLoaderRepository
 
                     AddParameter(command, "@p1", record.NtFileNum, DbType.Int32);
                     AddParameter(command, "@p2", record.NtFileRecNum, DbType.Int32);
-                    AddParameter(command, "@p3", record.SpCnRef, DbType.Int32);
+                    AddParameter(command, "@p3", record.ServiceReference, DbType.Int32);
                     AddParameter(command, "@p4", record.SpPlanRef, DbType.Int32);
                     AddParameter(command, "@p5", record.NumCalled, DbType.String, 64);
                     AddParameter(command, "@p6", record.TarClassCode, DbType.Int16);
@@ -470,26 +471,27 @@ public class FileLoaderRepository : IFileLoaderRepository
         foreach (var record in recordList)
         {
             var sql = @"INSERT INTO ntfl_chgdtl (
-                nt_file_num, nt_file_rec_num, status_id, phone_num,
+                nt_file_num, nt_file_rec_num, status_id, contact_code, phone_num,
                 sp_cn_ref, sp_plan_ref, chg_code, start_date, end_date,
                 cost_amount, cost_gst, unitquantity, chg_narr, ch_dt_tabcd
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
             var result = _dbContext.ExecuteRawCommand(sql,
                 ("@p1", record.NtFileNum, DbType.Int32, null),
                 ("@p2", record.NtFileRecNum, DbType.Int32, null),
-                ("@p3", record.StatusId ?? 1, DbType.Int32, null),
-                ("@p4", record.PhoneNum, DbType.String, 32),
-                ("@p5", record.SpCnRef, DbType.Int32, null),
-                ("@p6", record.SpPlanRef, DbType.Int32, null),
-                ("@p7", record.ChgCode, DbType.String, 4),
-                ("@p8", record.StartDate, DbType.DateTime, null),
-                ("@p9", record.EndDate, DbType.DateTime, null),
-                ("@p10", record.CostAmount, DbType.Decimal, null),
-                ("@p11", record.CostGst, DbType.Decimal, null),
-                ("@p12", record.UnitQuantity, DbType.Decimal, null),
-                ("@p13", record.ChgNarr, DbType.String, 64),
-                ("@p14", record.ChDtTabcd, DbType.String, 4)
+                ("@p3", record.StatusId ?? TransactionStatus.New, DbType.String, 20),
+                ("@p4", record.ContactCode, DbType.String, 20),
+                ("@p5", record.PhoneNum, DbType.String, 32),
+                ("@p6", record.ServiceReference, DbType.Int32, null),
+                ("@p7", record.SpPlanRef, DbType.Int32, null),
+                ("@p8", record.ChgCode, DbType.String, 4),
+                ("@p9", record.StartDate, DbType.DateTime, null),
+                ("@p10", record.EndDate, DbType.DateTime, null),
+                ("@p11", record.CostAmount, DbType.Decimal, null),
+                ("@p12", record.CostGst, DbType.Decimal, null),
+                ("@p13", record.UnitQuantity, DbType.Decimal, null),
+                ("@p14", record.ChgNarr, DbType.String, 64),
+                ("@p15", record.ChDtTabcd, DbType.String, 4)
             );
 
             if (!result.IsSuccess)
@@ -536,26 +538,27 @@ public class FileLoaderRepository : IFileLoaderRepository
                     using var command = connection.CreateCommand();
                     command.Transaction = transaction;
                     command.CommandText = @"INSERT INTO ntfl_chgdtl (
-                        nt_file_num, nt_file_rec_num, status_id, phone_num,
+                        nt_file_num, nt_file_rec_num, status_id, contact_code, phone_num,
                         sp_cn_ref, sp_plan_ref, chg_code, start_date, end_date,
                         cost_amount, cost_gst, unitquantity, chg_narr, ch_dt_tabcd
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
                     command.CommandType = CommandType.Text;
 
                     AddParameter(command, "@p1", record.NtFileNum, DbType.Int32);
                     AddParameter(command, "@p2", record.NtFileRecNum, DbType.Int32);
-                    AddParameter(command, "@p3", record.StatusId ?? 1, DbType.Int32);
-                    AddParameter(command, "@p4", record.PhoneNum, DbType.String, 32);
-                    AddParameter(command, "@p5", record.SpCnRef, DbType.Int32);
-                    AddParameter(command, "@p6", record.SpPlanRef, DbType.Int32);
-                    AddParameter(command, "@p7", record.ChgCode, DbType.String, 4);
-                    AddParameter(command, "@p8", record.StartDate, DbType.DateTime);
-                    AddParameter(command, "@p9", record.EndDate, DbType.DateTime);
-                    AddParameter(command, "@p10", record.CostAmount, DbType.Decimal);
-                    AddParameter(command, "@p11", record.CostGst, DbType.Decimal);
-                    AddParameter(command, "@p12", record.UnitQuantity, DbType.Decimal);
-                    AddParameter(command, "@p13", record.ChgNarr, DbType.String, 64);
-                    AddParameter(command, "@p14", record.ChDtTabcd, DbType.String, 4);
+                    AddParameter(command, "@p3", record.StatusId ?? TransactionStatus.New, DbType.String, 20);
+                    AddParameter(command, "@p4", record.ContactCode, DbType.String, 20);
+                    AddParameter(command, "@p5", record.PhoneNum, DbType.String, 32);
+                    AddParameter(command, "@p6", record.ServiceReference, DbType.Int32);
+                    AddParameter(command, "@p7", record.SpPlanRef, DbType.Int32);
+                    AddParameter(command, "@p8", record.ChgCode, DbType.String, 4);
+                    AddParameter(command, "@p9", record.StartDate, DbType.DateTime);
+                    AddParameter(command, "@p10", record.EndDate, DbType.DateTime);
+                    AddParameter(command, "@p11", record.CostAmount, DbType.Decimal);
+                    AddParameter(command, "@p12", record.CostGst, DbType.Decimal);
+                    AddParameter(command, "@p13", record.UnitQuantity, DbType.Decimal);
+                    AddParameter(command, "@p14", record.ChgNarr, DbType.String, 64);
+                    AddParameter(command, "@p15", record.ChDtTabcd, DbType.String, 4);
 
                     var rowsAffected = await command.ExecuteNonQueryAsync();
                     if (rowsAffected < 0)
@@ -2340,8 +2343,8 @@ public class FileLoaderRepository : IFileLoaderRepository
                         generic_06, generic_07, generic_08, generic_09, generic_10,
                         generic_11, generic_12, generic_13, generic_14, generic_15,
                         generic_16, generic_17, generic_18, generic_19, generic_20,
-                        raw_data, status_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                        raw_data, status_id, contact_code, sp_cn_ref, chg_code
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
                     command.CommandType = CommandType.Text;
 
                     AddParameter(command, "@p1", record.NtFileNum, DbType.Int32);
@@ -2378,7 +2381,10 @@ public class FileLoaderRepository : IFileLoaderRepository
                     AddParameter(command, "@p32", record.Generic19, DbType.String, 256);
                     AddParameter(command, "@p33", record.Generic20, DbType.String, 256);
                     AddParameter(command, "@p34", record.RawData, DbType.String, 2000);
-                    AddParameter(command, "@p35", record.StatusId, DbType.Int32);
+                    AddParameter(command, "@p35", record.StatusId, DbType.String, 20);
+                    AddParameter(command, "@p36", record.ContactCode, DbType.String, 20);
+                    AddParameter(command, "@p37", record.ServiceReference, DbType.Int32);
+                    AddParameter(command, "@p38", record.ChgCode, DbType.String, 20);
 
                     var rowsAffected = await command.ExecuteNonQueryAsync();
                     if (rowsAffected < 0)
@@ -3934,6 +3940,9 @@ public class FileLoaderRepository : IFileLoaderRepository
             columnNames.Add(CustomTableHelper.ToSnakeCase(mapping.TargetField));
         }
         columnNames.Add("status_id");
+        columnNames.Add("contact_code");
+        columnNames.Add("sp_cn_ref");
+        columnNames.Add("chg_code");
 
         var placeholders = string.Join(", ", columnNames.Select(_ => "?"));
         var insertSql = $"INSERT INTO {tableName} ({string.Join(", ", columnNames)}) VALUES ({placeholders})";
@@ -3971,15 +3980,20 @@ public class FileLoaderRepository : IFileLoaderRepository
                     {
                         var value = GetRecordValueByTargetField(record, mapping.TargetField);
                         var dbType = CustomTableHelper.MapToDbType(mapping.DataType);
-                        var size = mapping.DataType.Equals("String", StringComparison.OrdinalIgnoreCase)
-                            ? mapping.MaxLength ?? 128
-                            : (int?)null;
-                        AddParameter(command, $"@p{paramIdx}", value, dbType, size);
+                        // Don't constrain param size — let the DB column definition enforce max length.
+                        // Setting param.Size smaller than the actual value causes DB2 CLI0109E truncation.
+                        AddParameter(command, $"@p{paramIdx}", value, dbType);
                         paramIdx++;
                     }
 
-                    // Status
-                    AddParameter(command, $"@p{paramIdx}", record.StatusId, DbType.Int32);
+                    // Status and charge processing columns
+                    AddParameter(command, $"@p{paramIdx}", record.StatusId, DbType.String, 20);
+                    paramIdx++;
+                    AddParameter(command, $"@p{paramIdx}", record.ContactCode, DbType.String, 20);
+                    paramIdx++;
+                    AddParameter(command, $"@p{paramIdx}", record.ServiceReference, DbType.Int32);
+                    paramIdx++;
+                    AddParameter(command, $"@p{paramIdx}", record.ChgCode, DbType.String, 20);
 
                     var rowsAffected = await command.ExecuteNonQueryAsync();
                     if (rowsAffected < 0)
@@ -4066,6 +4080,15 @@ public class FileLoaderRepository : IFileLoaderRepository
         using (var cmd = connection.CreateCommand())
         {
             cmd.CommandText = "DELETE FROM nt_fl_header WHERE nt_file_num = ?";
+            cmd.CommandType = CommandType.Text;
+            AddParameter(cmd, "@p1", ntFileNum, DbType.Int32);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        // Delete process records
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = "DELETE FROM nt_fl_process WHERE nt_file_num = ?";
             cmd.CommandType = CommandType.Text;
             AddParameter(cmd, "@p1", ntFileNum, DbType.Int32);
             await cmd.ExecuteNonQueryAsync();
@@ -4252,22 +4275,29 @@ public class FileLoaderRepository : IFileLoaderRepository
 
     private static object? GetRecordValueByTargetField(GenericDetailRecord record, string targetField)
     {
-        return targetField switch
+        // First check typed properties for standard fields
+        var value = targetField switch
         {
             "AccountCode" => record.AccountCode,
             "ServiceId" => record.ServiceId,
             "ChargeType" => record.ChargeType,
-            "CostAmount" => record.CostAmount,
-            "TaxAmount" => record.TaxAmount,
-            "Quantity" => record.Quantity,
+            "CostAmount" => (object?)record.CostAmount,
+            "TaxAmount" => (object?)record.TaxAmount,
+            "Quantity" => (object?)record.Quantity,
             "UOM" => record.UOM,
-            "FromDate" => record.FromDate,
-            "ToDate" => record.ToDate,
+            "FromDate" => (object?)record.FromDate,
+            "ToDate" => (object?)record.ToDate,
             "Description" => record.Description,
             "ExternalRef" => record.ExternalRef,
             _ when targetField.StartsWith("Generic") && int.TryParse(targetField[7..], out var num) => record.GetGenericField(num),
-            _ => null
+            _ => (object?)null
         };
+
+        // Fall back to ParsedFields dictionary for custom field names
+        if (value == null && record.ParsedFields.TryGetValue(targetField, out var parsed))
+            return parsed;
+
+        return value;
     }
 
     /// <summary>
@@ -5080,6 +5110,68 @@ public class FileLoaderRepository : IFileLoaderRepository
             ("@p1", (object)promptId, DbType.Int32, (int?)null)
         );
     }
+
+    // ============================================
+    // Transaction Error Queries
+    // ============================================
+
+    public async Task<DataResult<List<NtflTransactionError>>> GetTransactionErrorsAsync(int ntFileNum)
+    {
+        _logger.LogDebug("Getting transaction errors for file {NtFileNum}", ntFileNum);
+
+        var connection = _dbContext.GetConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = @"SELECT error_id, nt_file_num, nt_file_rec_num, source_table,
+                                       error_code, error_message, error_detail, created_dt, created_by
+                                FROM ntfl_transaction_error
+                                WHERE nt_file_num = ?
+                                ORDER BY nt_file_rec_num, error_id";
+        command.CommandType = CommandType.Text;
+        AddParameter(command, "@p1", ntFileNum, DbType.Int32);
+
+        var errors = new List<NtflTransactionError>();
+        using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            errors.Add(new NtflTransactionError
+            {
+                ErrorId = reader.GetInt32(0),
+                NtFileNum = reader.GetInt32(1),
+                NtFileRecNum = reader.GetInt32(2),
+                SourceTable = reader.GetString(3),
+                ErrorCode = reader.GetString(4),
+                ErrorMessage = reader.IsDBNull(5) ? null : reader.GetString(5),
+                ErrorDetail = reader.IsDBNull(6) ? null : reader.GetString(6),
+                CreatedDt = reader.GetDateTime(7),
+                CreatedBy = reader.IsDBNull(8) ? null : reader.GetString(8)
+            });
+        }
+
+        return new DataResult<List<NtflTransactionError>> { Data = errors, StatusCode = 200 };
+    }
+
+    public async Task<RawCommandResult> DeleteFileRecordsFromTableAsync(string tableName, int ntFileNum)
+    {
+        if (!IsValidTableName(tableName))
+            throw new ArgumentException($"Invalid table name: {tableName}");
+
+        _logger.LogInformation("Deleting records from {TableName} for file {NtFileNum}", tableName, ntFileNum);
+
+        var connection = _dbContext.GetConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = $"DELETE FROM {tableName} WHERE nt_file_num = ?";
+        command.CommandType = CommandType.Text;
+        AddParameter(command, "@p1", ntFileNum, DbType.Int32);
+
+        var rowsAffected = await command.ExecuteNonQueryAsync();
+        return new RawCommandResult { RowsAffected = rowsAffected };
+    }
 }
 
 /// <summary>
@@ -5134,7 +5226,7 @@ public static class CustomTableHelper
             "decimal" => "DECIMAL(16,6)",
             "date" => "DATE",
             "datetime" => "DATETIME YEAR TO SECOND",
-            _ => $"VARCHAR({mapping.MaxLength ?? 128})" // String and default
+            _ => $"VARCHAR({mapping.MaxLength ?? 255})" // String and default
         };
     }
 
@@ -5167,7 +5259,10 @@ public static class CustomTableHelper
             sb.AppendLine($"    {colName.PadRight(pad)}{sqlType}{nullable},");
         }
 
-        sb.AppendLine("    status_id           INTEGER DEFAULT 1,");
+        sb.AppendLine("    status_id           VARCHAR(20) DEFAULT 'NEW',");
+        sb.AppendLine("    contact_code        VARCHAR(20),");
+        sb.AppendLine("    sp_cn_ref           INTEGER,");
+        sb.AppendLine("    chg_code            VARCHAR(20),");
         sb.AppendLine();
         sb.AppendLine("    PRIMARY KEY (nt_file_num, nt_file_rec_num)");
         sb.AppendLine(");");

@@ -68,11 +68,12 @@ public class FileLoaderService : IFileLoaderService
             var ntCustNum = request.NtCustNum ?? "DEFAULT";
 
             // Step 1: Create file record in database using sp_file_loading_nt_file_api
+            var displayName = request.DisplayFileName ?? Path.GetFileName(request.FileName);
             var createResult = await _repository.CreateNtFileAsync(
                 request.FileType,
                 ntCustNum,
-                Path.GetFileName(request.FileName),
-                FileStatus.InitialLoading,
+                displayName,
+                FileStatus.Transferred,
                 request.FileDate,
                 securityContext);
 
@@ -186,7 +187,7 @@ public class FileLoaderService : IFileLoaderService
         var processingResult = new ProcessingResult
         {
             StartedAt = DateTime.Now,
-            StatusId = FileStatus.InitialLoading
+            StatusId = FileStatus.Transferred
         };
 
         try
@@ -225,9 +226,9 @@ public class FileLoaderService : IFileLoaderService
             {
                 _logger.LogError("No parser found for file type {FileType}", fileType);
                 processingResult.Success = false;
-                processingResult.StatusId = FileStatus.ProcessingErrors;
+                processingResult.StatusId = FileStatus.ValidationError;
                 processingResult.ErrorMessage = $"No parser found for file type: {fileType}";
-                await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.ProcessingErrors, securityContext);
+                await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.ValidationError, securityContext);
                 return processingResult;
             }
 
@@ -300,10 +301,10 @@ public class FileLoaderService : IFileLoaderService
                 }
             });
 
-            await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.ProcessingErrors, securityContext);
+            await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.LoadError, securityContext);
 
             processingResult.Success = false;
-            processingResult.StatusId = FileStatus.ProcessingErrors;
+            processingResult.StatusId = FileStatus.LoadError;
             processingResult.ErrorMessage = ex.Message;
             processingResult.CompletedAt = DateTime.Now;
             return processingResult;
@@ -327,7 +328,7 @@ public class FileLoaderService : IFileLoaderService
         var processingResult = new ProcessingResult
         {
             StartedAt = DateTime.Now,
-            StatusId = FileStatus.InitialLoading
+            StatusId = FileStatus.Transferred
         };
 
         // ============================================
@@ -349,16 +350,19 @@ public class FileLoaderService : IFileLoaderService
             // Log all errors to database
             await LogErrorsAsync(ntFileNum, validationResult.Errors);
 
-            // Update status to processing errors
-            await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.ProcessingErrors, securityContext);
+            // Update status to validation error
+            await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.ValidationError, securityContext);
 
             processingResult.Success = false;
-            processingResult.StatusId = FileStatus.ProcessingErrors;
+            processingResult.StatusId = FileStatus.ValidationError;
             processingResult.ErrorMessage = validationResult.ErrorMessage;
             processingResult.RecordsFailed = validationResult.Errors.Count;
             processingResult.CompletedAt = DateTime.Now;
             return processingResult;
         }
+
+        // Validation passed — update status to Validated
+        await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.Validated, securityContext);
 
         _logger.LogInformation("File {NtFileNum}: Validation passed, {RecordCount} records to process",
             ntFileNum, validationResult.RecordCount);
@@ -440,21 +444,33 @@ public class FileLoaderService : IFileLoaderService
         // Update trailer with totals
         await _repository.UpdateTrailerAsync(ntFileNum, recordsLoaded, totalCost, earliestCall, latestCall);
 
-        // Update status to completed
-        var finalStatus = recordsFailed > 0 ? FileStatus.ProcessingErrors : FileStatus.TransactionsLoaded;
-        await _repository.UpdateFileStatusAsync(ntFileNum, finalStatus, securityContext);
+        // All-or-nothing: if any records failed, the entire file is rejected
+        if (recordsFailed > 0)
+        {
+            await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.LoadError, securityContext);
+
+            processingResult.Success = false;
+            processingResult.StatusId = FileStatus.LoadError;
+            processingResult.ErrorMessage = $"{recordsFailed} record(s) failed to load";
+            processingResult.RecordsLoaded = 0;
+            processingResult.RecordsFailed = recordsFailed;
+            processingResult.CompletedAt = DateTime.Now;
+            return processingResult;
+        }
+
+        // All records loaded successfully
+        await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.Loaded, securityContext);
 
         processingResult.Success = true;
-        processingResult.StatusId = finalStatus;
+        processingResult.StatusId = FileStatus.Loaded;
         processingResult.RecordsLoaded = recordsLoaded;
-        processingResult.RecordsFailed = recordsFailed;
+        processingResult.RecordsFailed = 0;
         processingResult.TotalCost = totalCost;
         processingResult.EarliestCall = earliestCall;
         processingResult.LatestCall = latestCall;
         processingResult.CompletedAt = DateTime.Now;
 
-        _logger.LogInformation("File {NtFileNum} processed (streaming): {Loaded} loaded, {Failed} failed",
-            ntFileNum, recordsLoaded, recordsFailed);
+        _logger.LogInformation("File {NtFileNum} loaded: {Loaded} records", ntFileNum, recordsLoaded);
 
         return processingResult;
     }
@@ -474,7 +490,7 @@ public class FileLoaderService : IFileLoaderService
         var processingResult = new ProcessingResult
         {
             StartedAt = DateTime.Now,
-            StatusId = FileStatus.InitialLoading
+            StatusId = FileStatus.Transferred
         };
 
         // Parse entire file in memory
@@ -490,15 +506,18 @@ public class FileLoaderService : IFileLoaderService
             _logger.LogError("File {NtFileNum} validation failed: {Error}", ntFileNum, parseResult.ErrorMessage);
 
             await LogErrorsAsync(ntFileNum, parseResult.Errors);
-            await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.ProcessingErrors, securityContext);
+            await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.ValidationError, securityContext);
 
             processingResult.Success = false;
-            processingResult.StatusId = FileStatus.ProcessingErrors;
+            processingResult.StatusId = FileStatus.ValidationError;
             processingResult.ErrorMessage = parseResult.ErrorMessage;
             processingResult.RecordsFailed = parseResult.Errors.Count;
             processingResult.CompletedAt = DateTime.Now;
             return processingResult;
         }
+
+        // Validation passed — update status to Validated
+        await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.Validated, securityContext);
 
         // Insert all valid records
         var recordNum = await _repository.GetNextRecordNumberAsync(ntFileNum);
@@ -556,21 +575,33 @@ public class FileLoaderService : IFileLoaderService
         // Update trailer with totals
         await _repository.UpdateTrailerAsync(ntFileNum, recordsLoaded, totalCost, earliestCall, latestCall);
 
-        // Update status to completed
-        var finalStatus = recordsFailed > 0 ? FileStatus.ProcessingErrors : FileStatus.TransactionsLoaded;
-        await _repository.UpdateFileStatusAsync(ntFileNum, finalStatus, securityContext);
+        // All-or-nothing: if any records failed, the entire file is rejected
+        if (recordsFailed > 0)
+        {
+            await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.LoadError, securityContext);
+
+            processingResult.Success = false;
+            processingResult.StatusId = FileStatus.LoadError;
+            processingResult.ErrorMessage = $"{recordsFailed} record(s) failed to load";
+            processingResult.RecordsLoaded = 0;
+            processingResult.RecordsFailed = recordsFailed;
+            processingResult.CompletedAt = DateTime.Now;
+            return processingResult;
+        }
+
+        // All records loaded successfully
+        await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.Loaded, securityContext);
 
         processingResult.Success = true;
-        processingResult.StatusId = finalStatus;
+        processingResult.StatusId = FileStatus.Loaded;
         processingResult.RecordsLoaded = recordsLoaded;
-        processingResult.RecordsFailed = recordsFailed;
+        processingResult.RecordsFailed = 0;
         processingResult.TotalCost = totalCost;
         processingResult.EarliestCall = earliestCall;
         processingResult.LatestCall = latestCall;
         processingResult.CompletedAt = DateTime.Now;
 
-        _logger.LogInformation("File {NtFileNum} processed (legacy): {Loaded} loaded, {Failed} failed",
-            ntFileNum, recordsLoaded, recordsFailed);
+        _logger.LogInformation("File {NtFileNum} loaded (legacy): {Loaded} records", ntFileNum, recordsLoaded);
 
         return processingResult;
     }
@@ -1114,7 +1145,7 @@ public class FileLoaderService : IFileLoaderService
         {
             NtFileNum = ntFileNum,
             NtFileRecNum = recordNum,
-            SpCnRef = GetFieldInt(parsed, "SpCnRef"),
+            ServiceReference = GetFieldInt(parsed, "SpCnRef"),
             SpPlanRef = GetFieldInt(parsed, "SpPlanRef"),
             NumCalled = GetFieldString(parsed, "NumCalled") ?? GetFieldString(parsed, "CalledNumber"),
             TarClassCode = GetFieldShort(parsed, "TarClassCode"),
@@ -1146,9 +1177,8 @@ public class FileLoaderService : IFileLoaderService
         {
             NtFileNum = ntFileNum,
             NtFileRecNum = recordNum,
-            StatusId = GetFieldInt(parsed, "StatusId"),
             PhoneNum = GetFieldString(parsed, "PhoneNum") ?? GetFieldString(parsed, "ServiceId"),
-            SpCnRef = GetFieldInt(parsed, "SpCnRef"),
+            ServiceReference = GetFieldInt(parsed, "SpCnRef"),
             SpPlanRef = GetFieldInt(parsed, "SpPlanRef"),
             SpCnChgRef = GetFieldInt(parsed, "SpCnChgRef"),
             ChgCode = GetFieldString(parsed, "ChgCode") ?? GetFieldString(parsed, "ChargeCode"),
@@ -1183,7 +1213,7 @@ public class FileLoaderService : IFileLoaderService
         {
             NtFileNum = ntFileNum,
             NtFileRecNum = recordNum,
-            SpCnRef = GetFieldInt(parsed, "SpCnRef"),
+            ServiceReference = GetFieldInt(parsed, "SpCnRef"),
             ClDtTabcd = GetFieldString(parsed, "ClDtTabcd"),
             PhoneNum = GetFieldString(parsed, "PhoneNum") ?? GetFieldString(parsed, "ServiceId"),
             ClStartDt = GetFieldDateTime(parsed, "ClStartDt") ?? GetFieldDateTime(parsed, "CallDateTime"),
@@ -1219,7 +1249,7 @@ public class FileLoaderService : IFileLoaderService
             Description = GetFieldString(parsed, "Description"),
             ExternalRef = GetFieldString(parsed, "ExternalRef"),
             RawData = GetFieldString(parsed, "RawData"),
-            StatusId = 1
+            StatusId = TransactionStatus.New
         };
 
         // Map Generic01..Generic20
@@ -1229,6 +1259,12 @@ public class FileLoaderService : IFileLoaderService
             var value = GetFieldString(parsed, fieldName);
             if (value != null)
                 record.SetGenericField(i, value);
+        }
+
+        // Copy all parsed fields for custom table inserts
+        foreach (var kvp in parsed.Fields)
+        {
+            record.ParsedFields[kvp.Key] = kvp.Value;
         }
 
         return record;
@@ -1318,9 +1354,10 @@ public class FileLoaderService : IFileLoaderService
         int skipRecords,
         int takeRecords,
         string countRecords,
-        SecurityContext securityContext)
+        SecurityContext securityContext,
+        int? statusId = null)
     {
-        return await _repository.ListFilesAsync(fileTypeCode, ntCustNum, skipRecords, takeRecords, countRecords, securityContext);
+        return await _repository.ListFilesAsync(fileTypeCode, ntCustNum, skipRecords, takeRecords, countRecords, securityContext, statusId);
     }
 
     public async Task<DataResult<FileTypeListResponse>> ListFileTypesAsync(SecurityContext securityContext)
@@ -1345,7 +1382,7 @@ public class FileLoaderService : IFileLoaderService
         var file = statusResult.Data;
 
         // Reset status to loading
-        await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.InitialLoading, securityContext);
+        await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.Transferred, securityContext);
 
         return new DataResult<FileLoadResponse>
         {
@@ -1355,8 +1392,8 @@ public class FileLoaderService : IFileLoaderService
                 NtFileNum = ntFileNum,
                 FileName = file.FileName,
                 FileType = file.FileType,
-                Status = FileStatus.GetDescription(FileStatus.InitialLoading),
-                StatusId = FileStatus.InitialLoading,
+                Status = FileStatus.GetDescription(FileStatus.Transferred),
+                StatusId = FileStatus.Transferred,
                 StartedAt = DateTime.Now
             }
         };

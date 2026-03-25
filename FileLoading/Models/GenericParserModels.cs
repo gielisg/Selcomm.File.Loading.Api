@@ -109,6 +109,10 @@ public class GenericFileFormatConfig
     /// <example>VENDOR_CHG</example>
     public string FileTypeCode { get; set; } = string.Empty;
 
+    /// <summary>Configuration version number. Versions are frozen when a custom table is created from them.</summary>
+    /// <example>1</example>
+    public int ConfigVersion { get; set; } = 1;
+
     /// <summary>File format type (CSV, XLSX, or Delimited).</summary>
     /// <example>CSV</example>
     public FileFormatType FileFormat { get; set; } = FileFormatType.CSV;
@@ -236,6 +240,10 @@ public class GenericColumnMapping
     /// <summary>File type code this mapping belongs to.</summary>
     /// <example>VENDOR_CHG</example>
     public string FileTypeCode { get; set; } = string.Empty;
+
+    /// <summary>Configuration version number.</summary>
+    /// <example>1</example>
+    public int ConfigVersion { get; set; } = 1;
 
     /// <summary>Zero-based column index in the source file.</summary>
     /// <example>0</example>
@@ -377,12 +385,24 @@ public class GenericDetailRecord : FileDetailRecord
     /// <summary>Generic overflow column 20.</summary>
     public string? Generic20 { get; set; }
 
+    /// <summary>All parsed field values keyed by TargetField name. Used by custom table inserts.</summary>
+    public Dictionary<string, object?> ParsedFields { get; set; } = new();
+
     /// <summary>Original raw row data for debugging and error investigation.</summary>
     public string? RawData { get; set; }
 
-    /// <summary>Record status ID (default 1 = initial/unprocessed).</summary>
-    /// <example>1</example>
-    public int StatusId { get; set; } = 1;
+    /// <summary>Transaction status (default NEW). Updated by Charges Module.</summary>
+    /// <example>NEW</example>
+    public string StatusId { get; set; } = TransactionStatus.New;
+
+    /// <summary>Contact code — FK to contact (contact_code). Populated by Charges Module.</summary>
+    public string? ContactCode { get; set; }
+
+    /// <summary>Service reference — FK to sp_connection (sp_cn_ref). Populated by Charges Module.</summary>
+    public int? ServiceReference { get; set; }
+
+    /// <summary>Charge code — FK to charge_code (chg_code). Populated by Charges Module.</summary>
+    public string? ChgCode { get; set; }
 
     /// <summary>Set a generic overflow field by number (1-20).</summary>
     /// <param name="number">Field number (1-20).</param>

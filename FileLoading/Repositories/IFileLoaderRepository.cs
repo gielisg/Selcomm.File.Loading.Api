@@ -82,7 +82,8 @@ public interface IFileLoaderRepository
         int skipRecords,
         int takeRecords,
         string countRecords,
-        SecurityContext securityContext);
+        SecurityContext securityContext,
+        int? statusId = null);
 
     /// <summary>
     /// Insert a batch of call detail records into cl_detail table.
@@ -568,6 +569,28 @@ public interface IFileLoaderRepository
     Task<RawCommandResult> ResetAiReviewCountAsync();
 
     // ============================================
+    // Parser Config Versioning
+    // ============================================
+
+    /// <summary>Get a specific version of a parser config.</summary>
+    Task<GenericFileFormatConfig?> GetGenericFileFormatConfigAsync(string fileTypeCode, int? configVersion);
+
+    /// <summary>Get all parser config versions for a file type.</summary>
+    Task<DataResult<List<GenericFileFormatConfig>>> GetParserConfigVersionsAsync(string fileTypeCode);
+
+    /// <summary>Copy a parser config from one version to another.</summary>
+    Task<RawCommandResult> CopyParserConfigVersionAsync(string fileTypeCode, int fromVersion, int toVersion);
+
+    /// <summary>Check if a parser config version is frozen (linked to a custom table).</summary>
+    Task<bool> IsParserConfigFrozenAsync(string fileTypeCode, int configVersion);
+
+    /// <summary>Delete column mappings for a specific version.</summary>
+    Task<RawCommandResult> DeleteColumnMappingsAsync(string fileTypeCode, int configVersion);
+
+    /// <summary>Delete a specific config version and its mappings.</summary>
+    Task<RawCommandResult> DeleteGenericFileFormatConfigAsync(string fileTypeCode, int configVersion);
+
+    // ============================================
     // Custom Table Management
     // ============================================
 
@@ -698,6 +721,21 @@ public interface IFileLoaderRepository
     Task<RawCommandResult> UpdateFileTypePromptAsync(AiFileTypePromptRecord record);
     Task<RawCommandResult> ActivateFileTypePromptAsync(string fileTypeCode, int promptId);
     Task<RawCommandResult> DeleteFileTypePromptAsync(int promptId);
+
+    // ============================================
+    // Transaction Error Queries
+    // ============================================
+
+    /// <summary>
+    /// Get transaction errors for a file (populated by Charges Module).
+    /// </summary>
+    Task<DataResult<List<NtflTransactionError>>> GetTransactionErrorsAsync(int ntFileNum);
+
+    /// <summary>
+    /// Delete all records from a target table for a given file number.
+    /// Used for all-or-nothing rollback when loading fails.
+    /// </summary>
+    Task<RawCommandResult> DeleteFileRecordsFromTableAsync(string tableName, int ntFileNum);
 }
 
 /// <summary>

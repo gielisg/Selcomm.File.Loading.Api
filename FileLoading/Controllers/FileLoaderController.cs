@@ -230,12 +230,23 @@ public class FileLoaderController : DbControllerBase<FileLoaderDbContext>
         [FromQuery(Name = "ntCustNum")] string? ntCustNum = null,
         [FromQuery(Name = "skipRecords")] int skipRecords = 0,
         [FromQuery(Name = "takeRecords")] int takeRecords = 20,
-        [FromQuery(Name = "countRecords")] string countRecords = "F")
+        [FromQuery(Name = "countRecords")] string countRecords = "F",
+        [FromQuery(Name = "folder")] string? folder = null)
     {
         try
         {
+            // Map folder name to status_id filter
+            int? statusId = folder?.ToUpperInvariant() switch
+            {
+                "ERRORS" => FileStatus.ValidationError,
+                "LOAD_ERRORS" => FileStatus.LoadError,
+                "LOADED" => FileStatus.Loaded,
+                "VALIDATED" => FileStatus.Validated,
+                _ => null
+            };
+
             var securityContext = CreateSecurityContext("get_api_v4_file_loading_files");
-            var result = await _fileLoaderService.ListFilesAsync(fileTypeCode, ntCustNum, skipRecords, takeRecords, countRecords, securityContext);
+            var result = await _fileLoaderService.ListFilesAsync(fileTypeCode, ntCustNum, skipRecords, takeRecords, countRecords, securityContext, statusId);
 
             return HandleDataResult(result);
         }

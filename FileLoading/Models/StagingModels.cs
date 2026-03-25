@@ -27,9 +27,9 @@ public class ClDetailRecord : FileDetailRecord
     /// <example>50001</example>
     public int? InvRef { get; set; }
 
-    /// <summary>Service provider connection reference (sp_cn_ref).</summary>
+    /// <summary>Service reference — FK to sp_connection (sp_cn_ref).</summary>
     /// <example>100234</example>
-    public int? SpCnRef { get; set; }
+    public int? ServiceReference { get; set; }
 
     /// <summary>Service provider plan reference (sp_plan_ref).</summary>
     /// <example>500</example>
@@ -126,17 +126,21 @@ public class ClDetailRecord : FileDetailRecord
 /// </summary>
 public class NtflChgdtlRecord : FileDetailRecord
 {
-    /// <summary>Record status ID (status_id).</summary>
-    /// <example>1</example>
-    public int? StatusId { get; set; }
+    /// <summary>Transaction status (status_id). Set to 'NEW' on load, updated by Charges Module.</summary>
+    /// <example>NEW</example>
+    public string? StatusId { get; set; } = TransactionStatus.New;
+
+    /// <summary>Contact code — FK to contact (contact_code). Populated by Charges Module.</summary>
+    /// <example>null</example>
+    public string? ContactCode { get; set; }
 
     /// <summary>Phone number or service identifier (phone_num).</summary>
     /// <example>0412345678</example>
     public string? PhoneNum { get; set; }
 
-    /// <summary>Service provider connection reference (sp_cn_ref).</summary>
+    /// <summary>Service reference — FK to sp_connection (sp_cn_ref). Populated by Charges Module.</summary>
     /// <example>100234</example>
-    public int? SpCnRef { get; set; }
+    public int? ServiceReference { get; set; }
 
     /// <summary>Service provider plan reference (sp_plan_ref).</summary>
     /// <example>500</example>
@@ -245,9 +249,9 @@ public class NtflChgdtlRecord : FileDetailRecord
 /// </summary>
 public class NtClNotLoadRecord : FileDetailRecord
 {
-    /// <summary>Service provider connection reference (sp_cn_ref).</summary>
+    /// <summary>Service reference — FK to sp_connection (sp_cn_ref).</summary>
     /// <example>100234</example>
-    public int? SpCnRef { get; set; }
+    public int? ServiceReference { get; set; }
 
     /// <summary>Call detail table code (cl_dt_tabcd).</summary>
     /// <example>CL</example>
@@ -495,24 +499,31 @@ public static class FileErrorCodes
 
 /// <summary>
 /// File status constants matching the nt_file_stat lookup table.
-/// Used in FileStatusResponse.StatusId and FileLoadResponse.StatusId fields.
+/// Flow: Transferred(1) → Validated(2) → Loaded(3). Errors: ValidationError(6), LoadError(7).
+/// Statuses 4+ are set by downstream modules (Charges Module, etc.).
 /// </summary>
 public static class FileStatus
 {
-    /// <summary>Initial loading in progress (status 1).</summary>
-    public const int InitialLoading = 1;
+    /// <summary>File transferred and ready for processing (status 1).</summary>
+    public const int Transferred = 1;
 
-    /// <summary>Transactions loaded successfully (status 2).</summary>
-    public const int TransactionsLoaded = 2;
+    /// <summary>File structure validated successfully (status 2).</summary>
+    public const int Validated = 2;
 
-    /// <summary>Processing completed with errors (status 3).</summary>
-    public const int ProcessingErrors = 3;
+    /// <summary>All transactions loaded successfully (status 3).</summary>
+    public const int Loaded = 3;
 
-    /// <summary>Processing completed successfully (status 4).</summary>
+    /// <summary>Processing completed successfully by downstream module (status 4).</summary>
     public const int ProcessingCompleted = 4;
 
     /// <summary>File has been discarded/rejected (status 5).</summary>
     public const int FileDiscarded = 5;
+
+    /// <summary>File failed structural validation (status 6).</summary>
+    public const int ValidationError = 6;
+
+    /// <summary>File failed during record loading (status 7).</summary>
+    public const int LoadError = 7;
 
     /// <summary>Output file generation in progress (status 10).</summary>
     public const int FileGenerationInProgress = 10;
@@ -527,19 +538,79 @@ public static class FileStatus
     public const int ResponseNoErrors = 13;
 
     /// <summary>Get the human-readable description for a status ID.</summary>
-    /// <param name="statusId">The numeric status ID.</param>
-    /// <returns>Human-readable status description.</returns>
     public static string GetDescription(int statusId) => statusId switch
     {
-        InitialLoading => "Initial loading in progress",
-        TransactionsLoaded => "Transactions loaded",
-        ProcessingErrors => "Processing Errors",
+        Transferred => "Transferred",
+        Validated => "Validated",
+        Loaded => "Loaded",
         ProcessingCompleted => "Processing Completed",
         FileDiscarded => "File Discarded",
+        ValidationError => "Validation Error",
+        LoadError => "Load Error",
         FileGenerationInProgress => "File generation in progress",
         FileGenerationComplete => "File generation complete",
         ResponseSomeErrors => "Response received - Some errors",
         ResponseNoErrors => "Response received - No errors",
         _ => "Unknown"
     };
+}
+
+/// <summary>
+/// Transaction-level status constants (string values stored in status_id column).
+/// This module sets NEW on load. All other statuses are set by the Charges Module.
+/// Flow: NEW → PROCESSING → PROCESSED. Also: AUTO_WRITEOFF, WRITEOFF, ERROR.
+/// </summary>
+public static class TransactionStatus
+{
+    /// <summary>Transaction loaded, awaiting processing.</summary>
+    public const string New = "NEW";
+
+    /// <summary>Transaction is being processed by Charges Module.</summary>
+    public const string Processing = "PROCESSING";
+
+    /// <summary>Transaction processed successfully.</summary>
+    public const string Processed = "PROCESSED";
+
+    /// <summary>Transaction automatically written off.</summary>
+    public const string AutoWriteoff = "AUTO_WRITEOFF";
+
+    /// <summary>Transaction manually written off.</summary>
+    public const string Writeoff = "WRITEOFF";
+
+    /// <summary>Transaction processing encountered an error.</summary>
+    public const string Error = "ERROR";
+}
+
+/// <summary>
+/// Transaction error record — maps to the ntfl_transaction_error table.
+/// Schema owned by File Loading module, populated by the Charges Module.
+/// </summary>
+public class NtflTransactionError
+{
+    /// <summary>Auto-increment primary key.</summary>
+    public int ErrorId { get; set; }
+
+    /// <summary>FK to nt_file.</summary>
+    public int NtFileNum { get; set; }
+
+    /// <summary>Record number within the file.</summary>
+    public int NtFileRecNum { get; set; }
+
+    /// <summary>Source table name (e.g. ntfl_generic_detail, ntfl_chgdtl).</summary>
+    public string SourceTable { get; set; } = string.Empty;
+
+    /// <summary>Error code (e.g. NO_MATCH, INVALID_ACCOUNT, DUPLICATE).</summary>
+    public string ErrorCode { get; set; } = string.Empty;
+
+    /// <summary>Human-readable error description.</summary>
+    public string? ErrorMessage { get; set; }
+
+    /// <summary>Extended error detail (JSON or text).</summary>
+    public string? ErrorDetail { get; set; }
+
+    /// <summary>When this error was created.</summary>
+    public DateTime CreatedDt { get; set; }
+
+    /// <summary>User/process that created this error.</summary>
+    public string? CreatedBy { get; set; }
 }
