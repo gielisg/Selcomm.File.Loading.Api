@@ -221,10 +221,11 @@ public class FileLoaderRepository : IFileLoaderRepository
         int skipRecords,
         int takeRecords,
         string countRecords,
-        SecurityContext securityContext)
+        SecurityContext securityContext,
+        int? statusId = null)
     {
-        _logger.LogDebug("Listing files: Type={FileType}, Cust={CustNum}, Skip={Skip}, Take={Take}, Count={Count}",
-            fileTypeCode, ntCustNum, skipRecords, takeRecords, countRecords);
+        _logger.LogDebug("Listing files: Type={FileType}, Cust={CustNum}, Status={StatusId}, Skip={Skip}, Take={Take}, Count={Count}",
+            fileTypeCode, ntCustNum, statusId, skipRecords, takeRecords, countRecords);
 
         // Use ss_file_loading_nt_file_api via standard ExecuteJsonQueryAsync pattern
         // Returns: StatusCode, Json ({"Count": N|null, "Items": [...]}), ErrorCode, ErrorMessage
@@ -233,6 +234,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             securityContext,
             ("@p_file_type_code", (object?)fileTypeCode ?? DBNull.Value, DbType.String, 10),
             ("@p_nt_cust_num", (object?)ntCustNum ?? DBNull.Value, DbType.String, 10),
+            ("@p_status_id", (object?)statusId ?? DBNull.Value, DbType.Int32, null),
             ("@p_skip_records", skipRecords, DbType.Int32, null),
             ("@p_take_records", takeRecords, DbType.Int32, null),
             ("@p_count_records", countRecords, DbType.StringFixedLength, 1)
@@ -416,7 +418,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                     {
                         _logger.LogError("Failed to insert cl_detail record");
                         await transaction.RollbackAsync();
-                        return new RawCommandResult { RowsAffected = 0, ErrorMessage = "Insert failed" };
+                        return new RawCommandResult { RowsAffected = 0, StatusCode = 500, ErrorMessage = "Insert failed" };
                     }
                     totalRows += rowsAffected;
                 }
@@ -560,7 +562,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                     {
                         _logger.LogError("Failed to insert ntfl_chgdtl record");
                         await transaction.RollbackAsync();
-                        return new RawCommandResult { RowsAffected = 0, ErrorMessage = "Insert failed" };
+                        return new RawCommandResult { RowsAffected = 0, StatusCode = 500, ErrorMessage = "Insert failed" };
                     }
                     totalRows += rowsAffected;
                 }
@@ -663,7 +665,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                     {
                         _logger.LogError("Failed to insert ssswhls_cdr record");
                         await transaction.RollbackAsync();
-                        return new RawCommandResult { RowsAffected = 0, ErrorMessage = "Insert failed" };
+                        return new RawCommandResult { RowsAffected = 0, StatusCode = 500, ErrorMessage = "Insert failed" };
                     }
                     totalRows += rowsAffected;
                 }
@@ -747,7 +749,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                     {
                         _logger.LogError("Failed to insert ssswhlschg record");
                         await transaction.RollbackAsync();
-                        return new RawCommandResult { RowsAffected = 0, ErrorMessage = "Insert failed" };
+                        return new RawCommandResult { RowsAffected = 0, StatusCode = 500, ErrorMessage = "Insert failed" };
                     }
                     totalRows += rowsAffected;
                 }
@@ -1018,6 +1020,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             _logger.LogError(ex, "Error storing validation summary for file {NtFileNum}", ntFileNum);
             return new RawCommandResult
             {
+                StatusCode = 500,
                 ErrorMessage = ex.Message
             };
         }
@@ -2184,16 +2187,37 @@ public class FileLoaderRepository : IFileLoaderRepository
 
     public async Task<GenericFileFormatConfig?> GetGenericFileFormatConfigAsync(string fileTypeCode)
     {
-        _logger.LogDebug("Loading generic file format config for {FileTypeCode}", fileTypeCode);
+        // Default: get the latest (highest) config version
+        return await GetGenericFileFormatConfigAsync(fileTypeCode, null);
+    }
 
-        // Query file format config
-        var configSql = @"SELECT file_type_code, file_format, delimiter, has_header_row,
-            skip_rows_top, skip_rows_bottom, row_id_mode, row_id_column,
-            header_indicator, trailer_indicator, detail_indicator, skip_indicator,
-            total_column_index, total_type, sheet_name, sheet_index,
-            date_format, custom_sp_name, active
-            FROM ntfl_file_format_config
-            WHERE file_type_code = ? AND active = 'Y'";
+    public async Task<GenericFileFormatConfig?> GetGenericFileFormatConfigAsync(string fileTypeCode, int? configVersion)
+    {
+        _logger.LogDebug("Loading generic file format config for {FileTypeCode} (version={Version})", fileTypeCode, configVersion?.ToString() ?? "latest");
+
+        // Query file format config — if no version specified, get the latest
+        string configSql;
+        if (configVersion.HasValue)
+        {
+            configSql = @"SELECT file_type_code, file_format, delimiter, has_header_row,
+                skip_rows_top, skip_rows_bottom, row_id_mode, row_id_column,
+                header_indicator, trailer_indicator, detail_indicator, skip_indicator,
+                total_column_index, total_type, sheet_name, sheet_index,
+                date_format, custom_sp_name, active, config_version
+                FROM ntfl_file_format_config
+                WHERE file_type_code = ? AND config_version = ? AND active = 'Y'";
+        }
+        else
+        {
+            configSql = @"SELECT FIRST 1 file_type_code, file_format, delimiter, has_header_row,
+                skip_rows_top, skip_rows_bottom, row_id_mode, row_id_column,
+                header_indicator, trailer_indicator, detail_indicator, skip_indicator,
+                total_column_index, total_type, sheet_name, sheet_index,
+                date_format, custom_sp_name, active, config_version
+                FROM ntfl_file_format_config
+                WHERE file_type_code = ? AND active = 'Y'
+                ORDER BY config_version DESC";
+        }
 
         GenericFileFormatConfig? config = null;
 
@@ -2206,6 +2230,8 @@ public class FileLoaderRepository : IFileLoaderRepository
             command.CommandText = configSql;
             command.CommandType = CommandType.Text;
             AddParameter(command, "@p1", fileTypeCode, DbType.String, 10);
+            if (configVersion.HasValue)
+                AddParameter(command, "@p2", configVersion.Value, DbType.Int32);
 
             using var reader = await command.ExecuteReaderAsync();
             if (await reader.ReadAsync())
@@ -2230,7 +2256,8 @@ public class FileLoaderRepository : IFileLoaderRepository
                     SheetIndex = reader.IsDBNull(15) ? 0 : reader.GetInt32(15),
                     DateFormat = reader.IsDBNull(16) ? null : reader.GetString(16).Trim(),
                     CustomSpName = reader.IsDBNull(17) ? null : reader.GetString(17).Trim(),
-                    Active = !reader.IsDBNull(18) && reader.GetString(18).Trim() == "Y"
+                    Active = !reader.IsDBNull(18) && reader.GetString(18).Trim() == "Y",
+                    ConfigVersion = reader.IsDBNull(19) ? 1 : reader.GetInt32(19)
                 };
             }
         }
@@ -2238,11 +2265,11 @@ public class FileLoaderRepository : IFileLoaderRepository
         if (config == null)
             return null;
 
-        // Query column mappings
+        // Query column mappings for the same version
         var mappingSql = @"SELECT file_type_code, column_index, source_column_name, target_field,
-            data_type, date_format, is_required, default_value, regex_pattern, max_length
+            data_type, date_format, is_required, default_value, regex_pattern, max_length, config_version
             FROM ntfl_column_mapping
-            WHERE file_type_code = ?
+            WHERE file_type_code = ? AND config_version = ?
             ORDER BY column_index";
 
         using (var command = connection.CreateCommand())
@@ -2250,6 +2277,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             command.CommandText = mappingSql;
             command.CommandType = CommandType.Text;
             AddParameter(command, "@p1", fileTypeCode, DbType.String, 10);
+            AddParameter(command, "@p2", config.ConfigVersion, DbType.Int32);
 
             using var reader = await command.ExecuteReaderAsync();
             while (await reader.ReadAsync())
@@ -2265,13 +2293,14 @@ public class FileLoaderRepository : IFileLoaderRepository
                     IsRequired = !reader.IsDBNull(6) && reader.GetString(6).Trim() == "Y",
                     DefaultValue = reader.IsDBNull(7) ? null : reader.GetString(7).Trim(),
                     RegexPattern = reader.IsDBNull(8) ? null : reader.GetString(8).Trim(),
-                    MaxLength = reader.IsDBNull(9) ? null : reader.GetInt32(9)
+                    MaxLength = reader.IsDBNull(9) ? null : reader.GetInt32(9),
+                    ConfigVersion = reader.IsDBNull(10) ? 1 : reader.GetInt32(10)
                 });
             }
         }
 
-        _logger.LogDebug("Loaded generic config for {FileTypeCode}: {MappingCount} column mappings",
-            fileTypeCode, config.ColumnMappings.Count);
+        _logger.LogDebug("Loaded generic config for {FileTypeCode} v{Version}: {MappingCount} column mappings",
+            fileTypeCode, config.ConfigVersion, config.ColumnMappings.Count);
 
         return config;
     }
@@ -2356,7 +2385,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                     {
                         _logger.LogError("Failed to insert ntfl_generic_detail record");
                         await transaction.RollbackAsync();
-                        return new RawCommandResult { RowsAffected = 0, ErrorMessage = "Insert failed" };
+                        return new RawCommandResult { RowsAffected = 0, StatusCode = 500, ErrorMessage = "Insert failed" };
                     }
                     totalRows += rowsAffected;
                 }
@@ -2401,7 +2430,7 @@ public class FileLoaderRepository : IFileLoaderRepository
         catch (Exception ex)
         {
             _logger.LogError(ex, "Custom validation SP {SpName} failed for file {NtFileNum}", spName, ntFileNum);
-            return new RawCommandResult { RowsAffected = 0, ErrorMessage = ex.Message };
+            return new RawCommandResult { RowsAffected = 0, StatusCode = 500, ErrorMessage = ex.Message };
         }
     }
 
@@ -2409,17 +2438,23 @@ public class FileLoaderRepository : IFileLoaderRepository
     {
         _logger.LogDebug("Loading all generic file format configs (activeOnly={ActiveOnly})", activeOnly);
 
-        var configSql = @"SELECT file_type_code, file_format, delimiter, has_header_row,
-            skip_rows_top, skip_rows_bottom, row_id_mode, row_id_column,
-            header_indicator, trailer_indicator, detail_indicator, skip_indicator,
-            total_column_index, total_type, sheet_name, sheet_index,
-            date_format, custom_sp_name, active
-            FROM ntfl_file_format_config";
+        // Get only the latest version of each file type config using a subquery
+        var configSql = @"SELECT c.file_type_code, c.file_format, c.delimiter, c.has_header_row,
+            c.skip_rows_top, c.skip_rows_bottom, c.row_id_mode, c.row_id_column,
+            c.header_indicator, c.trailer_indicator, c.detail_indicator, c.skip_indicator,
+            c.total_column_index, c.total_type, c.sheet_name, c.sheet_index,
+            c.date_format, c.custom_sp_name, c.active, c.config_version
+            FROM ntfl_file_format_config c
+            INNER JOIN (
+                SELECT file_type_code, MAX(config_version) AS max_version
+                FROM ntfl_file_format_config
+                GROUP BY file_type_code
+            ) mv ON c.file_type_code = mv.file_type_code AND c.config_version = mv.max_version";
 
         if (activeOnly == true)
-            configSql += " WHERE active = 'Y'";
+            configSql += " WHERE c.active = 'Y'";
 
-        configSql += " ORDER BY file_type_code";
+        configSql += " ORDER BY c.file_type_code";
 
         var configs = new List<GenericFileFormatConfig>();
 
@@ -2455,24 +2490,26 @@ public class FileLoaderRepository : IFileLoaderRepository
                     SheetIndex = reader.IsDBNull(15) ? 0 : reader.GetInt32(15),
                     DateFormat = reader.IsDBNull(16) ? null : reader.GetString(16).Trim(),
                     CustomSpName = reader.IsDBNull(17) ? null : reader.GetString(17).Trim(),
-                    Active = !reader.IsDBNull(18) && reader.GetString(18).Trim() == "Y"
+                    Active = !reader.IsDBNull(18) && reader.GetString(18).Trim() == "Y",
+                    ConfigVersion = reader.IsDBNull(19) ? 1 : reader.GetInt32(19)
                 });
             }
         }
 
-        // Load column mappings for each config
+        // Load column mappings for each config (matching its version)
         foreach (var config in configs)
         {
             var mappingSql = @"SELECT file_type_code, column_index, source_column_name, target_field,
-                data_type, date_format, is_required, default_value, regex_pattern, max_length
+                data_type, date_format, is_required, default_value, regex_pattern, max_length, config_version
                 FROM ntfl_column_mapping
-                WHERE file_type_code = ?
+                WHERE file_type_code = ? AND config_version = ?
                 ORDER BY column_index";
 
             using var command = connection.CreateCommand();
             command.CommandText = mappingSql;
             command.CommandType = CommandType.Text;
             AddParameter(command, "@p1", config.FileTypeCode, DbType.String, 10);
+            AddParameter(command, "@p2", config.ConfigVersion, DbType.Int32);
 
             using var reader = await command.ExecuteReaderAsync();
             while (await reader.ReadAsync())
@@ -2488,7 +2525,8 @@ public class FileLoaderRepository : IFileLoaderRepository
                     IsRequired = !reader.IsDBNull(6) && reader.GetString(6).Trim() == "Y",
                     DefaultValue = reader.IsDBNull(7) ? null : reader.GetString(7).Trim(),
                     RegexPattern = reader.IsDBNull(8) ? null : reader.GetString(8).Trim(),
-                    MaxLength = reader.IsDBNull(9) ? null : reader.GetInt32(9)
+                    MaxLength = reader.IsDBNull(9) ? null : reader.GetInt32(9),
+                    ConfigVersion = reader.IsDBNull(10) ? 1 : reader.GetInt32(10)
                 });
             }
         }
@@ -2507,36 +2545,37 @@ public class FileLoaderRepository : IFileLoaderRepository
         _logger.LogDebug("Inserting generic file format config: {FileTypeCode}", config.FileTypeCode);
 
         var sql = @"INSERT INTO ntfl_file_format_config (
-            file_type_code, file_format, delimiter, has_header_row,
+            file_type_code, config_version, file_format, delimiter, has_header_row,
             skip_rows_top, skip_rows_bottom, row_id_mode, row_id_column,
             header_indicator, trailer_indicator, detail_indicator, skip_indicator,
             total_column_index, total_type, sheet_name, sheet_index,
             date_format, custom_sp_name, active,
             created_tm, created_by, last_updated, updated_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT, ?, CURRENT, ?)";
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT, ?, CURRENT, ?)";
 
         return _dbContext.ExecuteRawCommand(sql,
             ("@p1", config.FileTypeCode, DbType.String, 10),
-            ("@p2", config.FileFormat.ToString().ToUpper(), DbType.String, 16),
-            ("@p3", config.Delimiter, DbType.String, 8),
-            ("@p4", config.HasHeaderRow ? "Y" : "N", DbType.String, 1),
-            ("@p5", config.SkipRowsTop, DbType.Int32, null),
-            ("@p6", config.SkipRowsBottom, DbType.Int32, null),
-            ("@p7", config.RowIdMode.ToString().ToUpper(), DbType.String, 16),
-            ("@p8", config.RowIdColumn, DbType.Int32, null),
-            ("@p9", config.HeaderIndicator, DbType.String, 64),
-            ("@p10", config.TrailerIndicator, DbType.String, 64),
-            ("@p11", config.DetailIndicator, DbType.String, 64),
-            ("@p12", config.SkipIndicator, DbType.String, 64),
-            ("@p13", config.TotalColumnIndex, DbType.Int32, null),
-            ("@p14", config.TotalType, DbType.String, 16),
-            ("@p15", config.SheetName, DbType.String, 64),
-            ("@p16", config.SheetIndex, DbType.Int32, null),
-            ("@p17", config.DateFormat, DbType.String, 32),
-            ("@p18", config.CustomSpName, DbType.String, 64),
-            ("@p19", config.Active ? "Y" : "N", DbType.String, 1),
-            ("@p20", config.CreatedBy, DbType.String, 18),
-            ("@p21", config.UpdatedBy, DbType.String, 18)
+            ("@p2", config.ConfigVersion, DbType.Int32, null),
+            ("@p3", config.FileFormat.ToString().ToUpper(), DbType.String, 16),
+            ("@p4", config.Delimiter, DbType.String, 8),
+            ("@p5", config.HasHeaderRow ? "Y" : "N", DbType.String, 1),
+            ("@p6", config.SkipRowsTop, DbType.Int32, null),
+            ("@p7", config.SkipRowsBottom, DbType.Int32, null),
+            ("@p8", config.RowIdMode.ToString().ToUpper(), DbType.String, 16),
+            ("@p9", config.RowIdColumn, DbType.Int32, null),
+            ("@p10", config.HeaderIndicator, DbType.String, 64),
+            ("@p11", config.TrailerIndicator, DbType.String, 64),
+            ("@p12", config.DetailIndicator, DbType.String, 64),
+            ("@p13", config.SkipIndicator, DbType.String, 64),
+            ("@p14", config.TotalColumnIndex, DbType.Int32, null),
+            ("@p15", config.TotalType, DbType.String, 16),
+            ("@p16", config.SheetName, DbType.String, 64),
+            ("@p17", config.SheetIndex, DbType.Int32, null),
+            ("@p18", config.DateFormat, DbType.String, 32),
+            ("@p19", config.CustomSpName, DbType.String, 64),
+            ("@p20", config.Active ? "Y" : "N", DbType.String, 1),
+            ("@p21", config.CreatedBy, DbType.String, 18),
+            ("@p22", config.UpdatedBy, DbType.String, 18)
         );
     }
 
@@ -2551,7 +2590,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             total_column_index = ?, total_type = ?, sheet_name = ?, sheet_index = ?,
             date_format = ?, custom_sp_name = ?, active = ?,
             last_updated = CURRENT, updated_by = ?
-        WHERE file_type_code = ?";
+        WHERE file_type_code = ? AND config_version = ?";
 
         return _dbContext.ExecuteRawCommand(sql,
             ("@p1", config.FileFormat.ToString().ToUpper(), DbType.String, 16),
@@ -2573,33 +2612,54 @@ public class FileLoaderRepository : IFileLoaderRepository
             ("@p17", config.CustomSpName, DbType.String, 64),
             ("@p18", config.Active ? "Y" : "N", DbType.String, 1),
             ("@p19", config.UpdatedBy, DbType.String, 18),
-            ("@p20", config.FileTypeCode, DbType.String, 10)
+            ("@p20", config.FileTypeCode, DbType.String, 10),
+            ("@p21", config.ConfigVersion, DbType.Int32, null)
         );
     }
 
     public async Task<RawCommandResult> DeleteGenericFileFormatConfigAsync(string fileTypeCode)
     {
-        _logger.LogDebug("Deleting generic file format config: {FileTypeCode}", fileTypeCode);
+        // Get the latest version to delete
+        var config = await GetGenericFileFormatConfigAsync(fileTypeCode);
+        if (config == null)
+            return new RawCommandResult { RowsAffected = 0, StatusCode = 500, ErrorMessage = "Config not found" };
+
+        return await DeleteGenericFileFormatConfigAsync(fileTypeCode, config.ConfigVersion);
+    }
+
+    public async Task<RawCommandResult> DeleteGenericFileFormatConfigAsync(string fileTypeCode, int configVersion)
+    {
+        _logger.LogDebug("Deleting generic file format config: {FileTypeCode} v{Version}", fileTypeCode, configVersion);
 
         // Delete column mappings first (FK constraint)
-        var mappingResult = await DeleteColumnMappingsAsync(fileTypeCode);
+        var mappingResult = await DeleteColumnMappingsAsync(fileTypeCode, configVersion);
         if (!mappingResult.IsSuccess)
             return mappingResult;
 
         return _dbContext.ExecuteRawCommand(
-            "DELETE FROM ntfl_file_format_config WHERE file_type_code = ?",
-            ("@p1", fileTypeCode, DbType.String, 10)
+            "DELETE FROM ntfl_file_format_config WHERE file_type_code = ? AND config_version = ?",
+            ("@p1", fileTypeCode, DbType.String, 10),
+            ("@p2", configVersion, DbType.Int32, null)
         );
     }
 
     public async Task<RawCommandResult> DeleteColumnMappingsAsync(string fileTypeCode)
     {
-        _logger.LogDebug("Deleting column mappings for: {FileTypeCode}", fileTypeCode);
+        // Get the latest version
+        var config = await GetGenericFileFormatConfigAsync(fileTypeCode);
+        var version = config?.ConfigVersion ?? 1;
+        return await DeleteColumnMappingsAsync(fileTypeCode, version);
+    }
 
-        return _dbContext.ExecuteRawCommand(
-            "DELETE FROM ntfl_column_mapping WHERE file_type_code = ?",
-            ("@p1", fileTypeCode, DbType.String, 10)
-        );
+    public Task<RawCommandResult> DeleteColumnMappingsAsync(string fileTypeCode, int configVersion)
+    {
+        _logger.LogDebug("Deleting column mappings for: {FileTypeCode} v{Version}", fileTypeCode, configVersion);
+
+        return Task.FromResult(_dbContext.ExecuteRawCommand(
+            "DELETE FROM ntfl_column_mapping WHERE file_type_code = ? AND config_version = ?",
+            ("@p1", fileTypeCode, DbType.String, 10),
+            ("@p2", configVersion, DbType.Int32, null)
+        ));
     }
 
     public async Task<RawCommandResult> InsertColumnMappingsBatchAsync(IEnumerable<GenericColumnMapping> mappings)
@@ -2626,28 +2686,29 @@ public class FileLoaderRepository : IFileLoaderRepository
                 using var command = connection.CreateCommand();
                 command.Transaction = transaction;
                 command.CommandText = @"INSERT INTO ntfl_column_mapping (
-                    file_type_code, column_index, source_column_name, target_field,
+                    file_type_code, config_version, column_index, source_column_name, target_field,
                     data_type, date_format, is_required, default_value, regex_pattern, max_length
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
                 command.CommandType = CommandType.Text;
 
                 AddParameter(command, "@p1", mapping.FileTypeCode, DbType.String, 10);
-                AddParameter(command, "@p2", mapping.ColumnIndex, DbType.Int32);
-                AddParameter(command, "@p3", mapping.SourceColumnName, DbType.String, 64);
-                AddParameter(command, "@p4", mapping.TargetField, DbType.String, 32);
-                AddParameter(command, "@p5", mapping.DataType, DbType.String, 16);
-                AddParameter(command, "@p6", mapping.DateFormat, DbType.String, 32);
-                AddParameter(command, "@p7", mapping.IsRequired ? "Y" : "N", DbType.String, 1);
-                AddParameter(command, "@p8", mapping.DefaultValue, DbType.String, 128);
-                AddParameter(command, "@p9", mapping.RegexPattern, DbType.String, 255);
-                AddParameter(command, "@p10", mapping.MaxLength, DbType.Int32);
+                AddParameter(command, "@p2", mapping.ConfigVersion, DbType.Int32);
+                AddParameter(command, "@p3", mapping.ColumnIndex, DbType.Int32);
+                AddParameter(command, "@p4", mapping.SourceColumnName, DbType.String, 64);
+                AddParameter(command, "@p5", mapping.TargetField, DbType.String, 32);
+                AddParameter(command, "@p6", mapping.DataType, DbType.String, 16);
+                AddParameter(command, "@p7", mapping.DateFormat, DbType.String, 32);
+                AddParameter(command, "@p8", mapping.IsRequired ? "Y" : "N", DbType.String, 1);
+                AddParameter(command, "@p9", mapping.DefaultValue, DbType.String, 128);
+                AddParameter(command, "@p10", mapping.RegexPattern, DbType.String, 255);
+                AddParameter(command, "@p11", mapping.MaxLength, DbType.Int32);
 
                 var rowsAffected = await command.ExecuteNonQueryAsync();
                 if (rowsAffected < 0)
                 {
                     _logger.LogError("Failed to insert column mapping");
                     await transaction.RollbackAsync();
-                    return new RawCommandResult { RowsAffected = 0, ErrorMessage = "Insert failed" };
+                    return new RawCommandResult { RowsAffected = 0, StatusCode = 500, ErrorMessage = "Insert failed" };
                 }
                 totalRows += rowsAffected;
             }
@@ -2659,7 +2720,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             _logger.LogError(ex, "Error inserting column mappings batch");
             if (transaction != null)
                 await transaction.RollbackAsync();
-            return new RawCommandResult { RowsAffected = 0, ErrorMessage = ex.Message };
+            return new RawCommandResult { RowsAffected = 0, StatusCode = 500, ErrorMessage = ex.Message };
         }
 
         _logger.LogDebug("Inserted {TotalRows} column mappings", totalRows);
@@ -3621,7 +3682,7 @@ public class FileLoaderRepository : IFileLoaderRepository
     public async Task<DataResult<List<CustomTableMetadata>>> GetCustomTablesAsync(string fileTypeCode)
     {
         var sql = @"SELECT custom_table_id, file_type_code, table_name, version, status,
-            column_count, column_definition, created_dt, created_by, dropped_dt
+            column_count, column_definition, created_tm, created_by, dropped_tm, config_version
             FROM ntfl_custom_table
             WHERE file_type_code = ?
             ORDER BY version";
@@ -3643,13 +3704,13 @@ public class FileLoaderRepository : IFileLoaderRepository
             results.Add(ReadCustomTableMetadata(reader));
         }
 
-        return new DataResult<List<CustomTableMetadata>> { Data = results };
+        return new DataResult<List<CustomTableMetadata>> { StatusCode = 200, Data = results };
     }
 
     public async Task<CustomTableMetadata?> GetActiveCustomTableAsync(string fileTypeCode)
     {
         var sql = @"SELECT custom_table_id, file_type_code, table_name, version, status,
-            column_count, column_definition, created_dt, created_by, dropped_dt
+            column_count, column_definition, created_tm, created_by, dropped_tm, config_version
             FROM ntfl_custom_table
             WHERE file_type_code = ? AND status = 'ACTIVE'";
 
@@ -3674,7 +3735,7 @@ public class FileLoaderRepository : IFileLoaderRepository
     public async Task<CustomTableMetadata?> GetCustomTableByVersionAsync(string fileTypeCode, int version)
     {
         var sql = @"SELECT custom_table_id, file_type_code, table_name, version, status,
-            column_count, column_definition, created_dt, created_by, dropped_dt
+            column_count, column_definition, created_tm, created_by, dropped_tm, config_version
             FROM ntfl_custom_table
             WHERE file_type_code = ? AND version = ?";
 
@@ -3701,8 +3762,8 @@ public class FileLoaderRepository : IFileLoaderRepository
     {
         var sql = @"INSERT INTO ntfl_custom_table (
             file_type_code, table_name, version, status, column_count,
-            column_definition, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)";
+            column_definition, config_version, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
 
         var connection = _dbContext.GetConnection();
         if (connection.State != ConnectionState.Open)
@@ -3717,7 +3778,8 @@ public class FileLoaderRepository : IFileLoaderRepository
         AddParameter(command, "@p4", metadata.Status, DbType.String, 10);
         AddParameter(command, "@p5", metadata.ColumnCount, DbType.Int32);
         AddParameter(command, "@p6", metadata.ColumnDefinition, DbType.String, 4000);
-        AddParameter(command, "@p7", metadata.CreatedBy, DbType.String, 30);
+        AddParameter(command, "@p7", metadata.ConfigVersion, DbType.Int32);
+        AddParameter(command, "@p8", metadata.CreatedBy, DbType.String, 30);
 
         await command.ExecuteNonQueryAsync();
 
@@ -3732,7 +3794,7 @@ public class FileLoaderRepository : IFileLoaderRepository
 
     public async Task<RawCommandResult> UpdateCustomTableStatusAsync(int customTableId, string status, DateTime? droppedDt = null)
     {
-        var sql = "UPDATE ntfl_custom_table SET status = ?, dropped_dt = ? WHERE custom_table_id = ?";
+        var sql = "UPDATE ntfl_custom_table SET status = ?, dropped_tm = ? WHERE custom_table_id = ?";
 
         var connection = _dbContext.GetConnection();
         if (connection.State != ConnectionState.Open)
@@ -3765,8 +3827,16 @@ public class FileLoaderRepository : IFileLoaderRepository
         command.CommandText = sql;
         command.CommandType = CommandType.Text;
 
-        var result = await command.ExecuteScalarAsync();
-        return Convert.ToInt32(result);
+        try
+        {
+            var result = await command.ExecuteScalarAsync();
+            return Convert.ToInt32(result);
+        }
+        catch (Exception ex) when (ex.Message.Contains("not in the database") || ex.Message.Contains("-206"))
+        {
+            // Physical table doesn't exist
+            return -1;
+        }
     }
 
     public async Task<RawCommandResult> ExecuteCreateTableAsync(string ddl)
@@ -3775,6 +3845,8 @@ public class FileLoaderRepository : IFileLoaderRepository
         if (connection.State != ConnectionState.Open)
             await connection.OpenAsync();
 
+        _logger.LogInformation("Executing CREATE TABLE DDL:\n{Ddl}", ddl);
+
         using var command = connection.CreateCommand();
         command.CommandText = ddl;
         command.CommandType = CommandType.Text;
@@ -3782,14 +3854,38 @@ public class FileLoaderRepository : IFileLoaderRepository
         try
         {
             await command.ExecuteNonQueryAsync();
-            _logger.LogInformation("Successfully executed CREATE TABLE DDL");
+            _logger.LogInformation("CREATE TABLE DDL executed without exception");
+
+            // Verify the table was actually created by checking systables
+            var tableName = ExtractTableNameFromDdl(ddl);
+            if (!string.IsNullOrEmpty(tableName))
+            {
+                using var verifyCmd = connection.CreateCommand();
+                verifyCmd.CommandText = $"SELECT COUNT(*) FROM systables WHERE tabname = '{tableName}'";
+                verifyCmd.CommandType = CommandType.Text;
+                var exists = Convert.ToInt32(await verifyCmd.ExecuteScalarAsync());
+                if (exists == 0)
+                {
+                    _logger.LogError("CREATE TABLE DDL reported success but table '{TableName}' not found in systables", tableName);
+                    return new RawCommandResult { RowsAffected = 0, StatusCode = 500, ErrorMessage = $"Table '{tableName}' was not created despite no DDL error" };
+                }
+                _logger.LogInformation("Verified table '{TableName}' exists in systables", tableName);
+            }
+
             return new RawCommandResult { RowsAffected = 0 };
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to execute CREATE TABLE DDL");
-            return new RawCommandResult { RowsAffected = 0, ErrorMessage = ex.Message };
+            return new RawCommandResult { RowsAffected = 0, StatusCode = 500, ErrorMessage = ex.Message };
         }
+    }
+
+    private static string? ExtractTableNameFromDdl(string ddl)
+    {
+        // Extract table name from "CREATE TABLE tablename ("
+        var match = System.Text.RegularExpressions.Regex.Match(ddl, @"CREATE\s+TABLE\s+(\S+)\s*\(", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     public async Task<RawCommandResult> DropTableAsync(string tableName)
@@ -3814,7 +3910,7 @@ public class FileLoaderRepository : IFileLoaderRepository
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to drop table {TableName}", tableName);
-            return new RawCommandResult { RowsAffected = 0, ErrorMessage = ex.Message };
+            return new RawCommandResult { RowsAffected = 0, StatusCode = 500, ErrorMessage = ex.Message };
         }
     }
 
@@ -3890,7 +3986,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                     {
                         _logger.LogError("Failed to insert record into custom table {TableName}", tableName);
                         await transaction.RollbackAsync();
-                        return new RawCommandResult { RowsAffected = 0, ErrorMessage = "Insert failed" };
+                        return new RawCommandResult { RowsAffected = 0, StatusCode = 500, ErrorMessage = "Insert failed" };
                     }
                     totalRows += rowsAffected;
                 }
@@ -3986,6 +4082,153 @@ public class FileLoaderRepository : IFileLoaderRepository
     }
 
     // ============================================
+    // Parser Config Versioning
+    // ============================================
+
+    public async Task<DataResult<List<GenericFileFormatConfig>>> GetParserConfigVersionsAsync(string fileTypeCode)
+    {
+        _logger.LogDebug("Loading all parser config versions for {FileTypeCode}", fileTypeCode);
+
+        var configSql = @"SELECT file_type_code, file_format, delimiter, has_header_row,
+            skip_rows_top, skip_rows_bottom, row_id_mode, row_id_column,
+            header_indicator, trailer_indicator, detail_indicator, skip_indicator,
+            total_column_index, total_type, sheet_name, sheet_index,
+            date_format, custom_sp_name, active, config_version
+            FROM ntfl_file_format_config
+            WHERE file_type_code = ?
+            ORDER BY config_version";
+
+        var configs = new List<GenericFileFormatConfig>();
+        var connection = _dbContext.GetConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync();
+
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = configSql;
+            command.CommandType = CommandType.Text;
+            AddParameter(command, "@p1", fileTypeCode, DbType.String, 10);
+
+            using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                configs.Add(new GenericFileFormatConfig
+                {
+                    FileTypeCode = reader.GetString(0).Trim(),
+                    FileFormat = ParseFileFormat(reader.GetString(1).Trim()),
+                    Delimiter = reader.IsDBNull(2) ? "," : reader.GetString(2).Trim(),
+                    HasHeaderRow = !reader.IsDBNull(3) && reader.GetString(3).Trim() == "Y",
+                    SkipRowsTop = reader.IsDBNull(4) ? 0 : reader.GetInt32(4),
+                    SkipRowsBottom = reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
+                    RowIdMode = ParseRowIdMode(reader.IsDBNull(6) ? "POSITION" : reader.GetString(6).Trim()),
+                    RowIdColumn = reader.IsDBNull(7) ? 0 : reader.GetInt32(7),
+                    HeaderIndicator = reader.IsDBNull(8) ? null : reader.GetString(8).Trim(),
+                    TrailerIndicator = reader.IsDBNull(9) ? null : reader.GetString(9).Trim(),
+                    DetailIndicator = reader.IsDBNull(10) ? null : reader.GetString(10).Trim(),
+                    SkipIndicator = reader.IsDBNull(11) ? null : reader.GetString(11).Trim(),
+                    TotalColumnIndex = reader.IsDBNull(12) ? null : reader.GetInt32(12),
+                    TotalType = reader.IsDBNull(13) ? null : reader.GetString(13).Trim(),
+                    SheetName = reader.IsDBNull(14) ? null : reader.GetString(14).Trim(),
+                    SheetIndex = reader.IsDBNull(15) ? 0 : reader.GetInt32(15),
+                    DateFormat = reader.IsDBNull(16) ? null : reader.GetString(16).Trim(),
+                    CustomSpName = reader.IsDBNull(17) ? null : reader.GetString(17).Trim(),
+                    Active = !reader.IsDBNull(18) && reader.GetString(18).Trim() == "Y",
+                    ConfigVersion = reader.IsDBNull(19) ? 1 : reader.GetInt32(19)
+                });
+            }
+        }
+
+        // Load column mappings for each version
+        foreach (var config in configs)
+        {
+            var mappingSql = @"SELECT file_type_code, column_index, source_column_name, target_field,
+                data_type, date_format, is_required, default_value, regex_pattern, max_length, config_version
+                FROM ntfl_column_mapping
+                WHERE file_type_code = ? AND config_version = ?
+                ORDER BY column_index";
+
+            using var command = connection.CreateCommand();
+            command.CommandText = mappingSql;
+            command.CommandType = CommandType.Text;
+            AddParameter(command, "@p1", config.FileTypeCode, DbType.String, 10);
+            AddParameter(command, "@p2", config.ConfigVersion, DbType.Int32);
+
+            using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                config.ColumnMappings.Add(new GenericColumnMapping
+                {
+                    FileTypeCode = reader.GetString(0).Trim(),
+                    ColumnIndex = reader.GetInt32(1),
+                    SourceColumnName = reader.IsDBNull(2) ? null : reader.GetString(2).Trim(),
+                    TargetField = reader.GetString(3).Trim(),
+                    DataType = reader.IsDBNull(4) ? "String" : reader.GetString(4).Trim(),
+                    DateFormat = reader.IsDBNull(5) ? null : reader.GetString(5).Trim(),
+                    IsRequired = !reader.IsDBNull(6) && reader.GetString(6).Trim() == "Y",
+                    DefaultValue = reader.IsDBNull(7) ? null : reader.GetString(7).Trim(),
+                    RegexPattern = reader.IsDBNull(8) ? null : reader.GetString(8).Trim(),
+                    MaxLength = reader.IsDBNull(9) ? null : reader.GetInt32(9),
+                    ConfigVersion = reader.IsDBNull(10) ? 1 : reader.GetInt32(10)
+                });
+            }
+        }
+
+        return new DataResult<List<GenericFileFormatConfig>> { StatusCode = 200, Data = configs };
+    }
+
+    public async Task<RawCommandResult> CopyParserConfigVersionAsync(string fileTypeCode, int fromVersion, int toVersion)
+    {
+        _logger.LogInformation("Copying parser config {FileTypeCode} from v{From} to v{To}", fileTypeCode, fromVersion, toVersion);
+
+        // Get the source config
+        var source = await GetGenericFileFormatConfigAsync(fileTypeCode, fromVersion);
+        if (source == null)
+            return new RawCommandResult { RowsAffected = 0, StatusCode = 500, ErrorMessage = $"Source config version {fromVersion} not found" };
+
+        // Insert new config version
+        source.ConfigVersion = toVersion;
+        var configResult = await InsertGenericFileFormatConfigAsync(source);
+        if (!configResult.IsSuccess)
+            return configResult;
+
+        // Copy column mappings with new version
+        if (source.ColumnMappings.Count > 0)
+        {
+            foreach (var mapping in source.ColumnMappings)
+            {
+                mapping.ConfigVersion = toVersion;
+            }
+            var mappingResult = await InsertColumnMappingsBatchAsync(source.ColumnMappings);
+            if (!mappingResult.IsSuccess)
+                return mappingResult;
+        }
+
+        return new RawCommandResult { RowsAffected = 1 };
+    }
+
+    /// <summary>
+    /// Check if a parser config version is frozen (linked to an ACTIVE or RETIRED custom table).
+    /// </summary>
+    public async Task<bool> IsParserConfigFrozenAsync(string fileTypeCode, int configVersion)
+    {
+        var sql = @"SELECT COUNT(*) FROM ntfl_custom_table
+            WHERE file_type_code = ? AND config_version = ? AND status IN ('ACTIVE', 'RETIRED')";
+
+        var connection = _dbContext.GetConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.CommandType = CommandType.Text;
+        AddParameter(command, "@p1", fileTypeCode, DbType.String, 10);
+        AddParameter(command, "@p2", configVersion, DbType.Int32);
+
+        var result = await command.ExecuteScalarAsync();
+        return Convert.ToInt32(result) > 0;
+    }
+
+    // ============================================
     // Custom Table Helpers
     // ============================================
 
@@ -4002,7 +4245,8 @@ public class FileLoaderRepository : IFileLoaderRepository
             ColumnDefinition = reader.IsDBNull(6) ? null : reader.GetString(6),
             CreatedDt = reader.GetDateTime(7),
             CreatedBy = reader.IsDBNull(8) ? null : reader.GetString(8).Trim(),
-            DroppedDt = reader.IsDBNull(9) ? null : reader.GetDateTime(9)
+            DroppedDt = reader.IsDBNull(9) ? null : reader.GetDateTime(9),
+            ConfigVersion = reader.IsDBNull(10) ? null : reader.GetInt32(10)
         };
     }
 
@@ -4919,7 +5163,8 @@ public static class CustomTableHelper
             var colName = ToSnakeCase(mapping.TargetField);
             var sqlType = MapToSqlType(mapping);
             var nullable = mapping.IsRequired ? " NOT NULL" : "";
-            sb.AppendLine($"    {colName,-20}{sqlType}{nullable},");
+            var pad = Math.Max(colName.Length + 1, 20);
+            sb.AppendLine($"    {colName.PadRight(pad)}{sqlType}{nullable},");
         }
 
         sb.AppendLine("    status_id           INTEGER DEFAULT 1,");
