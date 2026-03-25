@@ -990,6 +990,74 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     }
 
     // ============================================
+    // Parser Config Versioning
+    // ============================================
+
+    /// <summary>
+    /// List all parser configuration versions for a file type.
+    /// Returns all versions including frozen ones linked to custom tables.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <response code="200">Version list returned</response>
+    /// <response code="204">No configs found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("parsers/{file-type-code}/versions")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_parsers_file_type_code_versions")]
+    [Tags("Parser Configuration")]
+    [ProducesResponseType(typeof(List<GenericFileFormatConfig>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetParserConfigVersions([FromRoute(Name = "file-type-code")] string fileTypeCode)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_parsers_file_type_code_versions");
+            var result = await _managementService.GetParserConfigVersionsAsync(fileTypeCode, securityContext);
+            if (result.IsSuccess && (result.Data == null || result.Data.Count == 0))
+                return NoContent();
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting parser config versions for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Get a specific parser configuration version.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <param name="version">Config version number</param>
+    /// <response code="200">Config version returned</response>
+    /// <response code="404">Version not found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("parsers/{file-type-code}/versions/{version}")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_parsers_file_type_code_versions_version")]
+    [Tags("Parser Configuration")]
+    [ProducesResponseType(typeof(GenericFileFormatConfig), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetParserConfigByVersion(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromRoute] int version)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_parsers_file_type_code_versions_version");
+            var result = await _managementService.GetParserConfigByVersionAsync(fileTypeCode, version, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting parser config v{Version} for fileTypeCode={FileTypeCode}", version, fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    // ============================================
     // Folder Configuration
     // ============================================
 

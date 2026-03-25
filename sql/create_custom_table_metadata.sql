@@ -12,9 +12,10 @@ CREATE TABLE ntfl_custom_table (
     status              CHAR(10) NOT NULL DEFAULT 'ACTIVE',  -- ACTIVE, RETIRED, DROPPED
     column_count        INTEGER NOT NULL,
     column_definition   LVARCHAR(4000),               -- JSON snapshot of column mappings at creation
-    created_dt          DATETIME YEAR TO SECOND DEFAULT CURRENT YEAR TO SECOND,
+    config_version      INTEGER,                       -- Parser config version this table was created from
+    created_tm          DATETIME YEAR TO SECOND DEFAULT CURRENT YEAR TO SECOND,
     created_by          VARCHAR(30),
-    dropped_dt          DATETIME YEAR TO SECOND,
+    dropped_tm          DATETIME YEAR TO SECOND,
 
     PRIMARY KEY (custom_table_id),
     UNIQUE (file_type_code, version),

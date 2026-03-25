@@ -691,10 +691,16 @@ public class FileManagementService : IFileManagementService
     public async Task<DataResult<GenericFileFormatConfig>> CreateParserConfigAsync(GenericParserConfigRequest request, SecurityContext context)
     {
         var existing = await _repository.GetGenericFileFormatConfigAsync(request.FileTypeCode);
+
+        int newVersion = 1;
         if (existing != null)
-            return new DataResult<GenericFileFormatConfig> { StatusCode = 409, ErrorCode = "FileLoading.AlreadyExists", ErrorMessage = $"Parser config for '{request.FileTypeCode}' already exists" };
+        {
+            return new DataResult<GenericFileFormatConfig> { StatusCode = 409, ErrorCode = "FileLoading.AlreadyExists", ErrorMessage = $"Parser config for '{request.FileTypeCode}' already exists (v{existing.ConfigVersion}). Use PATCH to update non-structural fields, or create a new custom table version to change the table structure." };
+        }
 
         var (config, columnMappings) = MapParserRequest(request, context);
+        config.ConfigVersion = newVersion;
+        foreach (var m in columnMappings) m.ConfigVersion = newVersion;
 
         var result = await _repository.InsertGenericFileFormatConfigAsync(config);
         if (!result.IsSuccess)
@@ -713,14 +719,33 @@ public class FileManagementService : IFileManagementService
         if (existing == null)
             return new DataResult<GenericFileFormatConfig> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = $"Parser config for '{fileTypeCode}' not found" };
 
+        // Smart freeze: only block DDL-affecting column mapping changes on frozen configs
+        var isFrozen = await _repository.IsParserConfigFrozenAsync(fileTypeCode, existing.ConfigVersion);
+        if (isFrozen)
+        {
+            var ddlChanges = DetectDdlChanges(existing.ColumnMappings, request.ColumnMappings);
+            if (ddlChanges.Count > 0)
+                return new DataResult<GenericFileFormatConfig>
+                {
+                    StatusCode = 409,
+                    ErrorCode = "FileLoading.DdlChangesFrozen",
+                    ErrorMessage = $"Parser config v{existing.ConfigVersion} is linked to a custom table. " +
+                        $"The following DDL-affecting changes are not allowed: {string.Join("; ", ddlChanges)}. " +
+                        $"Non-structural fields (regex, defaults, delimiters, etc.) can still be edited. " +
+                        $"Create a new custom table version to change the table structure."
+                };
+        }
+
         request.FileTypeCode = fileTypeCode;
         var (config, columnMappings) = MapParserRequest(request, context);
+        config.ConfigVersion = existing.ConfigVersion; // Preserve version
 
         var result = await _repository.UpdateGenericFileFormatConfigAsync(config);
         if (!result.IsSuccess)
             return new DataResult<GenericFileFormatConfig> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
 
-        await _repository.DeleteColumnMappingsAsync(fileTypeCode);
+        await _repository.DeleteColumnMappingsAsync(fileTypeCode, existing.ConfigVersion);
+        foreach (var m in columnMappings) m.ConfigVersion = existing.ConfigVersion;
         if (columnMappings.Count > 0)
             await _repository.InsertColumnMappingsBatchAsync(columnMappings);
 
@@ -799,6 +824,55 @@ public class FileManagementService : IFileManagementService
         "PATTERN" => RowIdMode.Pattern,
         _ => RowIdMode.Position
     };
+
+    /// <summary>
+    /// Detect DDL-affecting changes between existing column mappings and a new request.
+    /// DDL-affecting fields: target_field, data_type, max_length, is_required, and column additions/removals.
+    /// Non-DDL fields (source_column_name, default_value, regex_pattern, date_format) are allowed to change freely.
+    /// </summary>
+    private static List<string> DetectDdlChanges(List<GenericColumnMapping> existing, List<GenericColumnMappingRequest> proposed)
+    {
+        var changes = new List<string>();
+
+        // Build lookup of existing mappings by column index
+        var existingByIndex = existing.ToDictionary(m => m.ColumnIndex);
+        var proposedByIndex = proposed.ToDictionary(m => m.ColumnIndex);
+
+        // Check for removed columns
+        foreach (var ex in existing)
+        {
+            if (!proposedByIndex.ContainsKey(ex.ColumnIndex))
+                changes.Add($"Column {ex.ColumnIndex} ({ex.TargetField}) removed");
+        }
+
+        // Check for added columns
+        foreach (var pr in proposed)
+        {
+            if (!existingByIndex.ContainsKey(pr.ColumnIndex))
+                changes.Add($"Column {pr.ColumnIndex} ({pr.TargetField}) added");
+        }
+
+        // Check DDL-affecting field changes on existing columns
+        foreach (var pr in proposed)
+        {
+            if (!existingByIndex.TryGetValue(pr.ColumnIndex, out var ex))
+                continue; // Already flagged as added
+
+            if (!string.Equals(ex.TargetField, pr.TargetField, StringComparison.OrdinalIgnoreCase))
+                changes.Add($"Column {pr.ColumnIndex}: target_field changed from '{ex.TargetField}' to '{pr.TargetField}'");
+
+            if (!string.Equals(ex.DataType, pr.DataType, StringComparison.OrdinalIgnoreCase))
+                changes.Add($"Column {pr.ColumnIndex}: data_type changed from '{ex.DataType}' to '{pr.DataType}'");
+
+            if (ex.MaxLength != pr.MaxLength)
+                changes.Add($"Column {pr.ColumnIndex}: max_length changed from {ex.MaxLength?.ToString() ?? "null"} to {pr.MaxLength?.ToString() ?? "null"}");
+
+            if (ex.IsRequired != pr.IsRequired)
+                changes.Add($"Column {pr.ColumnIndex}: is_required changed from {ex.IsRequired} to {pr.IsRequired}");
+        }
+
+        return changes;
+    }
 
     private static string GetContentType(string fileName)
     {
@@ -1157,6 +1231,24 @@ public class FileManagementService : IFileManagementService
     }
 
     // ============================================
+    // Parser Config Versioning
+    // ============================================
+
+    public async Task<DataResult<List<GenericFileFormatConfig>>> GetParserConfigVersionsAsync(string fileTypeCode, SecurityContext context)
+    {
+        return await _repository.GetParserConfigVersionsAsync(fileTypeCode);
+    }
+
+    public async Task<DataResult<GenericFileFormatConfig>> GetParserConfigByVersionAsync(string fileTypeCode, int configVersion, SecurityContext context)
+    {
+        var config = await _repository.GetGenericFileFormatConfigAsync(fileTypeCode, configVersion);
+        if (config == null)
+            return new DataResult<GenericFileFormatConfig> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = $"Parser config v{configVersion} not found for '{fileTypeCode}'" };
+
+        return new DataResult<GenericFileFormatConfig> { StatusCode = 200, Data = config };
+    }
+
+    // ============================================
     // Custom Table Management
     // ============================================
 
@@ -1257,7 +1349,7 @@ public class FileManagementService : IFileManagementService
         if (!ddlResult.IsSuccess)
             return new DataResult<CustomTableMetadata> { StatusCode = 500, ErrorCode = "FileLoading.DdlFailed", ErrorMessage = $"Failed to create table: {ddlResult.ErrorMessage}" };
 
-        // Insert metadata
+        // Insert metadata with config_version link
         var metadata = new CustomTableMetadata
         {
             FileTypeCode = fileTypeCode.Trim(),
@@ -1266,14 +1358,15 @@ public class FileManagementService : IFileManagementService
             Status = "ACTIVE",
             ColumnCount = config.ColumnMappings.Count,
             ColumnDefinition = columnDefJson,
+            ConfigVersion = config.ConfigVersion,
             CreatedBy = context.UserCode
         };
 
         var insertResult = await _repository.InsertCustomTableMetadataAsync(metadata);
         metadata.CustomTableId = insertResult.Value;
 
-        _logger.LogInformation("Created custom table {TableName} (v{Version}) for file type {FileTypeCode}",
-            tableName, version, fileTypeCode);
+        _logger.LogInformation("Created custom table {TableName} (v{Version}) for file type {FileTypeCode} with config v{ConfigVersion}",
+            tableName, version, fileTypeCode, config.ConfigVersion);
 
         return new DataResult<CustomTableMetadata> { StatusCode = 201, Data = metadata };
     }
@@ -1289,15 +1382,24 @@ public class FileManagementService : IFileManagementService
         if (recordCount == 0)
             return new DataResult<CustomTableMetadata> { StatusCode = 400, ErrorCode = "FileLoading.ActiveTableEmpty", ErrorMessage = "Current active table has no records. Cannot create new version until records exist." };
 
-        // Get current column mappings
+        // Get current column mappings (latest parser config version)
         var config = await _repository.GetGenericFileFormatConfigAsync(fileTypeCode);
         if (config == null || config.ColumnMappings.Count == 0)
             return new DataResult<CustomTableMetadata> { StatusCode = 400, ErrorCode = "FileLoading.NoMappings", ErrorMessage = "Parser configuration has no column mappings" };
 
+        // Copy current parser config to a new version (freezes the current one)
+        var newConfigVersion = config.ConfigVersion + 1;
+        var copyResult = await _repository.CopyParserConfigVersionAsync(fileTypeCode, config.ConfigVersion, newConfigVersion);
+        if (!copyResult.IsSuccess)
+            return new DataResult<CustomTableMetadata> { StatusCode = 500, ErrorCode = "FileLoading.CopyConfigFailed", ErrorMessage = $"Failed to copy parser config: {copyResult.ErrorMessage}" };
+
+        // Get the new config version's column mappings for DDL generation
+        var newConfig = await _repository.GetGenericFileFormatConfigAsync(fileTypeCode, newConfigVersion);
+
         var newVersion = existing.Version + 1;
         var tableName = CustomTableHelper.DeriveTableName(fileTypeCode, newVersion);
-        var ddl = CustomTableHelper.GenerateCreateTableDdl(tableName, config.ColumnMappings);
-        var columns = CustomTableHelper.BuildColumnDefs(config.ColumnMappings);
+        var ddl = CustomTableHelper.GenerateCreateTableDdl(tableName, newConfig!.ColumnMappings);
+        var columns = CustomTableHelper.BuildColumnDefs(newConfig.ColumnMappings);
         var columnDefJson = JsonSerializer.Serialize(columns);
 
         // Execute DDL for new table
@@ -1308,23 +1410,24 @@ public class FileManagementService : IFileManagementService
         // Retire current version
         await _repository.UpdateCustomTableStatusAsync(existing.CustomTableId, "RETIRED");
 
-        // Insert new metadata
+        // Insert new metadata with config_version link
         var metadata = new CustomTableMetadata
         {
             FileTypeCode = fileTypeCode.Trim(),
             TableName = tableName,
             Version = newVersion,
             Status = "ACTIVE",
-            ColumnCount = config.ColumnMappings.Count,
+            ColumnCount = newConfig.ColumnMappings.Count,
             ColumnDefinition = columnDefJson,
+            ConfigVersion = newConfigVersion,
             CreatedBy = context.UserCode
         };
 
         var insertResult = await _repository.InsertCustomTableMetadataAsync(metadata);
         metadata.CustomTableId = insertResult.Value;
 
-        _logger.LogInformation("Created new version v{Version} of custom table for {FileTypeCode}. Previous v{OldVersion} retired.",
-            newVersion, fileTypeCode, existing.Version);
+        _logger.LogInformation("Created new version v{Version} of custom table for {FileTypeCode} with config v{ConfigVersion}. Previous v{OldVersion} retired.",
+            newVersion, fileTypeCode, newConfigVersion, existing.Version);
 
         return new DataResult<CustomTableMetadata> { StatusCode = 201, Data = metadata };
     }
@@ -1338,15 +1441,18 @@ public class FileManagementService : IFileManagementService
         if (tableMetadata.Status == "DROPPED")
             return new DataResult<bool> { StatusCode = 400, ErrorCode = "FileLoading.AlreadyDropped", ErrorMessage = "Table has already been dropped" };
 
-        // Check table is empty
+        // Check table is empty (skip if physical table doesn't exist — just update metadata)
         var recordCount = await _repository.GetLiveRecordCountAsync(tableMetadata.TableName);
         if (recordCount > 0)
             return new DataResult<bool> { StatusCode = 400, ErrorCode = "FileLoading.TableNotEmpty", ErrorMessage = $"Table has {recordCount} records. Cannot drop a non-empty table." };
 
-        // Drop the physical table
-        var dropResult = await _repository.DropTableAsync(tableMetadata.TableName);
-        if (!dropResult.IsSuccess)
-            return new DataResult<bool> { StatusCode = 500, ErrorCode = "FileLoading.DropFailed", ErrorMessage = $"Failed to drop table: {dropResult.ErrorMessage}" };
+        // Drop the physical table (skip if it doesn't exist)
+        if (recordCount >= 0)
+        {
+            var dropResult = await _repository.DropTableAsync(tableMetadata.TableName);
+            if (!dropResult.IsSuccess)
+                return new DataResult<bool> { StatusCode = 500, ErrorCode = "FileLoading.DropFailed", ErrorMessage = $"Failed to drop table: {dropResult.ErrorMessage}" };
+        }
 
         // Update metadata
         await _repository.UpdateCustomTableStatusAsync(tableMetadata.CustomTableId, "DROPPED", DateTime.Now);
@@ -1367,6 +1473,9 @@ public class FileManagementService : IFileManagementService
             return new DataResult<int> { StatusCode = 400, ErrorCode = "FileLoading.TableDropped", ErrorMessage = "Table has been dropped" };
 
         var count = await _repository.GetLiveRecordCountAsync(tableMetadata.TableName);
+        if (count < 0)
+            return new DataResult<int> { StatusCode = 404, ErrorCode = "FileLoading.TableNotFound", ErrorMessage = $"Physical table '{tableMetadata.TableName}' does not exist in the database" };
+
         return new DataResult<int> { StatusCode = 200, Data = count };
     }
 
@@ -1387,12 +1496,12 @@ public class FileManagementService : IFileManagementService
             }
 
             // Use the existing file loader service to process the file
-            // It will automatically route to the custom table (once parser integration is done)
             var loadResult = await _fileLoaderService.LoadFileAsync(
                 new LoadFileRequest
                 {
                     FileName = tempPath,
-                    FileType = fileTypeCode
+                    FileType = fileTypeCode,
+                    DisplayFileName = fileName
                 },
                 context);
 

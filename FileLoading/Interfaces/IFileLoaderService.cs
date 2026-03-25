@@ -41,7 +41,8 @@ public interface IFileLoaderService
         int skipRecords,
         int takeRecords,
         string countRecords,
-        SecurityContext securityContext);
+        SecurityContext securityContext,
+        int? statusId = null);
 
     /// <summary>
     /// List supported file types.

@@ -308,6 +308,16 @@ public interface IFileManagementService
     Task<DataResult<FileTypeReadinessResponse>> GetReadinessAsync(string fileTypeCode, SecurityContext context);
 
     // ============================================
+    // Parser Config Versioning
+    // ============================================
+
+    /// <summary>Get all parser config versions for a file type.</summary>
+    Task<DataResult<List<GenericFileFormatConfig>>> GetParserConfigVersionsAsync(string fileTypeCode, SecurityContext context);
+
+    /// <summary>Get a specific parser config version.</summary>
+    Task<DataResult<GenericFileFormatConfig>> GetParserConfigByVersionAsync(string fileTypeCode, int configVersion, SecurityContext context);
+
+    // ============================================
     // Custom Table Management
     // ============================================
 

@@ -145,6 +145,9 @@ public class LoadFileRequest
     /// <example>CUST001</example>
     public string? NtCustNum { get; set; }
 
+    /// <summary>Optional display name for the file record (used when FileName is a temp path).</summary>
+    public string? DisplayFileName { get; set; }
+
     /// <summary>File date (defaults to today if not specified).</summary>
     /// <example>2025-03-15</example>
     public DateTime? FileDate { get; set; }

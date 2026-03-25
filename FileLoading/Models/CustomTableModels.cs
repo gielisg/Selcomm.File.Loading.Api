@@ -33,6 +33,10 @@ public class CustomTableMetadata
     /// <example>[{"ColumnName":"account_code","SqlType":"VARCHAR(64)","SourceField":"AccountCode","DataType":"String"}]</example>
     public string? ColumnDefinition { get; set; }
 
+    /// <summary>Parser config version this table was created from.</summary>
+    /// <example>1</example>
+    public int? ConfigVersion { get; set; }
+
     /// <summary>When this table version was created.</summary>
     /// <example>2026-03-23T10:30:00</example>
     public DateTime CreatedDt { get; set; }

@@ -40,9 +40,11 @@ Base: `/api/v4/file-loading`
 | GET | `/parsers` | — | `GenericFileFormatConfig[]` | List all parser configs |
 | GET | `/parsers?active=true` | — | `GenericFileFormatConfig[]` | List active configs only |
 | GET | `/parsers/{file-type-code}` | — | `GenericFileFormatConfig` | Get config with column mappings |
-| POST | `/parsers` | `GenericParserConfigRequest` | `GenericFileFormatConfig` (201) | Create/upsert parser config |
-| PATCH | `/parsers/{file-type-code}` | `GenericParserConfigRequest` | `GenericFileFormatConfig` | Update parser config |
+| POST | `/parsers` | `GenericParserConfigRequest` | `GenericFileFormatConfig` (201) | Create new parser config (v1) |
+| PATCH | `/parsers/{file-type-code}` | `GenericParserConfigRequest` | `GenericFileFormatConfig` | Update latest parser config version |
 | DELETE | `/parsers/{file-type-code}` | — | 200 OK | Delete config + mappings |
+| GET | `/parsers/{file-type-code}/versions` | — | `GenericFileFormatConfig[]` | List all config versions |
+| GET | `/parsers/{file-type-code}/versions/{version}` | — | `GenericFileFormatConfig` | Get specific version |
 
 ### Request Model: `GenericParserConfigRequest`
 
@@ -159,9 +161,10 @@ Base: `/api/v4/file-loading`
 ### Response Model: `GenericFileFormatConfig`
 
 Same fields as the request, plus:
+- `ConfigVersion`: int — version number (starts at 1, incremented when a new custom table version is created)
 - `CreatedBy`: string — user who created the config
 - `UpdatedBy`: string — user who last updated
-- `ColumnMappings`: `GenericColumnMapping[]` — includes `FileTypeCode` on each mapping
+- `ColumnMappings`: `GenericColumnMapping[]` — includes `FileTypeCode` and `ConfigVersion` on each mapping
 
 ### Translating AI Analysis → Parser Config
 
@@ -232,6 +235,61 @@ Editable table:
 - 400: Validation error — show field-level errors from response
 - 404: File type not found
 - 409: Config already exists (when POST) — offer to update instead
+- 409: DDL changes frozen (when PATCH) — see Smart Freeze below
+
+### Parser Config Versioning & Smart Freeze
+
+Parser configs are **versioned**. Each config has a `ConfigVersion` (starting at 1). When a custom table is created from a config, that config version becomes **partially frozen**.
+
+#### Smart Freeze Rules
+
+When a config version is linked to a custom table (ACTIVE or RETIRED), the **PATCH endpoint enforces a smart freeze**:
+
+**Always editable** (non-DDL fields — don't affect table structure):
+- `Delimiter`, `HasHeaderRow`, `SkipRowsTop`, `SkipRowsBottom`
+- `RowIdMode`, `RowIdColumn`, `HeaderIndicator`, `TrailerIndicator`, `DetailIndicator`, `SkipIndicator`
+- `TotalColumnIndex`, `TotalType`, `SheetName`, `SheetIndex`
+- `DateFormat`, `CustomSpName`, `Active`
+- Column mapping fields: `SourceColumnName`, `DefaultValue`, `RegexPattern`, `DateFormat`
+
+**Frozen** (DDL-affecting — would require a different table structure):
+- Adding or removing column mappings
+- Changing a column's `TargetField`, `DataType`, `MaxLength`, or `IsRequired`
+
+#### UI Behaviour for Smart Freeze
+
+When the config is frozen (i.e. a custom table exists for this file type):
+
+1. **Show a banner**: "This configuration is linked to custom table `ntfl_xxx_v1`. Parsing settings and validation rules can be edited. Column structure changes require creating a new table version."
+2. **Disable DDL-affecting fields** in the column mapping table:
+   - `TargetField` dropdown → read-only
+   - `DataType` dropdown → read-only
+   - `MaxLength` input → read-only
+   - `IsRequired` checkbox → read-only
+   - "Add column" / "Remove column" buttons → hidden
+3. **Keep editable**: `SourceColumnName`, `DefaultValue`, `RegexPattern`, `DateFormat` on each column, and all config-level fields
+4. **If the user needs structural changes**: Show a link/button "Need to change the table structure? → Create New Table Version" which navigates to the Custom Table section
+
+#### Version History View
+
+Add a "Config Versions" expandable section showing:
+
+| Version | Status | Columns | Linked Table | Actions |
+|---------|--------|---------|-------------|---------|
+| v2 | Current | 10 | ntfl_optus_chg_v2 | Edit |
+| v1 | Frozen | 8 | ntfl_optus_chg_v1 | View |
+
+- "Current" = the latest version (editable within smart freeze rules)
+- "Frozen" = older version linked to a retired/active table (view-only)
+- "View" opens the version in read-only mode (via `GET /parsers/{ftc}/versions/{v}`)
+
+#### How New Versions Are Created
+
+New parser config versions are **not created manually**. They are created automatically when:
+1. User calls `POST /parsers/{ftc}/custom-table/new-version`
+2. The API copies the current config to a new version (v{N+1})
+3. The old config version remains frozen and linked to the old table
+4. The new config version is the "current" one and is fully editable until it too gets a custom table
 
 ---
 
@@ -269,6 +327,7 @@ Base: `/api/v4/file-loading`
     "Status": "ACTIVE",
     "ColumnCount": 8,
     "ColumnDefinition": "[{\"ColumnName\":\"account_code\",\"SqlType\":\"VARCHAR(64)\",\"SourceField\":\"AccountCode\",\"DataType\":\"String\"}]",
+    "ConfigVersion": 1,
     "CreatedDt": "2026-03-23T10:30:00",
     "CreatedBy": "admin",
     "DroppedDt": null
@@ -324,6 +383,7 @@ Base: `/api/v4/file-loading`
   "Status": "ACTIVE",
   "ColumnCount": 8,
   "ColumnDefinition": "[...]",
+  "ConfigVersion": 1,
   "CreatedDt": "2026-03-23T10:30:00",
   "CreatedBy": "admin",
   "DroppedDt": null
