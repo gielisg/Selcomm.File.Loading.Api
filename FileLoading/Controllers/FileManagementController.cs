@@ -187,6 +187,44 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         }
     }
 
+    /// <summary>
+    /// Upload a file into the transfer workflow. The file is placed in the Transfer folder
+    /// and a transfer record is created. Use the process endpoint to trigger loading.
+    /// </summary>
+    /// <param name="file">The file to upload</param>
+    /// <param name="fileTypeCode">File type code (e.g. MCR)</param>
+    /// <response code="201">File uploaded and transfer record created</response>
+    /// <response code="400">Invalid request data or no file provided</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPost("manager/files/upload")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_manager_files_upload")]
+    [Tags("File Management")]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(typeof(FileWithStatus), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> UploadToTransfer(
+        IFormFile file,
+        [FromQuery(Name = "fileTypeCode")] string fileTypeCode)
+    {
+        try
+        {
+            _logger.LogInformation("Uploading file to transfer workflow: {FileName}, Type: {FileTypeCode}", file.FileName, fileTypeCode);
+
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_manager_files_upload");
+            var result = await _managementService.UploadToTransferAsync(file, fileTypeCode, securityContext);
+
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error uploading file to transfer workflow: {FileName}", file.FileName);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
     // ============================================
     // Transfer Operations
     // ============================================
@@ -239,14 +277,16 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> ProcessFile([FromRoute(Name = "transfer-id")] int transferId)
+    public async Task<IActionResult> ProcessFile(
+        [FromRoute(Name = "transfer-id")] int transferId,
+        [FromQuery(Name = "fileTypeCode")] string? fileTypeCode = null)
     {
         try
         {
-            _logger.LogInformation("Processing file: {TransferId}", transferId);
+            _logger.LogInformation("Processing file: {TransferId}, fileType: {FileType}", transferId, fileTypeCode);
 
             var securityContext = CreateSecurityContext("post_api_v4_file_loading_manager_files_transfer_id_process");
-            var result = await _managementService.ProcessFileAsync(transferId, securityContext);
+            var result = await _managementService.ProcessFileAsync(transferId, securityContext, fileTypeCode);
 
             return HandleDataResult(result);
         }

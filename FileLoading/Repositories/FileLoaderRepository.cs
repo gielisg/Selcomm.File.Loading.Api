@@ -223,10 +223,12 @@ public class FileLoaderRepository : IFileLoaderRepository
         int takeRecords,
         string countRecords,
         SecurityContext securityContext,
-        int? statusId = null)
+        int? statusId = null,
+        string? search = null,
+        string? statusIds = null)
     {
-        _logger.LogDebug("Listing files: Type={FileType}, Cust={CustNum}, Status={StatusId}, Skip={Skip}, Take={Take}, Count={Count}",
-            fileTypeCode, ntCustNum, statusId, skipRecords, takeRecords, countRecords);
+        _logger.LogDebug("Listing files: Type={FileType}, Cust={CustNum}, Status={StatusId}, StatusIds={StatusIds}, Search={Search}, Skip={Skip}, Take={Take}, Count={Count}",
+            fileTypeCode, ntCustNum, statusId, statusIds, search, skipRecords, takeRecords, countRecords);
 
         // Use ss_file_loading_nt_file_api via standard ExecuteJsonQueryAsync pattern
         // Returns: StatusCode, Json ({"Count": N|null, "Items": [...]}), ErrorCode, ErrorMessage
@@ -238,7 +240,9 @@ public class FileLoaderRepository : IFileLoaderRepository
             ("@p_status_id", (object?)statusId ?? DBNull.Value, DbType.Int32, null),
             ("@p_skip_records", skipRecords, DbType.Int32, null),
             ("@p_take_records", takeRecords, DbType.Int32, null),
-            ("@p_count_records", countRecords, DbType.StringFixedLength, 1)
+            ("@p_count_records", countRecords, DbType.StringFixedLength, 1),
+            ("@p_search", (object?)search ?? DBNull.Value, DbType.String, 200),
+            ("@p_status_ids", (object?)statusIds ?? DBNull.Value, DbType.String, 50)
         );
 
         if (!jsonResult.IsSuccess || string.IsNullOrEmpty(jsonResult.Json))
@@ -1646,7 +1650,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                 SourcePath = reader.IsDBNull(5) ? null : reader.GetString(5).Trim(),
                 DestinationPath = reader.IsDBNull(6) ? null : reader.GetString(6).Trim(),
                 CurrentFolder = reader.IsDBNull(7) ? null : reader.GetString(7).Trim(),
-                FileSize = reader.IsDBNull(8) ? null : reader.GetInt64(8),
+                FileSize = reader.IsDBNull(8) ? null : Convert.ToInt64(reader.GetValue(8)),
                 StartedAt = reader.IsDBNull(9) ? null : reader.GetDateTime(9),
                 CompletedAt = reader.IsDBNull(10) ? null : reader.GetDateTime(10),
                 ErrorMessage = reader.IsDBNull(11) ? null : reader.GetString(11).Trim(),
@@ -1734,7 +1738,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                 SourcePath = reader.IsDBNull(5) ? null : reader.GetString(5).Trim(),
                 DestinationPath = reader.IsDBNull(6) ? null : reader.GetString(6).Trim(),
                 CurrentFolder = reader.IsDBNull(7) ? null : reader.GetString(7).Trim(),
-                FileSize = reader.IsDBNull(8) ? null : reader.GetInt64(8),
+                FileSize = reader.IsDBNull(8) ? null : Convert.ToInt64(reader.GetValue(8)),
                 StartedAt = reader.IsDBNull(9) ? null : reader.GetDateTime(9),
                 CompletedAt = reader.IsDBNull(10) ? null : reader.GetDateTime(10),
                 ErrorMessage = reader.IsDBNull(11) ? null : reader.GetString(11).Trim(),
@@ -1837,7 +1841,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                 StatusId = (TransferStatus)reader.GetInt32(3),
                 Status = GetStatus((TransferStatus)reader.GetInt32(3)),
                 CurrentFolder = reader.IsDBNull(4) ? string.Empty : reader.GetString(4).Trim(),
-                FileSize = reader.IsDBNull(5) ? null : reader.GetInt64(5),
+                FileSize = reader.IsDBNull(5) ? null : Convert.ToInt64(reader.GetValue(5)),
                 CreatedAt = reader.IsDBNull(6) ? DateTime.Now : reader.GetDateTime(6),
                 CompletedAt = reader.IsDBNull(7) ? null : reader.GetDateTime(7),
                 ErrorMessage = reader.IsDBNull(8) ? null : reader.GetString(8).Trim(),
@@ -1986,7 +1990,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             sql,
             reader => new FileActivityLog
             {
-                ActivityId = reader.GetInt64(0),
+                ActivityId = reader.GetInt32(0),
                 NtFileNum = reader.IsDBNull(1) ? null : reader.GetInt32(1),
                 TransferId = reader.IsDBNull(2) ? null : reader.GetInt32(2),
                 FileName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3).Trim(),
@@ -2176,7 +2180,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             ("@p1", ntFileNum, DbType.Int32, null)
         );
 
-        // Update file status back to initial
+        // Update file status back to transferred
         await UpdateFileStatusAsync(ntFileNum, 1, securityContext);
 
         _logger.LogInformation("Unloaded {TotalDeleted} records for file {NtFileNum}", totalDeleted, ntFileNum);
@@ -3063,8 +3067,8 @@ public class FileLoaderRepository : IFileLoaderRepository
         return _dbContext.ExecuteRawCommand(
             @"INSERT INTO file_type_nt (file_type_code, nt_cust_num, last_seq,
                 default_bus_unit, plan_code, expected_freq, freq_files,
-                created_tm, created_by, last_updated, updated_by)
-              VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT, ?, CURRENT, ?)",
+                created_tm, created_by)
+              VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT, ?)",
             ("@p1", record.FileTypeCode, DbType.String, 10),
             ("@p2", record.NtCustNum, DbType.String, 10),
             ("@p3", record.LastSeq, DbType.Int32, null),
@@ -3072,8 +3076,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             ("@p5", record.PlanCode, DbType.Int32, null),
             ("@p6", record.ExpectedFreq, DbType.String, 1),
             ("@p7", record.FreqFiles, DbType.Int32, null),
-            ("@p8", record.CreatedBy, DbType.String, 18),
-            ("@p9", record.UpdatedBy, DbType.String, 18)
+            ("@p8", record.CreatedBy, DbType.String, 18)
         );
     }
 

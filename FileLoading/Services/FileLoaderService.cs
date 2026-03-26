@@ -16,7 +16,7 @@ namespace FileLoading.Services;
 /// Uses database persistence via IFileLoaderRepository.
 ///
 /// Processing Flow (optimized streaming two-pass approach):
-/// 1. Create nt_file record (status = Initial Loading)
+/// 1. Create nt_file record (status = Transferred)
 /// 2. PASS 1: Streaming validation - validate file structure without loading records into memory
 /// 3. If file-level errors: update status, log errors, reject file
 /// 4. PASS 2: Streaming insert - re-read file and insert records in batches with transaction batching
@@ -198,11 +198,16 @@ public class FileLoaderService : IFileLoaderService
             _logger.LogInformation("Processing file {NtFileNum}: {FilePath} (domain: {Domain}, fileClass: {FileClass}, streaming: {StreamingMode}, batchSize: {BatchSize})",
                 ntFileNum, filePath, securityContext.Domain ?? "Default", fileClassCode, options.EffectiveUseStreamingMode, options.EffectiveBatchSize);
 
-            // Get parser for file type
-            var parser = _parsers.FirstOrDefault(p => p.FileType == fileType)
-                      ?? _parsers.FirstOrDefault(p => p.FileClassCode == fileClassCode);
+            // Get parser for file type — check for generic parser config first,
+            // so file types with a configurable parser take priority over
+            // the default parser for their file class (e.g. MCR on CHG class
+            // should use GenericFileParser, not ChgFileParser).
+            IFileParser? parser = null;
 
-            // Fallback: check for generic parser configuration
+            // 1. Exact file type match (hard-coded parsers like SSSWHLSCDR)
+            parser = _parsers.FirstOrDefault(p => p.FileType == fileType);
+
+            // 2. Generic parser config (data-driven, takes priority over file class)
             if (parser == null)
             {
                 var genericParser = _parsers.OfType<GenericFileParser>().FirstOrDefault();
@@ -217,10 +222,13 @@ public class FileLoaderService : IFileLoaderService
                     }
                     catch (InvalidOperationException)
                     {
-                        // No generic config found — fall through to error
+                        // No generic config found — fall through to file class match
                     }
                 }
             }
+
+            // 3. File class match (default parsers for CDR, CHG, etc.)
+            parser ??= _parsers.FirstOrDefault(p => p.FileClassCode == fileClassCode);
 
             if (parser == null)
             {
@@ -447,6 +455,12 @@ public class FileLoaderService : IFileLoaderService
         // All-or-nothing: if any records failed, the entire file is rejected
         if (recordsFailed > 0)
         {
+            _logger.LogWarning("File {NtFileNum}: {Failed} record(s) failed — rolling back all inserted records (all-or-nothing)",
+                ntFileNum, recordsFailed);
+
+            // Roll back all inserted records (generic detail, custom table, cl_detail, etc.)
+            await _repository.UnloadFileRecordsAsync(ntFileNum, securityContext);
+
             await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.LoadError, securityContext);
 
             processingResult.Success = false;
@@ -578,6 +592,12 @@ public class FileLoaderService : IFileLoaderService
         // All-or-nothing: if any records failed, the entire file is rejected
         if (recordsFailed > 0)
         {
+            _logger.LogWarning("File {NtFileNum}: {Failed} record(s) failed — rolling back all inserted records (all-or-nothing)",
+                ntFileNum, recordsFailed);
+
+            // Roll back all inserted records (generic detail, custom table, cl_detail, etc.)
+            await _repository.UnloadFileRecordsAsync(ntFileNum, securityContext);
+
             await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.LoadError, securityContext);
 
             processingResult.Success = false;
@@ -1356,9 +1376,11 @@ public class FileLoaderService : IFileLoaderService
         int takeRecords,
         string countRecords,
         SecurityContext securityContext,
-        int? statusId = null)
+        int? statusId = null,
+        string? search = null,
+        string? statusIds = null)
     {
-        return await _repository.ListFilesAsync(fileTypeCode, ntCustNum, skipRecords, takeRecords, countRecords, securityContext, statusId);
+        return await _repository.ListFilesAsync(fileTypeCode, ntCustNum, skipRecords, takeRecords, countRecords, securityContext, statusId, search, statusIds);
     }
 
     public async Task<DataResult<FileTypeListResponse>> ListFileTypesAsync(SecurityContext securityContext)

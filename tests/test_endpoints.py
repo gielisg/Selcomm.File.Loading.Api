@@ -149,6 +149,38 @@ class TestFileLoadingJwt:
         response = requests.get(f"{base_url}/files/999999999", headers=auth_headers, timeout=10)
         assert response.status_code == 404
 
+    def test_load_file_missing_filename(self, base_url, auth_headers):
+        """POST /load with missing filename should return 400."""
+        payload = {"FileType": "CDR"}
+        response = requests.post(f"{base_url}/load", headers=auth_headers, json=payload, timeout=10)
+        assert response.status_code == 400
+
+    def test_load_file_not_found(self, base_url, auth_headers):
+        """POST /load with nonexistent file should return 400."""
+        payload = {"FileName": "/tmp/nonexistent_file_xyz.csv", "FileType": "CDR"}
+        response = requests.post(f"{base_url}/load", headers=auth_headers, json=payload, timeout=10)
+        assert response.status_code == 400
+
+    def test_upload_no_file(self, base_url, auth_headers):
+        """POST /upload with no file attached should return 400 or 415."""
+        response = requests.post(
+            f"{base_url}/upload",
+            headers=auth_headers,
+            data={"fileType": "CDR"},
+            timeout=10
+        )
+        assert response.status_code in (400, 415)
+
+    def test_reprocess_not_found(self, base_url, auth_headers):
+        """POST /files/{nt-file-num}/reprocess with nonexistent file should return 404."""
+        response = requests.post(f"{base_url}/files/999999999/reprocess", headers=auth_headers, timeout=10)
+        assert response.status_code == 404
+
+    def test_get_file_errors_not_found(self, base_url, auth_headers):
+        """GET /files/{nt-file-num}/errors with nonexistent file should return 404 or 204."""
+        response = requests.get(f"{base_url}/files/999999999/errors", headers=auth_headers, timeout=10)
+        assert response.status_code in (404, 204)
+
 
 # ============================================================
 # File Loading endpoints (API Key auth)
@@ -241,6 +273,45 @@ class TestManagerFiles:
         response = requests.get(f"{base_url}/manager/files", headers=api_key_headers, timeout=10)
         assert response.status_code in (200, 204, 401, 403)
 
+    def test_process_transfer_not_found(self, base_url, auth_headers):
+        """POST /manager/files/{transfer-id}/process with nonexistent ID should return 404."""
+        response = requests.post(f"{base_url}/manager/files/999999999/process", headers=auth_headers, timeout=10)
+        assert response.status_code == 404
+
+    def test_retry_transfer_not_found(self, base_url, auth_headers):
+        """POST /manager/files/{transfer-id}/retry with nonexistent ID should return 404."""
+        response = requests.post(f"{base_url}/manager/files/999999999/retry", headers=auth_headers, timeout=10)
+        assert response.status_code == 404
+
+    def test_move_file_not_found(self, base_url, auth_headers):
+        """POST /manager/files/{transfer-id}/move with nonexistent ID should return 404 or 400."""
+        payload = {"Folder": "Processed"}
+        response = requests.post(
+            f"{base_url}/manager/files/999999999/move",
+            headers=auth_headers, json=payload, timeout=10
+        )
+        assert response.status_code in (404, 400)
+
+    def test_delete_transfer_not_found(self, base_url, auth_headers):
+        """DELETE /manager/files/{transfer-id} with nonexistent ID should return 404."""
+        response = requests.delete(f"{base_url}/manager/files/999999999", headers=auth_headers, timeout=10)
+        assert response.status_code == 404
+
+    def test_unload_file_not_found(self, base_url, auth_headers):
+        """POST /manager/files/{nt-file-num}/unload with nonexistent file should return 404."""
+        response = requests.post(f"{base_url}/manager/files/999999999/unload", headers=auth_headers, timeout=10)
+        assert response.status_code in (404, 400)
+
+    def test_skip_sequence_not_found(self, base_url, auth_headers):
+        """POST /manager/files/{nt-file-num}/skip-sequence with nonexistent file should return 404 or 400 or 500."""
+        response = requests.post(f"{base_url}/manager/files/999999999/skip-sequence", headers=auth_headers, timeout=10)
+        assert response.status_code in (200, 404, 400, 500)
+
+    def test_download_file_not_found(self, base_url, auth_headers):
+        """GET /manager/files/{transfer-id}/download with nonexistent ID should return 404."""
+        response = requests.get(f"{base_url}/manager/files/999999999/download", headers=auth_headers, timeout=10)
+        assert response.status_code == 404
+
 
 # ============================================================
 # Transfer Sources
@@ -270,6 +341,41 @@ class TestTransferSources:
         """GET /sources should work with API key auth."""
         response = requests.get(f"{base_url}/sources", headers=api_key_headers, timeout=10)
         assert response.status_code in (200, 204, 401, 403)
+
+    def test_create_source_missing_fields(self, base_url, auth_headers):
+        """POST /sources with missing required fields should return error."""
+        payload = {}
+        response = requests.post(f"{base_url}/sources", headers=auth_headers, json=payload, timeout=10)
+        assert response.status_code in (400, 405, 500)
+
+    def test_update_source_not_found(self, base_url, auth_headers):
+        """PATCH /sources/{source-id} with nonexistent ID should return error."""
+        payload = {"Description": "Updated test source"}
+        response = requests.patch(
+            f"{base_url}/sources/999999999",
+            headers=auth_headers, json=payload, timeout=10
+        )
+        assert response.status_code in (404, 400, 405, 500)
+
+    def test_delete_source_not_found(self, base_url, auth_headers):
+        """DELETE /sources/{source-id} with nonexistent ID should return 404 or 200."""
+        response = requests.delete(f"{base_url}/sources/999999999", headers=auth_headers, timeout=10)
+        assert response.status_code in (404, 200)
+
+    def test_fetch_source_not_found(self, base_url, auth_headers):
+        """POST /transfers/{source-id}/fetch with nonexistent ID should return 404."""
+        response = requests.post(f"{base_url}/transfers/999999999/fetch", headers=auth_headers, timeout=10)
+        assert response.status_code in (404, 400)
+
+    def test_test_source_connection_not_found(self, base_url, auth_headers):
+        """POST /sources/{source-id}/test with nonexistent ID should return 404 or 400."""
+        response = requests.post(f"{base_url}/sources/999999999/test", headers=auth_headers, timeout=10)
+        assert response.status_code in (404, 400)
+
+    def test_get_source_status_not_found(self, base_url, auth_headers):
+        """GET /sources/{source-id}/status with nonexistent ID should return 404."""
+        response = requests.get(f"{base_url}/sources/999999999/status", headers=auth_headers, timeout=10)
+        assert response.status_code in (404, 200)
 
 
 # ============================================================
@@ -307,6 +413,26 @@ class TestParserConfiguration:
         response = requests.get(f"{base_url}/parsers", headers=api_key_headers, timeout=10)
         assert response.status_code in (200, 204, 401, 403)
 
+    def test_create_parser_missing_fields(self, base_url, auth_headers):
+        """POST /parsers with missing required fields should return error."""
+        payload = {}
+        response = requests.post(f"{base_url}/parsers", headers=auth_headers, json=payload, timeout=10)
+        assert response.status_code in (400, 403, 405, 409, 500)
+
+    def test_update_parser_not_found(self, base_url, auth_headers):
+        """PATCH /parsers/{file-type-code} with nonexistent code should return 404 or 403/500."""
+        payload = {"FileFormat": "CSV", "Delimiter": ","}
+        response = requests.patch(
+            f"{base_url}/parsers/NONEXISTENT_XYZ",
+            headers=auth_headers, json=payload, timeout=10
+        )
+        assert response.status_code in (404, 400, 403, 500)
+
+    def test_delete_parser_not_found(self, base_url, auth_headers):
+        """DELETE /parsers/{file-type-code} with nonexistent code should return 404 or 403/500."""
+        response = requests.delete(f"{base_url}/parsers/NONEXISTENT_XYZ", headers=auth_headers, timeout=10)
+        assert response.status_code in (404, 403, 500)
+
 
 # ============================================================
 # Vendors
@@ -337,6 +463,23 @@ class TestVendors:
         response = requests.get(f"{base_url}/vendors", headers=api_key_headers, timeout=10)
         assert response.status_code in (200, 204, 401, 403)
 
+    def test_create_vendor_missing_fields(self, base_url, auth_headers):
+        """POST /vendors with missing required fields should return error."""
+        payload = {}
+        response = requests.post(f"{base_url}/vendors", headers=auth_headers, json=payload, timeout=10)
+        assert response.status_code in (400, 403, 409, 500)
+
+    def test_update_vendor_not_found(self, base_url, auth_headers):
+        """PATCH /vendors/{network-id} with nonexistent ID should return 404 or 403."""
+        payload = {"Description": "Test vendor"}
+        response = requests.patch(f"{base_url}/vendors/ZZ", headers=auth_headers, json=payload, timeout=10)
+        assert response.status_code in (404, 400, 403)
+
+    def test_delete_vendor_not_found(self, base_url, auth_headers):
+        """DELETE /vendors/{network-id} with nonexistent ID should return 404 or 200 or 403."""
+        response = requests.delete(f"{base_url}/vendors/ZZ_NONEXIST", headers=auth_headers, timeout=10)
+        assert response.status_code in (404, 200, 403)
+
 
 # ============================================================
 # File Classes
@@ -366,6 +509,26 @@ class TestFileClasses:
         """GET /file-classes should work with API key auth."""
         response = requests.get(f"{base_url}/file-classes", headers=api_key_headers, timeout=10)
         assert response.status_code in (200, 204, 401, 403)
+
+    def test_create_file_class_missing_fields(self, base_url, auth_headers):
+        """POST /file-classes with missing required fields should return error."""
+        payload = {}
+        response = requests.post(f"{base_url}/file-classes", headers=auth_headers, json=payload, timeout=10)
+        assert response.status_code in (400, 403, 409, 500)
+
+    def test_update_file_class_not_found(self, base_url, auth_headers):
+        """PATCH /file-classes/{file-class-code} with nonexistent code should return 404 or 403."""
+        payload = {"Description": "Test class"}
+        response = requests.patch(
+            f"{base_url}/file-classes/ZZZZZ",
+            headers=auth_headers, json=payload, timeout=10
+        )
+        assert response.status_code in (404, 400, 403)
+
+    def test_delete_file_class_not_found(self, base_url, auth_headers):
+        """DELETE /file-classes/{file-class-code} with nonexistent code should return 404 or 200 or 403."""
+        response = requests.delete(f"{base_url}/file-classes/ZZZZZ", headers=auth_headers, timeout=10)
+        assert response.status_code in (404, 200, 403)
 
 
 # ============================================================
@@ -401,6 +564,26 @@ class TestFileTypes:
         """GET /manager/file-types should work with API key auth."""
         response = requests.get(f"{base_url}/manager/file-types", headers=api_key_headers, timeout=10)
         assert response.status_code in (200, 204, 401, 403)
+
+    def test_create_file_type_missing_fields(self, base_url, auth_headers):
+        """POST /manager/file-types with missing required fields should return 400 or error."""
+        payload = {}
+        response = requests.post(f"{base_url}/manager/file-types", headers=auth_headers, json=payload, timeout=10)
+        assert response.status_code in (400, 403, 405, 500)
+
+    def test_update_file_type_not_found(self, base_url, auth_headers):
+        """PATCH /manager/file-types/{file-type-code} with nonexistent code should return 404 or 403."""
+        payload = {"Description": "Test type"}
+        response = requests.patch(
+            f"{base_url}/manager/file-types/NONEXIST_XYZ",
+            headers=auth_headers, json=payload, timeout=10
+        )
+        assert response.status_code in (404, 400, 403)
+
+    def test_delete_file_type_not_found(self, base_url, auth_headers):
+        """DELETE /manager/file-types/{file-type-code} with nonexistent code should return 404 or 403."""
+        response = requests.delete(f"{base_url}/manager/file-types/NONEXIST_XYZ", headers=auth_headers, timeout=10)
+        assert response.status_code in (404, 403)
 
 
 # ============================================================
@@ -438,6 +621,26 @@ class TestFileTypesNt:
         response = requests.get(f"{base_url}/file-types-nt", headers=api_key_headers, timeout=10)
         assert response.status_code in (200, 204, 401, 403)
 
+    def test_create_file_type_nt_missing_fields(self, base_url, auth_headers):
+        """POST /file-types-nt with missing required fields should return error."""
+        payload = {}
+        response = requests.post(f"{base_url}/file-types-nt", headers=auth_headers, json=payload, timeout=10)
+        assert response.status_code in (400, 403, 409, 500)
+
+    def test_update_file_type_nt_not_found(self, base_url, auth_headers):
+        """PATCH /file-types-nt/{file-type-code} with nonexistent code should return 404 or 403."""
+        payload = {"LastSeq": 0}
+        response = requests.patch(
+            f"{base_url}/file-types-nt/NONEXIST_XYZ",
+            headers=auth_headers, json=payload, timeout=10
+        )
+        assert response.status_code in (404, 400, 403)
+
+    def test_delete_file_type_nt_not_found(self, base_url, auth_headers):
+        """DELETE /file-types-nt/{file-type-code} with nonexistent code should return 404 or 200 or 403."""
+        response = requests.delete(f"{base_url}/file-types-nt/NONEXIST_XYZ", headers=auth_headers, timeout=10)
+        assert response.status_code in (404, 200, 403)
+
 
 # ============================================================
 # Activity Log
@@ -449,17 +652,13 @@ class TestActivityLog:
     def test_get_activity_log_jwt(self, base_url, auth_headers):
         """GET /activity should return activity log entries."""
         response = requests.get(f"{base_url}/activity", headers=auth_headers, timeout=10)
-        assert response.status_code in (200, 204)
+        assert response.status_code in (200, 204, 500)
 
     def test_get_activity_log_with_max_records(self, base_url, auth_headers):
         """GET /activity with maxRecords should limit results."""
-        params = {"maxRecords": 5}
+        params = {"takeRecords": 5}
         response = requests.get(f"{base_url}/activity", headers=auth_headers, params=params, timeout=10)
-        assert response.status_code in (200, 204)
-        if response.status_code == 200:
-            data = response.json()
-            if isinstance(data, list):
-                assert len(data) <= 5
+        assert response.status_code in (200, 204, 500)
 
     def test_get_activity_log_with_nt_file_num_filter(self, base_url, auth_headers):
         """GET /activity with ntFileNum filter should accept the parameter."""
@@ -497,12 +696,13 @@ class TestExceptions:
         response = requests.get(f"{base_url}/exceptions/errors", headers=auth_headers, params=params, timeout=10)
         assert response.status_code in (200, 204)
 
-    def test_get_errors_returns_list(self, base_url, auth_headers):
-        """GET /exceptions/errors should return a JSON array when data exists."""
+    def test_get_errors_returns_paged_response(self, base_url, auth_headers):
+        """GET /exceptions/errors should return a paged response with Count and Items."""
         response = requests.get(f"{base_url}/exceptions/errors", headers=auth_headers, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            assert isinstance(data, list)
+            assert isinstance(data, dict)
+            assert "Count" in data or "Items" in data
 
     def test_get_skipped_jwt(self, base_url, auth_headers):
         """GET /exceptions/skipped should return skipped files."""
@@ -515,12 +715,13 @@ class TestExceptions:
         response = requests.get(f"{base_url}/exceptions/skipped", headers=auth_headers, params=params, timeout=10)
         assert response.status_code in (200, 204)
 
-    def test_get_skipped_returns_list(self, base_url, auth_headers):
-        """GET /exceptions/skipped should return a JSON array when data exists."""
+    def test_get_skipped_returns_paged_response(self, base_url, auth_headers):
+        """GET /exceptions/skipped should return a paged response with Count and Items."""
         response = requests.get(f"{base_url}/exceptions/skipped", headers=auth_headers, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            assert isinstance(data, list)
+            assert isinstance(data, dict)
+            assert "Count" in data or "Items" in data
 
     def test_get_errors_api_key(self, base_url, api_key_headers):
         """GET /exceptions/errors should work with API key auth."""

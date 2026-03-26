@@ -462,6 +462,32 @@ Generate a detailed, file-type-specific validation/parsing prompt based on the a
         };
     }
 
+    public DataResult<AiInstructionFileRecord> GetDefaultInstructionFile(string fileClassCode)
+    {
+        var defaultContent = LoadDefaultInstructionFile(fileClassCode);
+        if (defaultContent != null)
+        {
+            return new DataResult<AiInstructionFileRecord>
+            {
+                StatusCode = 200,
+                Data = new AiInstructionFileRecord
+                {
+                    FileClassCode = fileClassCode,
+                    InstructionContent = defaultContent,
+                    IsDefault = true,
+                    Description = $"Default {fileClassCode} analysis instructions"
+                }
+            };
+        }
+
+        return new DataResult<AiInstructionFileRecord>
+        {
+            StatusCode = 404,
+            ErrorCode = "FileLoading.InstructionNotFound",
+            ErrorMessage = $"No default instruction file found for file class '{fileClassCode}'"
+        };
+    }
+
     public async Task<DataResult<AiInstructionFileRecord>> SaveInstructionFileAsync(
         string fileClassCode, AiInstructionFileRequest request, SecurityContext securityContext)
     {

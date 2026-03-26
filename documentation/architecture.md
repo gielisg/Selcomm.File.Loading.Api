@@ -416,17 +416,30 @@ Uses ClosedXML (MIT licensed) for .xlsx file reading. Supports sheet selection b
 
 ### File Status IDs
 
-| ID | Status | Description |
-|----|--------|-------------|
-| 1 | Initial Loading | File is being parsed and loaded |
-| 2 | Transactions Loaded | All records successfully inserted |
-| 3 | Processing Errors | Some records failed to load |
-| 4 | Processing Completed | File fully processed |
-| 5 | File Discarded | File rejected or discarded |
-| 10 | File Generation In Progress | Output file being generated |
-| 11 | File Generation Complete | Output file ready |
-| 12 | Response - Some Errors | Response file has partial errors |
-| 13 | Response - No Errors | Response file clean |
+| ID | Status | Set By | Description |
+|----|--------|--------|-------------|
+| 1 | Transferred | File Loading | File record created, ready for processing |
+| 2 | Validated | File Loading | Pass 1 structure validation passed |
+| 3 | Loaded | File Loading | All transactions loaded successfully (all-or-nothing) |
+| 4 | Processing Completed | Charges Module | Downstream processing completed |
+| 5 | File Discarded | Operator/UI | File rejected or discarded |
+| 6 | Validation Error | File Loading | File structure validation failed |
+| 7 | Load Error | File Loading | Record insertion failed (all records rolled back) |
+| 10 | File Generation In Progress | Other | Output file being generated |
+| 11 | File Generation Complete | Other | Output file ready |
+| 12 | Response - Some Errors | Other | Response file has partial errors |
+| 13 | Response - No Errors | Other | Response file clean |
+
+### Transaction Status (per-record)
+
+| Status | Set By | Description |
+|--------|--------|-------------|
+| NEW | File Loading | Transaction loaded, awaiting processing |
+| PROCESSING | Charges Module | Transaction being processed |
+| PROCESSED | Charges Module | Transaction processed successfully |
+| AUTO_WRITEOFF | Charges Module | Transaction automatically written off |
+| WRITEOFF | Charges Module | Transaction manually written off |
+| ERROR | Charges Module | Transaction processing error (details in ntfl_transaction_error) |
 
 ### Transfer Status Enum
 

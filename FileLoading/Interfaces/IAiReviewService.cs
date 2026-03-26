@@ -65,6 +65,7 @@ public interface IAiReviewService
 
     Task<DataResult<List<AiInstructionFileRecord>>> ListInstructionFilesAsync();
     Task<DataResult<AiInstructionFileRecord>> GetInstructionFileAsync(string fileClassCode);
+    DataResult<AiInstructionFileRecord> GetDefaultInstructionFile(string fileClassCode);
     Task<DataResult<AiInstructionFileRecord>> SaveInstructionFileAsync(string fileClassCode, AiInstructionFileRequest request, SecurityContext securityContext);
     Task<RawCommandResult> DeleteInstructionFileAsync(string fileClassCode);
 

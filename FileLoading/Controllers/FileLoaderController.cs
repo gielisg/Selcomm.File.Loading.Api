@@ -231,22 +231,52 @@ public class FileLoaderController : DbControllerBase<FileLoaderDbContext>
         [FromQuery(Name = "skipRecords")] int skipRecords = 0,
         [FromQuery(Name = "takeRecords")] int takeRecords = 20,
         [FromQuery(Name = "countRecords")] string countRecords = "F",
-        [FromQuery(Name = "folder")] string? folder = null)
+        [FromQuery(Name = "folder")] string? folder = null,
+        [FromQuery(Name = "search")] string? search = null)
     {
         try
         {
-            // Map folder name to status_id filter
-            int? statusId = folder?.ToUpperInvariant() switch
+            // Map folder name to status_id filter(s)
+            // Some folders span multiple statuses — pass as comma-separated string for SP
+            int? statusId = null;
+            string? statusIds = null;
+
+            switch (folder?.ToUpperInvariant())
             {
-                "ERRORS" => FileStatus.ValidationError,
-                "LOAD_ERRORS" => FileStatus.LoadError,
-                "LOADED" => FileStatus.Loaded,
-                "VALIDATED" => FileStatus.Validated,
-                _ => null
-            };
+                case "TRANSFER":
+                    statusId = FileStatus.Transferred;
+                    break;
+                case "PROCESSING":
+                    // Validated + Loaded (in-progress files)
+                    statusIds = $"{FileStatus.Validated},{FileStatus.Loaded}";
+                    break;
+                case "PROCESSED":
+                    statusId = FileStatus.ProcessingCompleted;
+                    break;
+                case "ERRORS":
+                    // Validation errors + Load errors
+                    statusIds = $"{FileStatus.ValidationError},{FileStatus.LoadError}";
+                    break;
+                case "SKIPPED":
+                    statusId = FileStatus.FileDiscarded;
+                    break;
+                // Legacy single-status mappings
+                case "VALIDATED":
+                    statusId = FileStatus.Validated;
+                    break;
+                case "LOADED":
+                    statusId = FileStatus.Loaded;
+                    break;
+                case "LOAD_ERRORS":
+                    statusId = FileStatus.LoadError;
+                    break;
+                case "DISCARDED":
+                    statusId = FileStatus.FileDiscarded;
+                    break;
+            }
 
             var securityContext = CreateSecurityContext("get_api_v4_file_loading_files");
-            var result = await _fileLoaderService.ListFilesAsync(fileTypeCode, ntCustNum, skipRecords, takeRecords, countRecords, securityContext, statusId);
+            var result = await _fileLoaderService.ListFilesAsync(fileTypeCode, ntCustNum, skipRecords, takeRecords, countRecords, securityContext, statusId, search, statusIds);
 
             return HandleDataResult(result);
         }

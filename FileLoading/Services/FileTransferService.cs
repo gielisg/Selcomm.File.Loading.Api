@@ -395,7 +395,7 @@ public class FileTransferService : IFileTransferService
     }
 
     public async Task<DataResult<FileTransferRecord>> MoveToFolderAsync(
-        int transferId, string targetFolder, bool compress, SecurityContext context)
+        int transferId, string targetFolder, bool compress, SecurityContext context, string? fileTypeCode = null)
     {
         _logger.LogInformation("Moving file {TransferId} to {Folder}", transferId, targetFolder);
 
@@ -407,9 +407,9 @@ public class FileTransferService : IFileTransferService
 
         var transfer = transferResult.Data;
 
-        // Get folder config
+        // Get folder config — use explicit file type if provided, otherwise from source
         var sourceResult = await _repository.GetTransferSourceAsync(transfer.SourceId ?? 0);
-        var fileType = sourceResult.Data?.FileTypeCode;
+        var fileType = fileTypeCode ?? sourceResult.Data?.FileTypeCode;
 
         var folderResult = await _repository.GetFolderConfigAsync(fileType);
         if (!folderResult.IsSuccess || folderResult.Data == null)

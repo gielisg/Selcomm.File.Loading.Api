@@ -42,7 +42,63 @@ public class FileManagementService : IFileManagementService
     // User File Operations
     // ============================================
 
-    public async Task<DataResult<FileLoadResponse>> ProcessFileAsync(int transferId, SecurityContext context)
+    public async Task<DataResult<FileWithStatus>> UploadToTransferAsync(IFormFile file, string fileTypeCode, SecurityContext context)
+    {
+        _logger.LogInformation("Uploading file to transfer workflow: {FileName}, Type: {FileTypeCode}", file.FileName, fileTypeCode);
+
+        // Get folder config for this file type
+        var folderResult = await _transferService.GetFolderConfigAsync(fileTypeCode, context);
+        if (!folderResult.IsSuccess || folderResult.Data == null)
+            return new DataResult<FileWithStatus> { StatusCode = 400, ErrorCode = "FileLoading.NoFolderConfig", ErrorMessage = $"No folder configuration found for file type '{fileTypeCode}'" };
+
+        var folderConfig = folderResult.Data;
+
+        // Save file to Transfer folder first
+        var transferFolder = folderConfig.TransferFolder;
+        if (!Directory.Exists(transferFolder))
+            Directory.CreateDirectory(transferFolder);
+
+        var destPath = Path.Combine(transferFolder, file.FileName);
+        using (var fs = new FileStream(destPath, FileMode.Create))
+        {
+            await file.CopyToAsync(fs);
+        }
+
+        // Create transfer record in Transfer folder
+        var transferRecord = new FileTransferRecord
+        {
+            FileName = file.FileName,
+            Status = TransferStatus.Downloaded,
+            DestinationPath = destPath,
+            CurrentFolder = "Transfer",
+            FileSize = file.Length,
+            StartedAt = DateTime.Now,
+            CreatedBy = context.UserCode ?? "SYSTEM"
+        };
+
+        var insertResult = await _repository.InsertTransferRecordAsync(transferRecord);
+        if (!insertResult.IsSuccess)
+            return new DataResult<FileWithStatus> { StatusCode = 500, ErrorCode = "FileLoading.TransferRecordFailed", ErrorMessage = "Failed to create transfer record" };
+
+        transferRecord.TransferId = insertResult.Value;
+
+        _logger.LogInformation("Created transfer record {TransferId} for {FileName} in Transfer folder", transferRecord.TransferId, file.FileName);
+
+        return new DataResult<FileWithStatus>
+        {
+            StatusCode = 201,
+            Data = new FileWithStatus
+            {
+                TransferId = transferRecord.TransferId,
+                FileName = file.FileName,
+                CurrentFolder = "Transfer",
+                StatusId = TransferStatus.Downloaded,
+                FileTypeCode = fileTypeCode
+            }
+        };
+    }
+
+    public async Task<DataResult<FileLoadResponse>> ProcessFileAsync(int transferId, SecurityContext context, string? fileTypeCode = null)
     {
         _logger.LogInformation("Processing file transfer {TransferId}", transferId);
 
@@ -60,10 +116,20 @@ public class FileManagementService : IFileManagementService
 
         var transfer = transferResult.Data;
 
+        // Determine file type: explicit parameter > source config > filename inference
+        var sourceResult = await _repository.GetTransferSourceAsync(transfer.SourceId ?? 0);
+        var fileType = fileTypeCode ?? sourceResult.Data?.FileTypeCode ?? DetermineFileType(transfer.FileName);
+
         // Move to processing folder if not already there
         if (transfer.CurrentFolder?.ToUpper() != "PROCESSING")
         {
+            // Try standard source-based move first; fall back to file-type folder config
             var moveResult = await _transferService.TransferToProcessingAsync(transferId, context);
+            if (!moveResult.IsSuccess && !string.IsNullOrEmpty(fileType))
+            {
+                // Source not found — try moving via file type folder config directly
+                moveResult = await _transferService.MoveToFolderAsync(transferId, "Processing", true, context, fileType);
+            }
             if (!moveResult.IsSuccess)
             {
                 return new DataResult<FileLoadResponse>
@@ -91,15 +157,12 @@ public class FileManagementService : IFileManagementService
 
         try
         {
-            // Determine file type from source config or filename
-            var sourceResult = await _repository.GetTransferSourceAsync(transfer.SourceId ?? 0);
-            var fileType = sourceResult.Data?.FileTypeCode ?? DetermineFileType(transfer.FileName);
 
             if (string.IsNullOrEmpty(fileType))
             {
                 var errorMsg = $"Cannot determine file type for {transfer.FileName}";
                 await _repository.UpdateTransferStatusAsync(transferId, TransferStatus.Error, errorMsg, DateTime.Now);
-                await MoveToErrorsFolder(transfer, context);
+                await MoveToErrorsFolder(transfer, context, fileType);
                 return new DataResult<FileLoadResponse>
                 {
                     StatusCode = 400,
@@ -108,11 +171,17 @@ public class FileManagementService : IFileManagementService
                 };
             }
 
+            // Look up the file_type_nt record to get the correct NtCustNum
+            var fileTypeNt = await _repository.GetFileTypeNtRecordAsync(fileType);
+            var ntCustNum = fileTypeNt.Data?.NtCustNum;
+
             // Call file loader service
             var loadRequest = new LoadFileRequest
             {
                 FileName = transfer.DestinationPath!,
-                FileType = fileType
+                FileType = fileType,
+                NtCustNum = ntCustNum,
+                DisplayFileName = transfer.FileName
             };
 
             var loadResult = await _fileLoaderService.LoadFileAsync(loadRequest, context);
@@ -124,7 +193,7 @@ public class FileManagementService : IFileManagementService
                 await _repository.UpdateTransferStatusAsync(transferId, TransferStatus.Processed, null, DateTime.Now);
 
                 // Move to processed folder
-                await _transferService.MoveToFolderAsync(transferId, "Processed", true, context);
+                await _transferService.MoveToFolderAsync(transferId, "Processed", true, context, fileType);
 
                 // Log success
                 await LogActivityAsync(new FileActivityLog
@@ -144,7 +213,7 @@ public class FileManagementService : IFileManagementService
                 // Processing failed
                 var errorMsg = loadResult.ErrorMessage ?? "Processing failed";
                 await _repository.UpdateTransferStatusAsync(transferId, TransferStatus.Error, errorMsg, DateTime.Now);
-                await MoveToErrorsFolder(transfer, context);
+                await MoveToErrorsFolder(transfer, context, fileType);
 
                 // Log failure
                 await LogActivityAsync(new FileActivityLog
@@ -163,7 +232,7 @@ public class FileManagementService : IFileManagementService
         {
             _logger.LogError(ex, "Error processing file {FileName}", transfer.FileName);
             await _repository.UpdateTransferStatusAsync(transferId, TransferStatus.Error, ex.Message, DateTime.Now);
-            await MoveToErrorsFolder(transfer, context);
+            await MoveToErrorsFolder(transfer, context, fileType);
 
             return new DataResult<FileLoadResponse>
             {
@@ -621,11 +690,11 @@ public class FileManagementService : IFileManagementService
     // Helper Methods
     // ============================================
 
-    private async Task MoveToErrorsFolder(FileTransferRecord transfer, SecurityContext context)
+    private async Task MoveToErrorsFolder(FileTransferRecord transfer, SecurityContext context, string? fileTypeCode = null)
     {
         try
         {
-            await _transferService.MoveToFolderAsync(transfer.TransferId, "Errors", false, context);
+            await _transferService.MoveToFolderAsync(transfer.TransferId, "Errors", false, context, fileTypeCode);
         }
         catch (Exception ex)
         {
@@ -1486,6 +1555,10 @@ public class FileManagementService : IFileManagementService
         if (customTable == null)
             return new DataResult<TestLoadResult> { StatusCode = 404, ErrorCode = "FileLoading.NoActiveTable", ErrorMessage = "No active custom table exists for this file type" };
 
+        // Look up the file_type_nt record to get the correct NtCustNum
+        var fileTypeNt = await _repository.GetFileTypeNtRecordAsync(fileTypeCode);
+        var ntCustNum = fileTypeNt.Data?.NtCustNum;
+
         // Save uploaded file to temp location
         var tempPath = Path.Combine(Path.GetTempPath(), $"testload_{Guid.NewGuid():N}_{fileName}");
         try
@@ -1501,6 +1574,7 @@ public class FileManagementService : IFileManagementService
                 {
                     FileName = tempPath,
                     FileType = fileTypeCode,
+                    NtCustNum = ntCustNum,
                     DisplayFileName = fileName
                 },
                 context);
@@ -1533,21 +1607,21 @@ public class FileManagementService : IFileManagementService
         if (fileTypeCode2 == null)
             return new DataResult<bool> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = "File not found" };
 
-        // Get active custom table
+        // Delete records from custom table if one exists
         var customTable = await _repository.GetActiveCustomTableAsync(fileTypeCode);
-        if (customTable == null)
-            return new DataResult<bool> { StatusCode = 404, ErrorCode = "FileLoading.NoActiveTable", ErrorMessage = "No active custom table found" };
+        if (customTable != null)
+        {
+            await _repository.DeleteCustomTableRecordsAsync(customTable.TableName, ntFileNum);
+            _logger.LogInformation("Deleted test load {NtFileNum} from custom table {TableName}", ntFileNum, customTable.TableName);
+        }
 
-        // Delete records from custom table
-        await _repository.DeleteCustomTableRecordsAsync(customTable.TableName, ntFileNum);
-
-        // Also delete from generic detail in case it went there
+        // Also delete from generic detail and other detail tables
         await _repository.UnloadFileRecordsAsync(ntFileNum, context);
 
-        // Delete the nt_file record
+        // Delete the nt_file record itself
         await _repository.DeleteNtFileAsync(ntFileNum);
 
-        _logger.LogInformation("Deleted test load {NtFileNum} from custom table {TableName}", ntFileNum, customTable.TableName);
+        _logger.LogInformation("Deleted test load file record {NtFileNum}", ntFileNum);
 
         return new DataResult<bool> { StatusCode = 200, Data = true };
     }

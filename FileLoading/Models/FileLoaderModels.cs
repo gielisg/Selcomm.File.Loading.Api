@@ -163,7 +163,7 @@ public class LoadFileRequest
 
 /// <summary>
 /// Response returned after initiating a file load operation.
-/// Contains the assigned file number and initial loading status.
+/// Contains the assigned file number and processing status.
 /// </summary>
 public class FileLoadResponse
 {
@@ -235,7 +235,7 @@ public class FileStatusResponse
     public int StatusId { get; set; }
 
     /// <summary>Human-readable status description.</summary>
-    /// <example>Transactions loaded</example>
+    /// <example>Loaded</example>
     public string Status { get; set; } = string.Empty;
 
     /// <summary>File date assigned at load time.</summary>

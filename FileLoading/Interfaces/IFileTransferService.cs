@@ -46,7 +46,8 @@ public interface IFileTransferService
         int transferId,
         string targetFolder,
         bool compress,
-        SecurityContext context);
+        SecurityContext context,
+        string? fileTypeCode = null);
 
     // ============================================
     // Compression Operations

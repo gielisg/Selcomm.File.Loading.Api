@@ -607,7 +607,7 @@ public class FileActivityLog
 {
     /// <summary>Activity log ID (auto-generated).</summary>
     /// <example>10001</example>
-    public long ActivityId { get; set; }
+    public int ActivityId { get; set; }
 
     /// <summary>NT file number if this activity relates to a specific file.</summary>
     /// <example>12345</example>

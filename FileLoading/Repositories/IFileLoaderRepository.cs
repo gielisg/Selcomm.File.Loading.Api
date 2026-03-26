@@ -27,7 +27,7 @@ public interface IFileLoaderRepository
     /// <param name="fileTypeCode">File type code (from file_type table)</param>
     /// <param name="ntCustNum">Network customer number</param>
     /// <param name="ntFileName">File name (can include placeholders like &lt;SEQUENCE&gt;)</param>
-    /// <param name="statusId">Initial status ID (typically 1 = Initial loading)</param>
+    /// <param name="statusId">Initial status ID (typically 1 = Transferred)</param>
     /// <param name="ntFileDate">File date (defaults to today)</param>
     /// <param name="securityContext">Security context</param>
     /// <returns>ValueResult containing the new nt_file_num and resolved filename</returns>
@@ -83,7 +83,9 @@ public interface IFileLoaderRepository
         int takeRecords,
         string countRecords,
         SecurityContext securityContext,
-        int? statusId = null);
+        int? statusId = null,
+        string? search = null,
+        string? statusIds = null);
 
     /// <summary>
     /// Insert a batch of call detail records into cl_detail table.

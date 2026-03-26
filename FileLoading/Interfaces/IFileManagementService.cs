@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using Selcomm.Data.Common;
 using FileLoading.Models;
 using FileLoading.Validation;
@@ -23,6 +24,15 @@ public interface IFileManagementService
     /// <returns>Processing result</returns>
     Task<DataResult<FileLoadResponse>> ProcessFileAsync(
         int transferId,
+        SecurityContext context,
+        string? fileTypeCode = null);
+
+    /// <summary>
+    /// Upload a file into the transfer workflow (Transfer folder + transfer record).
+    /// </summary>
+    Task<DataResult<FileWithStatus>> UploadToTransferAsync(
+        IFormFile file,
+        string fileTypeCode,
         SecurityContext context);
 
     /// <summary>

@@ -606,6 +606,37 @@ public class AiReviewController : DbControllerBase<FileLoaderDbContext>
     }
 
     /// <summary>
+    /// Get the shipped default instruction file for a file class, ignoring any custom overrides.
+    /// Use this to clone the system default as a starting point for customisation.
+    /// </summary>
+    /// <param name="fileClassCode">File class code (e.g., CHG, CDR, MSP, PAY)</param>
+    [HttpGet("instructions/{file-class-code}/default")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_ai_review_instructions_file_class_code_default")]
+    [Tags("AI Review")]
+    [ProducesResponseType(typeof(AiInstructionFileRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public IActionResult GetDefaultInstructionFile([FromRoute(Name = "file-class-code")] string fileClassCode)
+    {
+        try
+        {
+            var result = _aiReviewService.GetDefaultInstructionFile(fileClassCode);
+
+            if (result.IsSuccess)
+                return Ok(result.Data);
+
+            return StatusCode(result.StatusCode,
+                new ErrorResponse(result.ErrorMessage ?? "Not found", result.ErrorCode));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting default instruction file for {FileClassCode}", fileClassCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
     /// Create or update a custom AI instruction file for a file class.
     /// </summary>
     /// <param name="fileClassCode">File class code (e.g., CHG, CDR, PAY)</param>
