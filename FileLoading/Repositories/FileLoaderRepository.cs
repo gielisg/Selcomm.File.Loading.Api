@@ -2338,13 +2338,13 @@ public class FileLoaderRepository : IFileLoaderRepository
                     command.CommandText = @"INSERT INTO ntfl_generic_detail (
                         nt_file_num, nt_file_rec_num, account_code, service_id,
                         charge_type, cost_amount, tax_amount, quantity, uom,
-                        from_date, to_date, description, external_ref,
+                        from_date, to_date, description, external_ref, prorate_ratio,
                         generic_01, generic_02, generic_03, generic_04, generic_05,
                         generic_06, generic_07, generic_08, generic_09, generic_10,
                         generic_11, generic_12, generic_13, generic_14, generic_15,
                         generic_16, generic_17, generic_18, generic_19, generic_20,
                         raw_data, status_id, contact_code, sp_cn_ref, chg_code
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
                     command.CommandType = CommandType.Text;
 
                     AddParameter(command, "@p1", record.NtFileNum, DbType.Int32);
@@ -2360,31 +2360,32 @@ public class FileLoaderRepository : IFileLoaderRepository
                     AddParameter(command, "@p11", record.ToDate, DbType.DateTime);
                     AddParameter(command, "@p12", record.Description, DbType.String, 256);
                     AddParameter(command, "@p13", record.ExternalRef, DbType.String, 64);
-                    AddParameter(command, "@p14", record.Generic01, DbType.String, 128);
-                    AddParameter(command, "@p15", record.Generic02, DbType.String, 128);
-                    AddParameter(command, "@p16", record.Generic03, DbType.String, 128);
-                    AddParameter(command, "@p17", record.Generic04, DbType.String, 128);
-                    AddParameter(command, "@p18", record.Generic05, DbType.String, 128);
-                    AddParameter(command, "@p19", record.Generic06, DbType.String, 128);
-                    AddParameter(command, "@p20", record.Generic07, DbType.String, 128);
-                    AddParameter(command, "@p21", record.Generic08, DbType.String, 128);
-                    AddParameter(command, "@p22", record.Generic09, DbType.String, 128);
-                    AddParameter(command, "@p23", record.Generic10, DbType.String, 128);
-                    AddParameter(command, "@p24", record.Generic11, DbType.String, 256);
-                    AddParameter(command, "@p25", record.Generic12, DbType.String, 256);
-                    AddParameter(command, "@p26", record.Generic13, DbType.String, 256);
-                    AddParameter(command, "@p27", record.Generic14, DbType.String, 256);
-                    AddParameter(command, "@p28", record.Generic15, DbType.String, 256);
-                    AddParameter(command, "@p29", record.Generic16, DbType.String, 256);
-                    AddParameter(command, "@p30", record.Generic17, DbType.String, 256);
-                    AddParameter(command, "@p31", record.Generic18, DbType.String, 256);
-                    AddParameter(command, "@p32", record.Generic19, DbType.String, 256);
-                    AddParameter(command, "@p33", record.Generic20, DbType.String, 256);
-                    AddParameter(command, "@p34", record.RawData, DbType.String, 2000);
-                    AddParameter(command, "@p35", record.StatusId, DbType.String, 20);
-                    AddParameter(command, "@p36", record.ContactCode, DbType.String, 20);
-                    AddParameter(command, "@p37", record.ServiceReference, DbType.Int32);
-                    AddParameter(command, "@p38", record.ChgCode, DbType.String, 20);
+                    AddParameter(command, "@p14", record.ProrateRatio, DbType.Decimal);
+                    AddParameter(command, "@p15", record.Generic01, DbType.String, 128);
+                    AddParameter(command, "@p16", record.Generic02, DbType.String, 128);
+                    AddParameter(command, "@p17", record.Generic03, DbType.String, 128);
+                    AddParameter(command, "@p18", record.Generic04, DbType.String, 128);
+                    AddParameter(command, "@p19", record.Generic05, DbType.String, 128);
+                    AddParameter(command, "@p20", record.Generic06, DbType.String, 128);
+                    AddParameter(command, "@p21", record.Generic07, DbType.String, 128);
+                    AddParameter(command, "@p22", record.Generic08, DbType.String, 128);
+                    AddParameter(command, "@p23", record.Generic09, DbType.String, 128);
+                    AddParameter(command, "@p24", record.Generic10, DbType.String, 128);
+                    AddParameter(command, "@p25", record.Generic11, DbType.String, 256);
+                    AddParameter(command, "@p26", record.Generic12, DbType.String, 256);
+                    AddParameter(command, "@p27", record.Generic13, DbType.String, 256);
+                    AddParameter(command, "@p28", record.Generic14, DbType.String, 256);
+                    AddParameter(command, "@p29", record.Generic15, DbType.String, 256);
+                    AddParameter(command, "@p30", record.Generic16, DbType.String, 256);
+                    AddParameter(command, "@p31", record.Generic17, DbType.String, 256);
+                    AddParameter(command, "@p32", record.Generic18, DbType.String, 256);
+                    AddParameter(command, "@p33", record.Generic19, DbType.String, 256);
+                    AddParameter(command, "@p34", record.Generic20, DbType.String, 256);
+                    AddParameter(command, "@p35", record.RawData, DbType.String, 2000);
+                    AddParameter(command, "@p36", record.StatusId, DbType.String, 20);
+                    AddParameter(command, "@p37", record.ContactCode, DbType.String, 20);
+                    AddParameter(command, "@p38", record.ServiceReference, DbType.Int32);
+                    AddParameter(command, "@p39", record.ChgCode, DbType.String, 20);
 
                     var rowsAffected = await command.ExecuteNonQueryAsync();
                     if (rowsAffected < 0)
@@ -4289,6 +4290,7 @@ public class FileLoaderRepository : IFileLoaderRepository
             "ToDate" => (object?)record.ToDate,
             "Description" => record.Description,
             "ExternalRef" => record.ExternalRef,
+            "ProrateRatio" => (object?)record.ProrateRatio,
             _ when targetField.StartsWith("Generic") && int.TryParse(targetField[7..], out var num) => record.GetGenericField(num),
             _ => (object?)null
         };

@@ -1248,6 +1248,7 @@ public class FileLoaderService : IFileLoaderService
             ToDate = GetFieldDateTime(parsed, "ToDate"),
             Description = GetFieldString(parsed, "Description"),
             ExternalRef = GetFieldString(parsed, "ExternalRef"),
+            ProrateRatio = GetFieldDecimal(parsed, "ProrateRatio"),
             RawData = GetFieldString(parsed, "RawData"),
             StatusId = TransactionStatus.New
         };

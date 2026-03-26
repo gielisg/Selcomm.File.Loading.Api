@@ -343,6 +343,10 @@ public class GenericDetailRecord : FileDetailRecord
     /// <example>INV-2025-001234</example>
     public string? ExternalRef { get; set; }
 
+    /// <summary>Pro-rate ratio for partial-period charges (0-1). Defaults to 1.0 (full period).</summary>
+    /// <example>0.666667</example>
+    public decimal? ProrateRatio { get; set; }
+
     // Generic overflow columns (Generic01 through Generic20)
     /// <summary>Generic overflow column 01.</summary>
     public string? Generic01 { get; set; }

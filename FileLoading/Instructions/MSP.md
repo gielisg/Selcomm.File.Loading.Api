@@ -34,9 +34,14 @@ This is an MSP (Managed Service Provider) supplier charge file. These files repr
 - **Sell/RRP price** (recommended retail or what the MSP charges downstream):
   - Unit RRP — map to unit_price_rrp
   - Total RRP — map to sub_total_rrp
-- **Proration/BillableRatio**: Factor applied for mid-period changes (e.g., 0.5 for half month, 0.666667 for 20/30 days) — map to billable_ratio
+- **Pro-Rate Ratio** (IMPORTANT — actively detect):
+  - Look for columns named: BillableRatio, ProRateRatio, Proration, ProrationFactor, BillingRatio, ProratePercent, EffectiveRatio, or similar
+  - This is a decimal factor applied for mid-period changes (e.g., 0.5 for half month, 0.666667 for 20/30 days)
+  - If found, map to `ProrateRatio` (this is a well-known billing field)
+  - If NOT found, add an Observation: "No pro-rate ratio column detected — default of 1.0 (full period) will apply"
+  - Validate: values should be > 0 and <= 1. Flag values outside this range as a DataQualityIssue
+  - Check: does SubTotal = UnitPrice × Quantity × ProrateRatio?
 - Identify whether amounts are per-unit or pre-multiplied totals
-- Check: does SubTotal = UnitPrice × Quantity × BillableRatio?
 
 ## Quantities
 - License seat count, user count, or subscription quantity — map to Quantity

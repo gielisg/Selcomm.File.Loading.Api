@@ -1885,7 +1885,7 @@ Return your analysis as a JSON object with this exact structure:
 }
 
 IMPORTANT — Target Field Naming:
-- For columns that map to well-known billing concepts, use these exact names: AccountCode, ServiceId, ChargeType, CostAmount, TaxAmount, Quantity, UOM, FromDate, ToDate, Description, ExternalRef
+- For columns that map to well-known billing concepts, use these exact names: AccountCode, ServiceId, ChargeType, CostAmount, TaxAmount, Quantity, UOM, FromDate, ToDate, Description, ExternalRef, ProrateRatio
 - For ALL OTHER columns, use the source column header name converted to snake_case (e.g. ResellerName -> reseller_name, BillableRatio -> billable_ratio, SubTotalRrp -> sub_total_rrp, UnitPriceRrp -> unit_price_rrp)
 - Do NOT use Generic01, Generic02, etc. Always use meaningful names derived from the header.
 - This applies to both SuggestedTargetField in Columns[] and TargetField in SuggestedParserConfig.ColumnMappings[]
