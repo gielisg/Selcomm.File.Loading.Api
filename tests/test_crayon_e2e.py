@@ -555,12 +555,201 @@ class TestCrayonFolderWorkflow:
 
 
 BAD_CSV_PATH = Path(__file__).parent / "test_crayon_bad_row.csv"
+EMPTY_CSV_PATH = Path(__file__).parent / "test_crayon_empty.csv"
 
 
-class TestCrayonBadRowRejection:
+class TestCrayonValidationRejection:
     """
-    Test all-or-nothing loading: a file with one bad row should be completely
-    rejected — zero records loaded, file moved to Errors folder, appropriate status.
+    Test Pass 1 (validation phase) rejection: a file with no data rows (header only)
+    should be rejected during streaming validation — before any records are inserted.
+
+    Expected: ValidationError status, file in Errors folder, zero records anywhere.
+    """
+
+    _transfer_id = None
+    _nt_file_num = None
+    _custom_table_version = None
+    _parser_created = False
+
+    def test_01_setup_and_cleanup(self, base_url, auth_headers):
+        """Clean orphans, ensure parser config and custom table exist for MCR."""
+        # Clean orphan MCR files
+        files_resp = requests.get(
+            f"{base_url}/files",
+            headers=auth_headers,
+            params={"fileTypeCode": FILE_TYPE_CODE, "takeRecords": 50},
+            timeout=15,
+        )
+        if files_resp.status_code == 200:
+            for item in files_resp.json().get("Items") or []:
+                nfn = item.get("NtFileNum") or item.get("ntFileNum")
+                if nfn:
+                    requests.delete(
+                        f"{base_url}/parsers/{FILE_TYPE_CODE}/custom-table/test-load/{nfn}",
+                        headers=auth_headers, timeout=15,
+                    )
+
+        # Drop existing custom table
+        ct_resp = requests.get(
+            f"{base_url}/parsers/{FILE_TYPE_CODE}/custom-table",
+            headers=auth_headers, timeout=15,
+        )
+        if ct_resp.status_code == 200:
+            active = (ct_resp.json().get("ActiveVersion") or
+                      ct_resp.json().get("activeVersion"))
+            if active:
+                v = active.get("Version") or active.get("version")
+                if v:
+                    requests.delete(
+                        f"{base_url}/parsers/{FILE_TYPE_CODE}/custom-table/{v}",
+                        headers=auth_headers, timeout=15,
+                    )
+
+        # Delete existing parser
+        requests.delete(
+            f"{base_url}/parsers/{FILE_TYPE_CODE}", headers=auth_headers, timeout=15
+        )
+
+        # Create fresh parser + custom table
+        r2 = requests.post(
+            f"{base_url}/parsers", headers=auth_headers, json=PARSER_CONFIG, timeout=15
+        )
+        assert r2.status_code in (200, 201), (
+            f"Failed to create parser: {r2.status_code} {r2.text}"
+        )
+        TestCrayonValidationRejection._parser_created = True
+
+        r4 = requests.post(
+            f"{base_url}/parsers/{FILE_TYPE_CODE}/custom-table",
+            headers=auth_headers, timeout=30,
+        )
+        assert r4.status_code == 201, (
+            f"Failed to create custom table: {r4.status_code} {r4.text}"
+        )
+        TestCrayonValidationRejection._custom_table_version = (
+            r4.json().get("Version") or r4.json().get("version")
+        )
+
+    def test_02_upload_empty_file_to_transfer(self, base_url, auth_headers):
+        """Upload the empty CSV (header only) to the Transfer folder."""
+        assert EMPTY_CSV_PATH.exists(), f"Empty CSV not found: {EMPTY_CSV_PATH}"
+
+        with open(EMPTY_CSV_PATH, "rb") as f:
+            files = {"file": (EMPTY_CSV_PATH.name, f, "text/csv")}
+            response = requests.post(
+                f"{base_url}/manager/files/upload",
+                headers=auth_headers,
+                files=files,
+                params={"fileTypeCode": FILE_TYPE_CODE},
+                timeout=30,
+            )
+
+        assert response.status_code == 201, (
+            f"Unexpected status {response.status_code}: {response.text}"
+        )
+        data = response.json()
+        transfer_id = data.get("TransferId") or data.get("transferId")
+        assert transfer_id is not None
+        TestCrayonValidationRejection._transfer_id = transfer_id
+        print(f"\n  Transfer ID: {transfer_id}")
+
+    def test_03_process_empty_file(self, base_url, auth_headers):
+        """Process the empty file — should fail at validation (Pass 1), never reaching insert."""
+        transfer_id = TestCrayonValidationRejection._transfer_id
+        if transfer_id is None:
+            pytest.skip("No transfer ID (test_02 failed)")
+
+        response = requests.post(
+            f"{base_url}/manager/files/{transfer_id}/process",
+            headers=auth_headers,
+            params={"fileTypeCode": FILE_TYPE_CODE},
+            timeout=60,
+        )
+
+        data = response.json()
+        nt_file_num = data.get("NtFileNum") or data.get("ntFileNum")
+        status = data.get("Status") or data.get("status") or ""
+        error = data.get("Error") or data.get("error") or data.get("ErrorMessage") or ""
+
+        if nt_file_num:
+            TestCrayonValidationRejection._nt_file_num = nt_file_num
+
+        print(f"\n  HTTP: {response.status_code}, Status: {status}")
+        print(f"  NtFileNum: {nt_file_num}, Error: {error}")
+
+        # Should NOT be a 200 success
+        assert response.status_code != 200, (
+            f"Expected failure, got HTTP 200 with status '{status}'"
+        )
+        # Error should mention validation/empty
+        assert "empty" in error.lower() or "validation" in error.lower() or response.status_code >= 400, (
+            f"Expected validation error, got: {error}"
+        )
+
+    def test_04_verify_in_errors_folder(self, base_url, auth_headers):
+        """Verify the file was moved to the Errors folder."""
+        transfer_id = TestCrayonValidationRejection._transfer_id
+        if transfer_id is None:
+            pytest.skip("No transfer ID")
+
+        response = requests.get(
+            f"{base_url}/manager/files/{transfer_id}",
+            headers=auth_headers, timeout=15,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        folder = data.get("CurrentFolder") or data.get("currentFolder")
+        assert folder == "Errors", f"Expected Errors folder, got {folder}"
+        print(f"\n  Folder: {folder}")
+
+    def test_05_verify_zero_records_in_custom_table(self, base_url, auth_headers):
+        """Verify no records were inserted — validation rejects before insert pass."""
+        version = TestCrayonValidationRejection._custom_table_version
+        if version is None:
+            pytest.skip("No custom table version")
+
+        response = requests.get(
+            f"{base_url}/parsers/{FILE_TYPE_CODE}/custom-table/{version}/count",
+            headers=auth_headers, timeout=15,
+        )
+        assert response.status_code == 200
+        count = response.json()
+        assert count == 0, f"Expected 0 records (validation should reject before insert), got {count}"
+
+    def test_06_cleanup(self, base_url, auth_headers):
+        """Clean up all test resources."""
+        nt_file_num = TestCrayonValidationRejection._nt_file_num
+        if nt_file_num:
+            requests.delete(
+                f"{base_url}/parsers/{FILE_TYPE_CODE}/custom-table/test-load/{nt_file_num}",
+                headers=auth_headers, timeout=30,
+            )
+
+        transfer_id = TestCrayonValidationRejection._transfer_id
+        if transfer_id:
+            requests.delete(
+                f"{base_url}/manager/files/{transfer_id}",
+                headers=auth_headers, timeout=15,
+            )
+
+        version = TestCrayonValidationRejection._custom_table_version
+        if version:
+            requests.delete(
+                f"{base_url}/parsers/{FILE_TYPE_CODE}/custom-table/{version}",
+                headers=auth_headers, timeout=15,
+            )
+
+        if TestCrayonValidationRejection._parser_created:
+            requests.delete(
+                f"{base_url}/parsers/{FILE_TYPE_CODE}",
+                headers=auth_headers, timeout=15,
+            )
+
+
+class TestCrayonInsertRejection:
+    """
+    Test Pass 2 (insert phase) rejection: a file with one bad row should pass
+    validation but fail during insert — all-or-nothing rolls back all records.
 
     The bad CSV has 11 data rows with row 7 containing 'NOT_A_NUMBER' in the
     Quantity (Decimal) field, which triggers a parse validation error.
@@ -617,7 +806,7 @@ class TestCrayonBadRowRejection:
         assert r2.status_code in (200, 201), (
             f"Failed to create parser: {r2.status_code} {r2.text}"
         )
-        TestCrayonBadRowRejection._parser_created = True
+        TestCrayonInsertRejection._parser_created = True
 
         # Create fresh custom table
         r4 = requests.post(
@@ -628,7 +817,7 @@ class TestCrayonBadRowRejection:
             f"Failed to create custom table: {r4.status_code} {r4.text}"
         )
         version = r4.json().get("Version") or r4.json().get("version")
-        TestCrayonBadRowRejection._custom_table_version = version
+        TestCrayonInsertRejection._custom_table_version = version
 
     def test_02_upload_bad_file_to_transfer(self, base_url, auth_headers):
         """Upload the bad CSV to the Transfer folder."""
@@ -650,7 +839,7 @@ class TestCrayonBadRowRejection:
         data = response.json()
         transfer_id = data.get("TransferId") or data.get("transferId")
         assert transfer_id is not None
-        TestCrayonBadRowRejection._transfer_id = transfer_id
+        TestCrayonInsertRejection._transfer_id = transfer_id
 
         folder = data.get("CurrentFolder") or data.get("currentFolder")
         assert folder == "Transfer"
@@ -658,7 +847,7 @@ class TestCrayonBadRowRejection:
 
     def test_03_process_bad_file(self, base_url, auth_headers):
         """Process the file — should fail due to bad row. File should NOT load successfully."""
-        transfer_id = TestCrayonBadRowRejection._transfer_id
+        transfer_id = TestCrayonInsertRejection._transfer_id
         if transfer_id is None:
             pytest.skip("No transfer ID (test_02 failed)")
 
@@ -677,7 +866,7 @@ class TestCrayonBadRowRejection:
         error = data.get("Error") or data.get("error") or data.get("ErrorMessage") or ""
 
         if nt_file_num:
-            TestCrayonBadRowRejection._nt_file_num = nt_file_num
+            TestCrayonInsertRejection._nt_file_num = nt_file_num
 
         print(f"\n  HTTP: {response.status_code}, Status: {status}")
         print(f"  Loaded: {records_loaded}, Failed: {records_failed}")
@@ -690,7 +879,7 @@ class TestCrayonBadRowRejection:
 
     def test_04_verify_in_errors_folder(self, base_url, auth_headers):
         """Verify the file was moved to the Errors folder after rejection."""
-        transfer_id = TestCrayonBadRowRejection._transfer_id
+        transfer_id = TestCrayonInsertRejection._transfer_id
         if transfer_id is None:
             pytest.skip("No transfer ID (test_02 failed)")
 
@@ -710,7 +899,7 @@ class TestCrayonBadRowRejection:
 
     def test_05_verify_file_status_is_error(self, base_url, auth_headers):
         """Verify the nt_file record has an error/validation status."""
-        nt_file_num = TestCrayonBadRowRejection._nt_file_num
+        nt_file_num = TestCrayonInsertRejection._nt_file_num
         if nt_file_num is None:
             pytest.skip("No nt_file_num (test_03 didn't produce one)")
 
@@ -733,7 +922,7 @@ class TestCrayonBadRowRejection:
 
     def test_06_verify_zero_records_in_custom_table(self, base_url, auth_headers):
         """Verify no records were inserted into the custom table for this file."""
-        version = TestCrayonBadRowRejection._custom_table_version
+        version = TestCrayonInsertRejection._custom_table_version
         if version is None:
             pytest.skip("No custom table version")
 
@@ -748,7 +937,7 @@ class TestCrayonBadRowRejection:
     def test_07_cleanup(self, base_url, auth_headers):
         """Clean up all test resources."""
         # Delete nt_file record if it exists
-        nt_file_num = TestCrayonBadRowRejection._nt_file_num
+        nt_file_num = TestCrayonInsertRejection._nt_file_num
         if nt_file_num:
             requests.delete(
                 f"{base_url}/parsers/{FILE_TYPE_CODE}/custom-table/test-load/{nt_file_num}",
@@ -756,7 +945,7 @@ class TestCrayonBadRowRejection:
             )
 
         # Delete transfer record
-        transfer_id = TestCrayonBadRowRejection._transfer_id
+        transfer_id = TestCrayonInsertRejection._transfer_id
         if transfer_id:
             requests.delete(
                 f"{base_url}/manager/files/{transfer_id}",
@@ -764,7 +953,7 @@ class TestCrayonBadRowRejection:
             )
 
         # Drop custom table
-        version = TestCrayonBadRowRejection._custom_table_version
+        version = TestCrayonInsertRejection._custom_table_version
         if version:
             requests.delete(
                 f"{base_url}/parsers/{FILE_TYPE_CODE}/custom-table/{version}",
@@ -772,7 +961,7 @@ class TestCrayonBadRowRejection:
             )
 
         # Delete parser if we created it
-        if TestCrayonBadRowRejection._parser_created:
+        if TestCrayonInsertRejection._parser_created:
             requests.delete(
                 f"{base_url}/parsers/{FILE_TYPE_CODE}",
                 headers=auth_headers, timeout=15,
