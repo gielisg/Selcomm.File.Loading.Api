@@ -32,19 +32,22 @@ public class FileLoaderService : IFileLoaderService
     private readonly IEnumerable<IFileParser> _parsers;
     private readonly FileLoaderOptionsRoot _optionsRoot;
     private readonly IValidationConfigProvider? _validationConfigProvider;
+    private readonly IAiReviewService? _aiReviewService;
 
     public FileLoaderService(
         IFileLoaderRepository repository,
         ILogger<FileLoaderService> logger,
         IEnumerable<IFileParser> parsers,
         IOptions<FileLoaderOptionsRoot>? options = null,
-        IValidationConfigProvider? validationConfigProvider = null)
+        IValidationConfigProvider? validationConfigProvider = null,
+        IAiReviewService? aiReviewService = null)
     {
         _repository = repository;
         _logger = logger;
         _parsers = parsers;
         _optionsRoot = options?.Value ?? new FileLoaderOptionsRoot();
         _validationConfigProvider = validationConfigProvider;
+        _aiReviewService = aiReviewService;
     }
 
     public async Task<DataResult<FileLoadResponse>> LoadFileAsync(LoadFileRequest request, SecurityContext securityContext)
@@ -67,6 +70,21 @@ public class FileLoaderService : IFileLoaderService
             // Get customer number from request or use default
             var ntCustNum = request.NtCustNum ?? "DEFAULT";
 
+            // Compute file hash for duplicate detection
+            var fileHash = request.FileHash ?? await FileHashService.ComputeFileHashAsync(request.FileName);
+            _logger.LogInformation("File hash: {Hash} for {FileName}", fileHash, request.FileName);
+
+            // Check for duplicate files with same content
+            var duplicatesResult = await _repository.FindDuplicatesByHashAsync(fileHash);
+            List<DuplicateFileInfo>? duplicateFiles = null;
+            if (duplicatesResult.Data?.Count > 0)
+            {
+                duplicateFiles = duplicatesResult.Data;
+                _logger.LogWarning("Duplicate file detected: {FileName} matches {Count} existing file(s): {Ids}",
+                    request.FileName, duplicateFiles.Count,
+                    string.Join(", ", duplicateFiles.Select(d => d.NtFileNum)));
+            }
+
             // Step 1: Create file record in database using sp_file_loading_nt_file_api
             var displayName = request.DisplayFileName ?? Path.GetFileName(request.FileName);
             var createResult = await _repository.CreateNtFileAsync(
@@ -75,7 +93,8 @@ public class FileLoaderService : IFileLoaderService
                 displayName,
                 FileStatus.Transferred,
                 request.FileDate,
-                securityContext);
+                securityContext,
+                fileHash);
 
             if (!createResult.IsSuccess || createResult.Value == null)
             {
@@ -123,7 +142,9 @@ public class FileLoaderService : IFileLoaderService
                     RecordsLoaded = processResult.RecordsLoaded,
                     RecordsFailed = processResult.RecordsFailed,
                     StartedAt = processResult.StartedAt,
-                    CompletedAt = processResult.CompletedAt
+                    CompletedAt = processResult.CompletedAt,
+                    FileHash = fileHash,
+                    DuplicateFiles = duplicateFiles
                 }
             };
         }
@@ -143,18 +164,21 @@ public class FileLoaderService : IFileLoaderService
     {
         try
         {
-            // Save uploaded file to temp location
+            // Save uploaded file to temp location, computing hash during the copy
             var tempPath = Path.Combine(Path.GetTempPath(), $"upload_{Guid.NewGuid():N}_{file.FileName}");
-            using (var stream = new FileStream(tempPath, FileMode.Create))
+            string fileHash;
+            using (var sourceStream = file.OpenReadStream())
+            using (var destStream = new FileStream(tempPath, FileMode.Create))
             {
-                await file.CopyToAsync(stream);
+                fileHash = await FileHashService.CopyAndHashAsync(sourceStream, destStream);
             }
 
-            // Load the saved file
+            // Load the saved file with pre-computed hash
             return await LoadFileAsync(new LoadFileRequest
             {
                 FileName = tempPath,
-                FileType = fileType
+                FileType = fileType,
+                FileHash = fileHash
             }, securityContext);
         }
         catch (Exception ex)
@@ -408,8 +432,8 @@ public class FileLoaderService : IFileLoaderService
             }
         }
 
-        // Log any record-level errors
-        if (recordErrors.Count > 0)
+        // Log any record-level errors (skip for GEN — rich errors already stored by ProcessGenericRecordsStreamingAsync)
+        if (recordErrors.Count > 0 && fileClassCode != "GEN")
         {
             await LogErrorsAsync(ntFileNum, recordErrors);
         }
@@ -462,6 +486,9 @@ public class FileLoaderService : IFileLoaderService
             await _repository.UnloadFileRecordsAsync(ntFileNum, securityContext);
 
             await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.LoadError, securityContext);
+
+            // Optionally trigger AI review if configured
+            await TryAiReviewAsync(ntFileNum, securityContext);
 
             processingResult.Success = false;
             processingResult.StatusId = FileStatus.LoadError;
@@ -599,6 +626,9 @@ public class FileLoaderService : IFileLoaderService
             await _repository.UnloadFileRecordsAsync(ntFileNum, securityContext);
 
             await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.LoadError, securityContext);
+
+            // Optionally trigger AI review if configured
+            await TryAiReviewAsync(ntFileNum, securityContext);
 
             processingResult.Success = false;
             processingResult.StatusId = FileStatus.LoadError;
@@ -851,6 +881,7 @@ public class FileLoaderService : IFileLoaderService
         var totalCost = 0m;
         var recordNum = startRecordNum;
         var errors = new List<ParseError>();
+        var errorAggregator = new Validation.ErrorAggregator(new ErrorLoggingConfig());
 
         // Check if a custom table exists for this file type
         var customTable = await _repository.GetActiveCustomTableAsync(fileType);
@@ -880,6 +911,17 @@ public class FileLoaderService : IFileLoaderService
                     LineNumber = recordNum,
                     IsFileLevelError = false
                 });
+
+                // Feed rich ValidationError objects into aggregator (if available)
+                if (parsed.DetailedErrors != null)
+                {
+                    foreach (var detailedError in parsed.DetailedErrors)
+                    {
+                        detailedError.RecordNumber = recordNum;
+                        detailedError.LineNumber ??= recordNum;
+                        errorAggregator.AddError(detailedError);
+                    }
+                }
 
                 recordNum++;
                 continue;
@@ -919,6 +961,22 @@ public class FileLoaderService : IFileLoaderService
             {
                 _logger.LogError("Final batch insert failed: {Error}", insertResult.ErrorMessage);
             }
+        }
+
+        // Store rich error details and AI summary if any records failed
+        if (recordsFailed > 0)
+        {
+            errorAggregator.SetRecordCounts(recordsLoaded + recordsFailed, recordsFailed);
+            var validationResult = errorAggregator.BuildResult();
+
+            if (validationResult.DetailedErrors.Count > 0)
+            {
+                await _repository.InsertValidationErrorsBatchAsync(ntFileNum, validationResult.DetailedErrors);
+            }
+            await _repository.StoreValidationSummaryAsync(ntFileNum, validationResult.AISummary);
+
+            _logger.LogInformation("File {NtFileNum}: Stored {ErrorCount} detailed errors and AI summary for {Failed} failed records",
+                ntFileNum, validationResult.DetailedErrors.Count, recordsFailed);
         }
 
         return (recordsLoaded, recordsFailed, totalCost, errors);
@@ -1002,6 +1060,29 @@ public class FileLoaderService : IFileLoaderService
     /// <summary>
     /// Log parsing errors to ntfl_error_log table.
     /// </summary>
+    /// <summary>
+    /// Trigger AI review on a failed file if AI is configured and enabled. Non-fatal — logs and continues on error.
+    /// </summary>
+    private async Task TryAiReviewAsync(int ntFileNum, SecurityContext securityContext)
+    {
+        if (_aiReviewService == null) return;
+
+        try
+        {
+            var configStatus = await _aiReviewService.GetConfigStatusAsync();
+            if (configStatus.IsSuccess && configStatus.Data != null &&
+                configStatus.Data.IsConfigured && configStatus.Data.IsEnabled)
+            {
+                _logger.LogInformation("Triggering AI review for failed file {NtFileNum}", ntFileNum);
+                await _aiReviewService.ReviewFileAsync(ntFileNum, null, securityContext);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "AI review failed for file {NtFileNum} (non-fatal)", ntFileNum);
+        }
+    }
+
     private async Task LogErrorsAsync(int ntFileNum, List<ParseError> errors)
     {
         if (errors.Count == 0) return;

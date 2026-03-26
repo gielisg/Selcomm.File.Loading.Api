@@ -352,7 +352,8 @@ public class GenericFileParser : BaseFileParser
         {
             RecordNumber = recordNumber,
             RecordType = "D",
-            IsValid = true
+            IsValid = true,
+            DetailedErrors = new List<ValidationError>()
         };
 
         record.Fields["RawData"] = rawLine ?? string.Join(_config.Delimiter ?? ",", fields);
@@ -369,11 +370,25 @@ public class GenericFileParser : BaseFileParser
                 rawValue = mapping.DefaultValue;
             }
 
-            // Check required
+            // Check required — don't break, continue checking other fields
             if (mapping.IsRequired && string.IsNullOrWhiteSpace(rawValue))
             {
                 record.IsValid = false;
-                record.ValidationError = $"Required field '{mapping.TargetField}' (column {mapping.ColumnIndex}) is missing";
+                var msg = $"Required field '{mapping.TargetField}' (column {mapping.ColumnIndex}) is missing";
+                record.ValidationError ??= msg;
+                record.DetailedErrors.Add(new ValidationError
+                {
+                    ErrorCode = ValidationErrorCodes.FieldRequired,
+                    ErrorCategory = ValidationErrorCategory.FieldConstraint,
+                    FieldName = mapping.TargetField,
+                    FieldIndex = mapping.ColumnIndex,
+                    FieldLabel = mapping.SourceColumnName,
+                    RawValue = rawValue,
+                    RawLine = rawLine,
+                    LineNumber = recordNumber,
+                    UserMessage = msg,
+                    Suggestion = $"Provide a value for the '{mapping.SourceColumnName}' column"
+                });
                 continue;
             }
 
@@ -383,14 +398,29 @@ public class GenericFileParser : BaseFileParser
                 continue;
             }
 
-            // Validate regex pattern
+            // Validate regex pattern — don't break, continue checking other fields
             if (!string.IsNullOrEmpty(mapping.RegexPattern))
             {
                 var regex = mapping.GetCompiledRegex();
                 if (regex != null && !regex.IsMatch(rawValue))
                 {
                     record.IsValid = false;
-                    record.ValidationError = $"Field '{mapping.TargetField}' value '{rawValue}' does not match pattern '{mapping.RegexPattern}'";
+                    var msg = $"Field '{mapping.TargetField}' value '{rawValue}' does not match pattern '{mapping.RegexPattern}'";
+                    record.ValidationError ??= msg;
+                    record.DetailedErrors.Add(new ValidationError
+                    {
+                        ErrorCode = ValidationErrorCodes.FieldConstraintPattern,
+                        ErrorCategory = ValidationErrorCategory.FieldConstraint,
+                        FieldName = mapping.TargetField,
+                        FieldIndex = mapping.ColumnIndex,
+                        FieldLabel = mapping.SourceColumnName,
+                        RawValue = rawValue,
+                        RawLine = rawLine,
+                        LineNumber = recordNumber,
+                        UserMessage = msg,
+                        ConstraintDescription = $"Must match pattern: {mapping.RegexPattern}",
+                        Suggestion = $"Ensure the '{mapping.SourceColumnName}' value matches the expected format"
+                    });
                     continue;
                 }
             }
@@ -402,7 +432,7 @@ public class GenericFileParser : BaseFileParser
             }
 
             // Parse by data type
-            object? parsedValue = ParseFieldValue(rawValue, mapping, record);
+            object? parsedValue = ParseFieldValue(rawValue, mapping, record, rawLine, recordNumber);
             if (parsedValue != null)
             {
                 record.Fields[mapping.TargetField] = parsedValue;
@@ -413,9 +443,9 @@ public class GenericFileParser : BaseFileParser
     }
 
     /// <summary>
-    /// Parse a field value based on the mapping's data type.
+    /// Parse a field value based on the mapping's data type. Adds rich ValidationError on failure.
     /// </summary>
-    private object? ParseFieldValue(string rawValue, GenericColumnMapping mapping, ParsedRecord record)
+    private object? ParseFieldValue(string rawValue, GenericColumnMapping mapping, ParsedRecord record, string? rawLine, int recordNumber)
     {
         switch (mapping.DataType.ToUpperInvariant())
         {
@@ -425,16 +455,18 @@ public class GenericFileParser : BaseFileParser
             case "INTEGER":
                 if (int.TryParse(rawValue, out var intVal))
                     return intVal;
-                record.IsValid = false;
-                record.ValidationError = $"Field '{mapping.TargetField}' value '{rawValue}' is not a valid integer";
+                AddFieldParseError(record, mapping, rawValue, rawLine, recordNumber,
+                    "Integer", $"Field '{mapping.TargetField}' value '{rawValue}' is not a valid integer",
+                    "Ensure this field contains a whole number (no decimals or letters)");
                 return null;
 
             case "DECIMAL":
                 if (decimal.TryParse(rawValue, System.Globalization.NumberStyles.Any,
                     System.Globalization.CultureInfo.InvariantCulture, out var decVal))
                     return decVal;
-                record.IsValid = false;
-                record.ValidationError = $"Field '{mapping.TargetField}' value '{rawValue}' is not a valid decimal";
+                AddFieldParseError(record, mapping, rawValue, rawLine, recordNumber,
+                    "Decimal", $"Field '{mapping.TargetField}' value '{rawValue}' is not a valid decimal",
+                    "Ensure this field contains a valid number (e.g. 123.45)");
                 return null;
 
             case "DATETIME":
@@ -452,8 +484,9 @@ public class GenericFileParser : BaseFileParser
                 if (dateVal.HasValue)
                     return dateVal.Value;
 
-                record.IsValid = false;
-                record.ValidationError = $"Field '{mapping.TargetField}' value '{rawValue}' is not a valid date";
+                AddFieldParseError(record, mapping, rawValue, rawLine, recordNumber,
+                    "DateTime", $"Field '{mapping.TargetField}' value '{rawValue}' is not a valid date",
+                    dateFormat != null ? $"Expected date format: {dateFormat}" : "Expected a recognisable date format (e.g. yyyy-MM-dd)");
                 return null;
 
             case "BOOLEAN":
@@ -463,6 +496,32 @@ public class GenericFileParser : BaseFileParser
             default:
                 return rawValue;
         }
+    }
+
+    /// <summary>
+    /// Add a structured field parse error to the record's DetailedErrors list.
+    /// </summary>
+    private static void AddFieldParseError(ParsedRecord record, GenericColumnMapping mapping,
+        string rawValue, string? rawLine, int recordNumber, string expectedType, string message, string suggestion)
+    {
+        record.IsValid = false;
+        record.ValidationError ??= message;
+        record.DetailedErrors ??= new List<ValidationError>();
+        record.DetailedErrors.Add(new ValidationError
+        {
+            ErrorCode = $"FIELD_PARSE_{expectedType.ToUpperInvariant()}",
+            ErrorCategory = ValidationErrorCategory.FieldParse,
+            FieldName = mapping.TargetField,
+            FieldIndex = mapping.ColumnIndex,
+            FieldLabel = mapping.SourceColumnName,
+            RawValue = rawValue,
+            RawLine = rawLine,
+            ExpectedType = expectedType,
+            ExpectedFormat = mapping.DateFormat,
+            LineNumber = recordNumber,
+            UserMessage = message,
+            Suggestion = suggestion
+        });
     }
 
     // ============================================

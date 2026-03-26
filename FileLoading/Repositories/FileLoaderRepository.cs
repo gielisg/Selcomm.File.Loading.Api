@@ -47,10 +47,11 @@ public class FileLoaderRepository : IFileLoaderRepository
         string ntFileName,
         int statusId,
         DateTime? ntFileDate,
-        SecurityContext securityContext)
+        SecurityContext securityContext,
+        string? fileHash = null)
     {
-        _logger.LogDebug("Creating nt_file: Type={FileType}, Cust={CustNum}, Name={FileName}",
-            fileTypeCode, ntCustNum, ntFileName);
+        _logger.LogDebug("Creating nt_file: Type={FileType}, Cust={CustNum}, Name={FileName}, Hash={Hash}",
+            fileTypeCode, ntCustNum, ntFileName, fileHash);
 
         // Call sp_file_loading_nt_file_api via standard ExecuteValueQuery pattern
         // Returns: StatusCode (201), Id (nt_file_num), ErrorCode, ErrorMessage
@@ -62,7 +63,8 @@ public class FileLoaderRepository : IFileLoaderRepository
             ("@p_nt_file_name", ntFileName, DbType.String, 80),
             ("@p_status_id", statusId, DbType.Int32, null),
             ("@p_nt_file_date", ntFileDate ?? DateTime.Today, DbType.Date, null),
-            ("@p_seq_chars", DBNull.Value, DbType.Int32, null)
+            ("@p_seq_chars", DBNull.Value, DbType.Int32, null),
+            ("@p_file_hash", (object?)fileHash ?? DBNull.Value, DbType.String, 64)
         );
 
         if (!spResult.IsSuccess)
@@ -93,14 +95,21 @@ public class FileLoaderRepository : IFileLoaderRepository
     {
         _logger.LogDebug("Updating file {NtFileNum} status to {StatusId}", ntFileNum, statusId);
 
-        // Call su_file_loading_nt_file_api via standard ExecuteCommand pattern
-        // Returns: StatusCode (200), ErrorCode, ErrorMessage
-        return await _dbContext.ExecuteCommandAsync(
-            "su_file_loading_nt_file_api",
-            securityContext,
-            ("@p_nt_file_num", ntFileNum, DbType.Int32, null),
-            ("@p_status_id", statusId, DbType.Int32, null)
+        // Use direct SQL to avoid unique index constraint on updated_by that the SP triggers.
+        // The SP sets updated_by = user_code which can conflict with the index.
+        var result = _dbContext.ExecuteRawCommand(
+            "UPDATE nt_file SET status_id = ? WHERE nt_file_num = ?",
+            ("@p1", statusId, DbType.Int32, null),
+            ("@p2", ntFileNum, DbType.Int32, null)
         );
+
+        if (!result.IsSuccess || result.RowsAffected == 0)
+        {
+            _logger.LogWarning("Failed to update file {NtFileNum} status to {StatusId}: {Error}",
+                ntFileNum, statusId, result.ErrorMessage);
+        }
+
+        return new StoredProcedureResult { StatusCode = result.IsSuccess ? 200 : 500, ErrorMessage = result.ErrorMessage };
     }
 
     public async Task<DataResult<FileStatusResponse>> GetFileStatusAsync(
@@ -116,7 +125,8 @@ public class FileLoaderRepository : IFileLoaderRepository
                 ft.file_type_narr, ft.file_class_code,
                 s.status_narr,
                 t.nt_tot_rec, t.nt_tot_cost, t.nt_earliest_call, t.nt_latest_call,
-                f.created_tm, f.created_by, f.last_updated, f.updated_by
+                f.created_tm, f.created_by, f.last_updated, f.updated_by,
+                f.file_hash
             FROM nt_file f
             JOIN file_type ft ON f.file_type_code = ft.file_type_code
             JOIN nt_file_stat s ON f.status_id = s.status_id
@@ -139,7 +149,8 @@ public class FileLoaderRepository : IFileLoaderRepository
                 TotalCost = reader.IsDBNull(11) ? null : reader.GetDecimal(11),
                 EarliestCall = reader.IsDBNull(12) ? null : reader.GetDateTime(12),
                 LatestCall = reader.IsDBNull(13) ? null : reader.GetDateTime(13),
-                CreatedTm = reader.IsDBNull(14) ? null : reader.GetDateTime(14)
+                CreatedTm = reader.IsDBNull(14) ? null : reader.GetDateTime(14),
+                FileHash = reader.IsDBNull(18) ? null : reader.GetString(18).Trim()
             },
             ("@p1", ntFileNum, DbType.Int32, null)
         );
@@ -1130,7 +1141,7 @@ public class FileLoaderRepository : IFileLoaderRepository
                 ("@p1", ntFileNum, DbType.Int32, null),
                 ("@p2", errorSeq, DbType.Int32, null),
                 ("@p3", error.ErrorCode?.Substring(0, Math.Min(error.ErrorCode.Length, 10)) ?? "UNKNOWN", DbType.String, 10),
-                ("@p4", errorMessage?.Substring(0, Math.Min(errorMessage.Length, 256)) ?? "Validation error", DbType.String, 256),
+                ("@p4", errorMessage?.Substring(0, Math.Min(errorMessage.Length, 255)) ?? "Validation error", DbType.String, 255),
                 ("@p5", error.LineNumber, DbType.Int32, null),
                 ("@p6", rawData, DbType.String, 500)
             );
@@ -2080,6 +2091,9 @@ public class FileLoaderRepository : IFileLoaderRepository
             dashboard.FilesProcessedToday = todayResult.Value;
         }
 
+        // Get duplicate file count
+        dashboard.DuplicateFileCount = await GetDuplicateFileCountAsync();
+
         return new DataResult<FileManagementDashboard>
         {
             StatusCode = 200,
@@ -2180,8 +2194,9 @@ public class FileLoaderRepository : IFileLoaderRepository
             ("@p1", ntFileNum, DbType.Int32, null)
         );
 
-        // Update file status back to transferred
-        await UpdateFileStatusAsync(ntFileNum, 1, securityContext);
+        // Note: caller is responsible for setting the final file status.
+        // The unload endpoint (user-initiated) sets status to Transferred.
+        // The all-or-nothing rollback sets status to LoadError.
 
         _logger.LogInformation("Unloaded {TotalDeleted} records for file {NtFileNum}", totalDeleted, ntFileNum);
 
@@ -5176,6 +5191,190 @@ public class FileLoaderRepository : IFileLoaderRepository
 
         var rowsAffected = await command.ExecuteNonQueryAsync();
         return new RawCommandResult { RowsAffected = rowsAffected };
+    }
+
+    // ============================================
+    // Duplicate Detection
+    // ============================================
+
+    public async Task<DataResult<List<DuplicateFileInfo>>> FindDuplicatesByHashAsync(string fileHash)
+    {
+        _logger.LogDebug("Finding duplicates for hash {Hash}", fileHash);
+
+        var sql = @"SELECT f.nt_file_num, f.nt_file_name, f.file_type_code,
+                           f.status_id, s.status_narr, f.created_tm
+                    FROM nt_file f
+                    JOIN nt_file_stat s ON f.status_id = s.status_id
+                    WHERE f.file_hash = ?";
+
+        var result = _dbContext.ExecuteRawQuery(
+            sql,
+            reader => new DuplicateFileInfo
+            {
+                NtFileNum = reader.GetInt32(0),
+                FileName = reader.IsDBNull(1) ? string.Empty : reader.GetString(1).Trim(),
+                FileType = reader.IsDBNull(2) ? string.Empty : reader.GetString(2).Trim(),
+                StatusId = reader.IsDBNull(3) ? 0 : reader.GetInt32(3),
+                Status = reader.IsDBNull(4) ? string.Empty : reader.GetString(4).Trim(),
+                CreatedTm = reader.IsDBNull(5) ? null : reader.GetDateTime(5)
+            },
+            ("@p1", fileHash, DbType.String, 64)
+        );
+
+        return new DataResult<List<DuplicateFileInfo>>
+        {
+            StatusCode = 200,
+            Data = result.IsSuccess ? result.Data : new List<DuplicateFileInfo>()
+        };
+    }
+
+    public async Task<DataResult<DuplicateFilesResponse>> GetDuplicateFilesAsync(
+        string? fileTypeCode, bool includeIgnored, int skipRecords, int takeRecords, string countRecords)
+    {
+        _logger.LogDebug("Getting duplicate files: FileType={FileType}, IncludeIgnored={IncludeIgnored}",
+            fileTypeCode, includeIgnored);
+
+        var response = new DuplicateFilesResponse();
+
+        // Build the base query for duplicate hashes
+        var hashSql = new StringBuilder(@"
+            SELECT file_hash FROM nt_file
+            WHERE file_hash IS NOT NULL");
+
+        var parameters = new List<(string, object?, DbType, int?)>();
+
+        if (!string.IsNullOrEmpty(fileTypeCode))
+        {
+            hashSql.Append(" AND file_type_code = ?");
+            parameters.Add(("@p_ft", fileTypeCode, DbType.String, 10));
+        }
+
+        if (!includeIgnored)
+        {
+            hashSql.Append(" AND file_hash NOT IN (SELECT file_hash FROM ntfl_duplicate_ignore)");
+        }
+
+        hashSql.Append(" GROUP BY file_hash HAVING COUNT(*) > 1");
+
+        // Count if requested
+        if (countRecords == "Y" || (countRecords == "F" && skipRecords == 0))
+        {
+            var countSql = $"SELECT COUNT(*) FROM ({hashSql}) q";
+            var countResult = _dbContext.ExecuteRawScalar<int>(countSql, parameters.ToArray());
+            if (countResult.IsSuccess)
+            {
+                response.Count = countResult.Value;
+            }
+        }
+
+        // Get the duplicate hashes with paging
+        hashSql.Append($" ORDER BY file_hash");
+        var pagedHashSql = $"SELECT SKIP {skipRecords} FIRST {takeRecords} q.file_hash FROM ({hashSql}) q";
+
+        var hashResult = _dbContext.ExecuteRawQuery(
+            pagedHashSql,
+            reader => reader.GetString(0).Trim(),
+            parameters.ToArray()
+        );
+
+        if (!hashResult.IsSuccess || hashResult.Data.Count == 0)
+        {
+            return new DataResult<DuplicateFilesResponse> { StatusCode = 200, Data = response };
+        }
+
+        // Get all files for these hashes
+        var hashPlaceholders = string.Join(", ", hashResult.Data.Select((_, i) => "?"));
+        var filesSql = $@"SELECT f.nt_file_num, f.nt_file_name, f.file_type_code,
+                                 f.status_id, s.status_narr, f.file_hash, f.created_tm
+                          FROM nt_file f
+                          JOIN nt_file_stat s ON f.status_id = s.status_id
+                          WHERE f.file_hash IN ({hashPlaceholders})
+                          ORDER BY f.file_hash, f.created_tm";
+
+        var fileParams = hashResult.Data
+            .Select((h, i) => ($"@ph{i}", (object?)h, DbType.String, (int?)64))
+            .ToArray();
+
+        var filesResult = _dbContext.ExecuteRawQuery(
+            filesSql,
+            reader => new
+            {
+                Info = new DuplicateFileInfo
+                {
+                    NtFileNum = reader.GetInt32(0),
+                    FileName = reader.IsDBNull(1) ? string.Empty : reader.GetString(1).Trim(),
+                    FileType = reader.IsDBNull(2) ? string.Empty : reader.GetString(2).Trim(),
+                    StatusId = reader.IsDBNull(3) ? 0 : reader.GetInt32(3),
+                    Status = reader.IsDBNull(4) ? string.Empty : reader.GetString(4).Trim(),
+                    CreatedTm = reader.IsDBNull(6) ? null : reader.GetDateTime(6)
+                },
+                Hash = reader.IsDBNull(5) ? string.Empty : reader.GetString(5).Trim()
+            },
+            fileParams
+        );
+
+        if (filesResult.IsSuccess)
+        {
+            response.Items = filesResult.Data
+                .GroupBy(f => f.Hash)
+                .Select(g => new DuplicateFileGroup
+                {
+                    FileHash = g.Key,
+                    DuplicateCount = g.Count(),
+                    Files = g.Select(f => f.Info).ToList()
+                })
+                .ToList();
+        }
+
+        return new DataResult<DuplicateFilesResponse> { StatusCode = 200, Data = response };
+    }
+
+    public async Task<RawCommandResult> IgnoreDuplicateAsync(string fileHash, int ntFileNum, string? ignoredBy, string? reason)
+    {
+        _logger.LogInformation("Ignoring duplicate hash {Hash}, keeping file {NtFileNum}", fileHash, ntFileNum);
+
+        return _dbContext.ExecuteRawCommand(
+            @"INSERT INTO ntfl_duplicate_ignore (file_hash, nt_file_num, ignored_by, reason)
+              VALUES (?, ?, ?, ?)",
+            ("@p1", fileHash, DbType.String, 64),
+            ("@p2", ntFileNum, DbType.Int32, null),
+            ("@p3", (object?)ignoredBy ?? DBNull.Value, DbType.String, 18),
+            ("@p4", (object?)reason ?? DBNull.Value, DbType.String, 255)
+        );
+    }
+
+    public async Task<RawCommandResult> UnignoreDuplicateAsync(string fileHash)
+    {
+        _logger.LogInformation("Un-ignoring duplicate hash {Hash}", fileHash);
+
+        return _dbContext.ExecuteRawCommand(
+            "DELETE FROM ntfl_duplicate_ignore WHERE file_hash = ?",
+            ("@p1", fileHash, DbType.String, 64)
+        );
+    }
+
+    public async Task<int> GetDuplicateFileCountAsync()
+    {
+        var result = _dbContext.ExecuteRawScalar<int>(
+            @"SELECT COUNT(*) FROM (
+                SELECT file_hash FROM nt_file
+                WHERE file_hash IS NOT NULL
+                  AND file_hash NOT IN (SELECT file_hash FROM ntfl_duplicate_ignore)
+                GROUP BY file_hash HAVING COUNT(*) > 1
+              ) q",
+            Array.Empty<(string, object?, DbType, int?)>()
+        );
+
+        return result.IsSuccess ? result.Value : 0;
+    }
+
+    public async Task<RawCommandResult> UpdateFileHashAsync(int ntFileNum, string fileHash)
+    {
+        return _dbContext.ExecuteRawCommand(
+            "UPDATE nt_file SET file_hash = ? WHERE nt_file_num = ?",
+            ("@p1", fileHash, DbType.String, 64),
+            ("@p2", ntFileNum, DbType.Int32, null)
+        );
     }
 }
 

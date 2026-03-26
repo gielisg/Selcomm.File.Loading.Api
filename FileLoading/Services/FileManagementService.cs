@@ -262,8 +262,9 @@ public class FileManagementService : IFileManagementService
                 };
             }
 
-            // Unload records
+            // Unload records and reset status to Transferred
             var result = await _repository.UnloadFileRecordsAsync(ntFileNum, context);
+            await _repository.UpdateFileStatusAsync(ntFileNum, FileStatus.Transferred, context);
 
             // Log activity
             await LogActivityAsync(new FileActivityLog
@@ -684,6 +685,26 @@ public class FileManagementService : IFileManagementService
         };
 
         return await _repository.ListFilesWithStatusAsync(filter);
+    }
+
+    // ============================================
+    // Duplicate Detection
+    // ============================================
+
+    public async Task<DataResult<DuplicateFilesResponse>> GetDuplicateFilesAsync(
+        string? fileTypeCode, bool includeIgnored, int skipRecords, int takeRecords, string countRecords, SecurityContext context)
+    {
+        return await _repository.GetDuplicateFilesAsync(fileTypeCode, includeIgnored, skipRecords, takeRecords, countRecords ?? "F");
+    }
+
+    public async Task<RawCommandResult> IgnoreDuplicateAsync(string fileHash, int ntFileNum, string? reason, SecurityContext context)
+    {
+        return await _repository.IgnoreDuplicateAsync(fileHash, ntFileNum, context.UserCode, reason);
+    }
+
+    public async Task<RawCommandResult> UnignoreDuplicateAsync(string fileHash, SecurityContext context)
+    {
+        return await _repository.UnignoreDuplicateAsync(fileHash);
     }
 
     // ============================================

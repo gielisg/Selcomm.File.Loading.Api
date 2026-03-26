@@ -4,6 +4,7 @@ using Swashbuckle.AspNetCore.Annotations;
 using Selcomm.Data.Common;
 using FileLoading.Interfaces;
 using FileLoading.Models;
+using FileLoading.Repositories;
 using FileLoading.Data;
 
 namespace FileLoading.Controllers;
@@ -19,15 +20,18 @@ namespace FileLoading.Controllers;
 public class FileLoaderController : DbControllerBase<FileLoaderDbContext>
 {
     private readonly IFileLoaderService _fileLoaderService;
+    private readonly IFileLoaderRepository _repository;
     private readonly FileLoaderDbContext _dbContext;
     private readonly ILogger<FileLoaderController> _logger;
 
     public FileLoaderController(
         IFileLoaderService fileLoaderService,
+        IFileLoaderRepository repository,
         FileLoaderDbContext dbContext,
         ILogger<FileLoaderController> logger)
     {
         _fileLoaderService = fileLoaderService;
+        _repository = repository;
         _dbContext = dbContext;
         _logger = logger;
     }
@@ -344,6 +348,54 @@ public class FileLoaderController : DbControllerBase<FileLoaderDbContext>
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error reprocessing file {NtFileNum}", ntFileNum);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Get detailed error information for a file that failed to load.
+    /// Returns individual error records and an AI-friendly summary.
+    /// </summary>
+    /// <param name="ntFileNum">File number (nt_file_num)</param>
+    /// <response code="200">Error details returned</response>
+    /// <response code="204">No errors found for this file</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("files/{nt-file-num}/errors")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_files_nt_file_num_errors")]
+    [Tags("File Loading")]
+    [ProducesResponseType(typeof(FileErrorsResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetFileErrors(
+        [FromRoute(Name = "nt-file-num")] int ntFileNum)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_files_nt_file_num_errors");
+
+            // Get detailed error log records
+            var errorsResult = await _repository.GetErrorLogsAsync(ntFileNum);
+            var errors = errorsResult.Data ?? new List<NtflErrorLogRecord>();
+
+            // Get AI-friendly validation summary
+            var summaryResult = await _repository.GetValidationSummaryAsync(ntFileNum);
+            var summary = summaryResult.Data;
+
+            if (errors.Count == 0 && summary == null)
+                return NoContent();
+
+            return Ok(new FileErrorsResponse
+            {
+                Errors = errors,
+                Summary = summary,
+                TotalErrors = errors.Count
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting errors for file {NtFileNum}", ntFileNum);
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }

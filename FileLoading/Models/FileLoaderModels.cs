@@ -155,6 +155,10 @@ public class LoadFileRequest
     /// <summary>Expected sequence number for validation against the file header.</summary>
     /// <example>43</example>
     public int? ExpectedSequence { get; set; }
+
+    /// <summary>Pre-computed file hash (internal use, set by UploadFileAsync).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? FileHash { get; set; }
 }
 
 // ============================================
@@ -202,6 +206,13 @@ public class FileLoadResponse
     /// <summary>Timestamp when processing completed.</summary>
     /// <example>2025-03-15T08:06:15Z</example>
     public DateTime? CompletedAt { get; set; }
+
+    /// <summary>SHA-256 hash of the file content.</summary>
+    /// <example>a3f2b8c9d1e4567890abcdef1234567890abcdef1234567890abcdef12345678</example>
+    public string? FileHash { get; set; }
+
+    /// <summary>Existing files with identical content (same hash). Null if no duplicates found.</summary>
+    public List<DuplicateFileInfo>? DuplicateFiles { get; set; }
 }
 
 /// <summary>
@@ -261,6 +272,10 @@ public class FileStatusResponse
     /// <summary>Latest call/transaction date found in the file records.</summary>
     /// <example>2025-03-15T23:59:48Z</example>
     public DateTime? LatestCall { get; set; }
+
+    /// <summary>SHA-256 hash of the file content.</summary>
+    /// <example>a3f2b8c9d1e4567890abcdef1234567890abcdef1234567890abcdef12345678</example>
+    public string? FileHash { get; set; }
 }
 
 /// <summary>
@@ -441,6 +456,24 @@ public class ParsedRecord
 
     /// <summary>Validation error message if the record is invalid.</summary>
     public string? ValidationError { get; set; }
+
+    /// <summary>Structured validation errors with field-level detail (populated by GenericFileParser).</summary>
+    public List<Models.ValidationError>? DetailedErrors { get; set; }
+}
+
+/// <summary>
+/// Response model for GET /files/{nt-file-num}/errors — detailed error information for a file.
+/// </summary>
+public class FileErrorsResponse
+{
+    /// <summary>Detailed error records from ntfl_error_log.</summary>
+    public List<NtflErrorLogRecord> Errors { get; set; } = new();
+
+    /// <summary>AI-friendly summary of errors (null if not generated).</summary>
+    public ValidationSummaryForAI? Summary { get; set; }
+
+    /// <summary>Total number of errors.</summary>
+    public int TotalErrors { get; set; }
 }
 
 /// <summary>
@@ -520,4 +553,81 @@ public class ErrorResponse
         Error = error;
         ErrorCode = errorCode ?? string.Empty;
     }
+}
+
+// ============================================
+// Duplicate Detection Models
+// ============================================
+
+/// <summary>
+/// Information about a file that shares the same content hash as another file.
+/// </summary>
+public class DuplicateFileInfo
+{
+    /// <summary>File number (nt_file_num).</summary>
+    /// <example>12300</example>
+    public int NtFileNum { get; set; }
+
+    /// <summary>File name.</summary>
+    /// <example>CDR_20250315_001.csv</example>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>File type code.</summary>
+    /// <example>TEL_GSM</example>
+    public string FileType { get; set; } = string.Empty;
+
+    /// <summary>Numeric status ID.</summary>
+    /// <example>4</example>
+    public int StatusId { get; set; }
+
+    /// <summary>Human-readable status description.</summary>
+    /// <example>Processing Completed</example>
+    public string Status { get; set; } = string.Empty;
+
+    /// <summary>When the file was created.</summary>
+    /// <example>2025-03-15T08:05:00Z</example>
+    public DateTime? CreatedTm { get; set; }
+}
+
+/// <summary>
+/// A group of files that share the same content hash (duplicates).
+/// </summary>
+public class DuplicateFileGroup
+{
+    /// <summary>SHA-256 hash shared by all files in this group.</summary>
+    /// <example>a3f2b8c9d1e4567890abcdef1234567890abcdef1234567890abcdef12345678</example>
+    public string FileHash { get; set; } = string.Empty;
+
+    /// <summary>Number of files with this hash.</summary>
+    /// <example>3</example>
+    public int DuplicateCount { get; set; }
+
+    /// <summary>All files sharing this hash.</summary>
+    public List<DuplicateFileInfo> Files { get; set; } = new();
+}
+
+/// <summary>
+/// Response for the duplicate files endpoint.
+/// </summary>
+public class DuplicateFilesResponse
+{
+    /// <summary>List of duplicate file groups.</summary>
+    public List<DuplicateFileGroup> Items { get; set; } = new();
+
+    /// <summary>Total matching groups (null if count was not requested).</summary>
+    public int? Count { get; set; }
+}
+
+/// <summary>
+/// Request to dismiss a duplicate file warning.
+/// </summary>
+public class DuplicateIgnoreRequest
+{
+    /// <summary>The file number being kept/accepted.</summary>
+    /// <example>12345</example>
+    public int NtFileNum { get; set; }
+
+    /// <summary>Optional reason for dismissing (e.g. "vendor resend", "corrected file").</summary>
+    /// <example>Vendor resend - confirmed with supplier</example>
+    public string? Reason { get; set; }
 }

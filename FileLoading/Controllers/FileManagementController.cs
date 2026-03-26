@@ -664,6 +664,115 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
         }
     }
 
+    /// <summary>
+    /// Get duplicate files — files with identical content (same SHA-256 hash) but different names.
+    /// </summary>
+    /// <param name="fileType">Filter by file type code</param>
+    /// <param name="includeIgnored">Include previously dismissed duplicates (default false)</param>
+    /// <param name="skipRecords">Number of groups to skip (default 0)</param>
+    /// <param name="takeRecords">Number of groups to return (default 20)</param>
+    /// <param name="countRecords">Include total count: Y=yes, N=no, F=first page only (default F)</param>
+    /// <response code="200">Duplicate files returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("exceptions/duplicates")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_exceptions_duplicates")]
+    [Tags("Exceptions")]
+    [ProducesResponseType(typeof(DuplicateFilesResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetDuplicateFiles(
+        [FromQuery(Name = "fileType")] string? fileType = null,
+        [FromQuery(Name = "includeIgnored")] bool includeIgnored = false,
+        [FromQuery(Name = "skipRecords")] int skipRecords = 0,
+        [FromQuery(Name = "takeRecords")] int takeRecords = 20,
+        [FromQuery(Name = "countRecords")] string countRecords = "F")
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_exceptions_duplicates");
+            var result = await _managementService.GetDuplicateFilesAsync(fileType, includeIgnored, skipRecords, takeRecords, countRecords, securityContext);
+
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting duplicate files for fileType={FileType}", fileType);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Dismiss a duplicate file group so it no longer appears on the dashboard.
+    /// </summary>
+    /// <param name="fileHash">SHA-256 hash of the duplicate group to dismiss</param>
+    /// <param name="request">Which file to keep and optional reason</param>
+    /// <response code="200">Duplicate dismissed successfully</response>
+    /// <response code="401">Unauthorized</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPost("exceptions/duplicates/{fileHash}/ignore")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_exceptions_duplicates_ignore")]
+    [Tags("Exceptions")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> IgnoreDuplicate(
+        [FromRoute] string fileHash,
+        [FromBody] DuplicateIgnoreRequest request)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_exceptions_duplicates_ignore");
+            var result = await _managementService.IgnoreDuplicateAsync(fileHash, request.NtFileNum, request.Reason, securityContext);
+
+            if (!result.IsSuccess)
+            {
+                return StatusCode(500, new ErrorResponse(result.ErrorMessage ?? "Failed to dismiss duplicate", "IGNORE_FAILED"));
+            }
+
+            return Ok(new { message = "Duplicate dismissed", fileHash });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error dismissing duplicate hash={Hash}", fileHash);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Un-dismiss a previously ignored duplicate file group (re-flag as duplicate).
+    /// </summary>
+    /// <param name="fileHash">SHA-256 hash of the duplicate group to un-dismiss</param>
+    /// <response code="200">Duplicate un-dismissed successfully</response>
+    /// <response code="401">Unauthorized</response>
+    /// <response code="500">Internal server error</response>
+    [HttpDelete("exceptions/duplicates/{fileHash}/ignore")]
+    [SwaggerOperation(OperationId = "delete_api_v4_file_loading_exceptions_duplicates_ignore")]
+    [Tags("Exceptions")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> UnignoreDuplicate([FromRoute] string fileHash)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("delete_api_v4_file_loading_exceptions_duplicates_ignore");
+            var result = await _managementService.UnignoreDuplicateAsync(fileHash, securityContext);
+
+            if (!result.IsSuccess)
+            {
+                return StatusCode(500, new ErrorResponse(result.ErrorMessage ?? "Failed to un-dismiss duplicate", "UNIGNORE_FAILED"));
+            }
+
+            return Ok(new { message = "Duplicate re-flagged", fileHash });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error un-dismissing duplicate hash={Hash}", fileHash);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
     // ============================================
     // Transfer Sources (CRUD)
     // ============================================

@@ -751,6 +751,10 @@ public class FileManagementDashboard
     /// <example>3</example>
     public int FilesSkipped { get; set; }
 
+    /// <summary>Count of duplicate file groups (files with identical content, different names).</summary>
+    /// <example>2</example>
+    public int DuplicateFileCount { get; set; }
+
     /// <summary>Status summary for each configured transfer source.</summary>
     public List<TransferSourceStatus> SourceStatuses { get; set; } = new();
 }

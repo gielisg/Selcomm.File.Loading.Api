@@ -37,7 +37,8 @@ public interface IFileLoaderRepository
         string ntFileName,
         int statusId,
         DateTime? ntFileDate,
-        SecurityContext securityContext);
+        SecurityContext securityContext,
+        string? fileHash = null);
 
     /// <summary>
     /// Update file status using su_file_loading_nt_file_api stored procedure.
@@ -385,6 +386,43 @@ public interface IFileLoaderRepository
     /// Get transfer source status summaries.
     /// </summary>
     Task<DataResult<List<TransferSourceStatus>>> GetSourceStatusesAsync();
+
+    // ============================================
+    // Duplicate Detection
+    // ============================================
+
+    /// <summary>
+    /// Find existing nt_file records with the same file hash.
+    /// </summary>
+    /// <param name="fileHash">SHA-256 hash to search for</param>
+    Task<DataResult<List<DuplicateFileInfo>>> FindDuplicatesByHashAsync(string fileHash);
+
+    /// <summary>
+    /// Get all duplicate file groups (files sharing the same hash).
+    /// Excludes dismissed duplicates unless includeIgnored is true.
+    /// </summary>
+    Task<DataResult<DuplicateFilesResponse>> GetDuplicateFilesAsync(
+        string? fileTypeCode, bool includeIgnored, int skipRecords, int takeRecords, string countRecords);
+
+    /// <summary>
+    /// Dismiss a duplicate file group so it no longer appears on the dashboard.
+    /// </summary>
+    Task<RawCommandResult> IgnoreDuplicateAsync(string fileHash, int ntFileNum, string? ignoredBy, string? reason);
+
+    /// <summary>
+    /// Un-dismiss a previously ignored duplicate file group.
+    /// </summary>
+    Task<RawCommandResult> UnignoreDuplicateAsync(string fileHash);
+
+    /// <summary>
+    /// Count of files that have unignored duplicates (for dashboard).
+    /// </summary>
+    Task<int> GetDuplicateFileCountAsync();
+
+    /// <summary>
+    /// Update file_hash on an existing nt_file record.
+    /// </summary>
+    Task<RawCommandResult> UpdateFileHashAsync(int ntFileNum, string fileHash);
 
     // ============================================
     // File Unload Operations

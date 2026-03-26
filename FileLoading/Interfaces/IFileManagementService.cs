@@ -227,6 +227,31 @@ public interface IFileManagementService
         SecurityContext context);
 
     // ============================================
+    // Duplicate Detection
+    // ============================================
+
+    /// <summary>
+    /// Get duplicate file groups for the exceptions view.
+    /// </summary>
+    Task<DataResult<DuplicateFilesResponse>> GetDuplicateFilesAsync(
+        string? fileTypeCode,
+        bool includeIgnored,
+        int skipRecords,
+        int takeRecords,
+        string countRecords,
+        SecurityContext context);
+
+    /// <summary>
+    /// Dismiss a duplicate file group.
+    /// </summary>
+    Task<RawCommandResult> IgnoreDuplicateAsync(string fileHash, int ntFileNum, string? reason, SecurityContext context);
+
+    /// <summary>
+    /// Un-dismiss a previously ignored duplicate file group.
+    /// </summary>
+    Task<RawCommandResult> UnignoreDuplicateAsync(string fileHash, SecurityContext context);
+
+    // ============================================
     // Parser Configuration
     // ============================================
 
