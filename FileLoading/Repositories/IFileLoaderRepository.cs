@@ -763,6 +763,44 @@ public interface IFileLoaderRepository
     Task<RawCommandResult> DeleteFileTypePromptAsync(int promptId);
 
     // ============================================
+    // Account Mappings (ntfl_acct_map)
+    // ============================================
+
+    /// <summary>Get all account mappings for a file type, ordered by seq_no.</summary>
+    Task<DataResult<List<NtflAcctMapRecord>>> GetAccountMapsAsync(string fileTypeCode);
+
+    /// <summary>Get a single account mapping by ID.</summary>
+    Task<DataResult<NtflAcctMapRecord>> GetAccountMapAsync(int id);
+
+    /// <summary>Insert a new account mapping. Returns the new ID.</summary>
+    Task<ValueResult<int>> InsertAccountMapAsync(NtflAcctMapRecord record);
+
+    /// <summary>Update an existing account mapping.</summary>
+    Task<RawCommandResult> UpdateAccountMapAsync(NtflAcctMapRecord record);
+
+    /// <summary>Delete an account mapping.</summary>
+    Task<RawCommandResult> DeleteAccountMapAsync(int id);
+
+    // ============================================
+    // Service Mappings (ntfl_svc_map)
+    // ============================================
+
+    /// <summary>Get all service mappings for a file type, ordered by seq_no.</summary>
+    Task<DataResult<List<NtflSvcMapRecord>>> GetServiceMapsAsync(string fileTypeCode);
+
+    /// <summary>Get a single service mapping by ID.</summary>
+    Task<DataResult<NtflSvcMapRecord>> GetServiceMapAsync(int id);
+
+    /// <summary>Insert a new service mapping. Returns the new ID.</summary>
+    Task<ValueResult<int>> InsertServiceMapAsync(NtflSvcMapRecord record);
+
+    /// <summary>Update an existing service mapping.</summary>
+    Task<RawCommandResult> UpdateServiceMapAsync(NtflSvcMapRecord record);
+
+    /// <summary>Delete a service mapping.</summary>
+    Task<RawCommandResult> DeleteServiceMapAsync(int id);
+
+    // ============================================
     // Transaction Error Queries
     // ============================================
 

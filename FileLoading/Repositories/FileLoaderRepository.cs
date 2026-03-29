@@ -2946,10 +2946,12 @@ public class FileLoaderRepository : IFileLoaderRepository
     public async Task<DataResult<List<FileTypeRecord>>> GetFileTypeRecordsAsync()
     {
         var sql = @"SELECT ft.file_type_code, ft.file_type_narr, ft.file_class_code, ft.network_id,
-                           fc.file_class_narr, n.network_narr
+                           fc.file_class_narr, n.network_narr,
+                           ft.auto_create_service, ft.map_to_account, st.srvctypenarr
                     FROM file_type ft
                     LEFT OUTER JOIN file_class fc ON ft.file_class_code = fc.file_class_code
                     LEFT OUTER JOIN networks n ON ft.network_id = n.network_id
+                    LEFT OUTER JOIN srvctype st ON ft.auto_create_service = st.srvctypecode
                     ORDER BY ft.file_type_code";
 
         var result = _dbContext.ExecuteRawQuery(
@@ -2961,7 +2963,10 @@ public class FileLoaderRepository : IFileLoaderRepository
                 FileClassCode = reader.IsDBNull(2) ? string.Empty : reader.GetString(2).Trim(),
                 NetworkId = reader.IsDBNull(3) ? null : reader.GetString(3).Trim(),
                 FileClass = reader.IsDBNull(4) ? null : reader.GetString(4).Trim(),
-                Network = reader.IsDBNull(5) ? null : reader.GetString(5).Trim()
+                Network = reader.IsDBNull(5) ? null : reader.GetString(5).Trim(),
+                AutoCreateService = reader.IsDBNull(6) ? null : reader.GetString(6).Trim(),
+                MapToAccount = reader.IsDBNull(7) ? "N" : reader.GetString(7).Trim(),
+                ServiceTypeName = reader.IsDBNull(8) ? null : reader.GetString(8).Trim()
             }
         );
 
@@ -2990,23 +2995,29 @@ public class FileLoaderRepository : IFileLoaderRepository
     public async Task<RawCommandResult> InsertFileTypeAsync(FileTypeRecord record)
     {
         return _dbContext.ExecuteRawCommand(
-            @"INSERT INTO file_type (file_type_code, file_type_narr, file_class_code, network_id, comp_dll)
-              VALUES (?, ?, ?, ?, 'none')",
+            @"INSERT INTO file_type (file_type_code, file_type_narr, file_class_code, network_id, comp_dll, auto_create_service, map_to_account)
+              VALUES (?, ?, ?, ?, 'none', ?, ?)",
             ("@p1", record.FileTypeCode, DbType.String, 10),
             ("@p2", record.FileType, DbType.String, 32),
             ("@p3", record.FileClassCode, DbType.String, 3),
-            ("@p4", record.NetworkId, DbType.String, 2)
+            ("@p4", record.NetworkId, DbType.String, 2),
+            ("@p5", (object?)(record.AutoCreateService ?? (object)DBNull.Value), DbType.String, 4),
+            ("@p6", record.MapToAccount, DbType.String, 1)
         );
     }
 
     public async Task<RawCommandResult> UpdateFileTypeAsync(FileTypeRecord record)
     {
         return _dbContext.ExecuteRawCommand(
-            "UPDATE file_type SET file_type_narr = ?, file_class_code = ?, network_id = ? WHERE file_type_code = ?",
+            @"UPDATE file_type SET file_type_narr = ?, file_class_code = ?, network_id = ?,
+                    auto_create_service = ?, map_to_account = ?
+              WHERE file_type_code = ?",
             ("@p1", record.FileType, DbType.String, 32),
             ("@p2", record.FileClassCode, DbType.String, 3),
             ("@p3", record.NetworkId, DbType.String, 2),
-            ("@p4", record.FileTypeCode, DbType.String, 10)
+            ("@p4", (object?)(record.AutoCreateService ?? (object)DBNull.Value), DbType.String, 4),
+            ("@p5", record.MapToAccount, DbType.String, 1),
+            ("@p6", record.FileTypeCode, DbType.String, 10)
         );
     }
 
@@ -4568,6 +4579,238 @@ public class FileLoaderRepository : IFileLoaderRepository
     {
         return _dbContext.ExecuteRawCommand(
             "DELETE FROM ntfl_chg_map WHERE id = ?",
+            ("@p1", (object)id, DbType.Int32, (int?)null)
+        );
+    }
+
+    // ============================================
+    // Account Mappings (ntfl_acct_map)
+    // ============================================
+
+    public async Task<DataResult<List<NtflAcctMapRecord>>> GetAccountMapsAsync(string fileTypeCode)
+    {
+        var sql = @"SELECT am.id, am.file_type_code, am.account_code, am.mapping_string, am.seq_no,
+                           am.last_updated, am.updated_by, c.contact_name
+                    FROM ntfl_acct_map am
+                    LEFT OUTER JOIN account a ON am.account_code = a.debtor_code
+                    LEFT OUTER JOIN contact c ON a.debtor_code = c.contact_code
+                    WHERE am.file_type_code = ?
+                    ORDER BY am.seq_no";
+
+        var result = _dbContext.ExecuteRawQuery(
+            sql,
+            reader => new NtflAcctMapRecord
+            {
+                Id = reader.GetInt32(0),
+                FileTypeCode = reader.GetString(1).Trim(),
+                AccountCode = reader.GetString(2).Trim(),
+                MappingString = reader.IsDBNull(3) ? string.Empty : reader.GetString(3).Trim(),
+                SeqNo = reader.GetInt32(4),
+                LastUpdated = reader.GetDateTime(5),
+                UpdatedBy = reader.GetString(6).Trim(),
+                AccountName = reader.IsDBNull(7) ? null : reader.GetString(7).Trim()
+            },
+            ("@p1", (object)fileTypeCode, DbType.String, (int?)10)
+        );
+
+        return new DataResult<List<NtflAcctMapRecord>>
+        {
+            StatusCode = result.IsSuccess ? 200 : result.StatusCode,
+            Data = result.Data,
+            ErrorCode = result.ErrorCode,
+            ErrorMessage = result.ErrorMessage
+        };
+    }
+
+    public async Task<DataResult<NtflAcctMapRecord>> GetAccountMapAsync(int id)
+    {
+        var sql = @"SELECT am.id, am.file_type_code, am.account_code, am.mapping_string, am.seq_no,
+                           am.last_updated, am.updated_by, c.contact_name
+                    FROM ntfl_acct_map am
+                    LEFT OUTER JOIN account a ON am.account_code = a.debtor_code
+                    LEFT OUTER JOIN contact c ON a.debtor_code = c.contact_code
+                    WHERE am.id = ?";
+
+        var result = _dbContext.ExecuteRawQuery(
+            sql,
+            reader => new NtflAcctMapRecord
+            {
+                Id = reader.GetInt32(0),
+                FileTypeCode = reader.GetString(1).Trim(),
+                AccountCode = reader.GetString(2).Trim(),
+                MappingString = reader.IsDBNull(3) ? string.Empty : reader.GetString(3).Trim(),
+                SeqNo = reader.GetInt32(4),
+                LastUpdated = reader.GetDateTime(5),
+                UpdatedBy = reader.GetString(6).Trim(),
+                AccountName = reader.IsDBNull(7) ? null : reader.GetString(7).Trim()
+            },
+            ("@p1", (object)id, DbType.Int32, (int?)null)
+        );
+
+        var record = result.Data?.FirstOrDefault();
+        if (record == null)
+            return new DataResult<NtflAcctMapRecord> { StatusCode = 404, ErrorCode = "FileLoading.AccountMapNotFound", ErrorMessage = $"Account mapping {id} not found" };
+
+        return new DataResult<NtflAcctMapRecord> { StatusCode = 200, Data = record };
+    }
+
+    public async Task<ValueResult<int>> InsertAccountMapAsync(NtflAcctMapRecord record)
+    {
+        var sql = @"INSERT INTO ntfl_acct_map
+                    (file_type_code, account_code, mapping_string, seq_no, updated_by)
+                    VALUES (?, ?, ?, ?, ?)";
+
+        var result = _dbContext.ExecuteRawCommand(
+            sql,
+            ("@p1", (object)record.FileTypeCode, DbType.String, (int?)10),
+            ("@p2", (object)record.AccountCode, DbType.String, (int?)10),
+            ("@p3", (object)record.MappingString, DbType.String, (int?)120),
+            ("@p4", (object)record.SeqNo, DbType.Int32, (int?)null),
+            ("@p5", (object)record.UpdatedBy, DbType.String, (int?)18)
+        );
+
+        if (!result.IsSuccess)
+            return new ValueResult<int> { StatusCode = 500, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
+
+        var idResult = _dbContext.ExecuteRawScalar<int>("SELECT DBINFO('sqlca.sqlerrd1') FROM systables WHERE tabid = 1");
+        var newId = idResult.IsSuccess ? idResult.Value : 0;
+        return new ValueResult<int> { StatusCode = 201, Value = newId };
+    }
+
+    public async Task<RawCommandResult> UpdateAccountMapAsync(NtflAcctMapRecord record)
+    {
+        return _dbContext.ExecuteRawCommand(
+            @"UPDATE ntfl_acct_map
+              SET file_type_code = ?, account_code = ?, mapping_string = ?, seq_no = ?, updated_by = ?
+              WHERE id = ?",
+            ("@p1", (object)record.FileTypeCode, DbType.String, (int?)10),
+            ("@p2", (object)record.AccountCode, DbType.String, (int?)10),
+            ("@p3", (object)record.MappingString, DbType.String, (int?)120),
+            ("@p4", (object)record.SeqNo, DbType.Int32, (int?)null),
+            ("@p5", (object)record.UpdatedBy, DbType.String, (int?)18),
+            ("@p6", (object)record.Id, DbType.Int32, (int?)null)
+        );
+    }
+
+    public async Task<RawCommandResult> DeleteAccountMapAsync(int id)
+    {
+        return _dbContext.ExecuteRawCommand(
+            "DELETE FROM ntfl_acct_map WHERE id = ?",
+            ("@p1", (object)id, DbType.Int32, (int?)null)
+        );
+    }
+
+    // ============================================
+    // Service Mappings (ntfl_svc_map)
+    // ============================================
+
+    public async Task<DataResult<List<NtflSvcMapRecord>>> GetServiceMapsAsync(string fileTypeCode)
+    {
+        var sql = @"SELECT sm.id, sm.file_type_code, sm.service_reference, sm.mapping_string, sm.seq_no,
+                           sm.last_updated, sm.updated_by, sc.phone_num
+                    FROM ntfl_svc_map sm
+                    LEFT OUTER JOIN sp_connection sc ON sm.service_reference = sc.sp_cn_ref
+                    WHERE sm.file_type_code = ?
+                    ORDER BY sm.seq_no";
+
+        var result = _dbContext.ExecuteRawQuery(
+            sql,
+            reader => new NtflSvcMapRecord
+            {
+                Id = reader.GetInt32(0),
+                FileTypeCode = reader.GetString(1).Trim(),
+                ServiceReference = reader.GetInt32(2),
+                MappingString = reader.IsDBNull(3) ? string.Empty : reader.GetString(3).Trim(),
+                SeqNo = reader.GetInt32(4),
+                LastUpdated = reader.GetDateTime(5),
+                UpdatedBy = reader.GetString(6).Trim(),
+                PhoneNum = reader.IsDBNull(7) ? null : reader.GetString(7).Trim()
+            },
+            ("@p1", (object)fileTypeCode, DbType.String, (int?)10)
+        );
+
+        return new DataResult<List<NtflSvcMapRecord>>
+        {
+            StatusCode = result.IsSuccess ? 200 : result.StatusCode,
+            Data = result.Data,
+            ErrorCode = result.ErrorCode,
+            ErrorMessage = result.ErrorMessage
+        };
+    }
+
+    public async Task<DataResult<NtflSvcMapRecord>> GetServiceMapAsync(int id)
+    {
+        var sql = @"SELECT sm.id, sm.file_type_code, sm.service_reference, sm.mapping_string, sm.seq_no,
+                           sm.last_updated, sm.updated_by, sc.phone_num
+                    FROM ntfl_svc_map sm
+                    LEFT OUTER JOIN sp_connection sc ON sm.service_reference = sc.sp_cn_ref
+                    WHERE sm.id = ?";
+
+        var result = _dbContext.ExecuteRawQuery(
+            sql,
+            reader => new NtflSvcMapRecord
+            {
+                Id = reader.GetInt32(0),
+                FileTypeCode = reader.GetString(1).Trim(),
+                ServiceReference = reader.GetInt32(2),
+                MappingString = reader.IsDBNull(3) ? string.Empty : reader.GetString(3).Trim(),
+                SeqNo = reader.GetInt32(4),
+                LastUpdated = reader.GetDateTime(5),
+                UpdatedBy = reader.GetString(6).Trim(),
+                PhoneNum = reader.IsDBNull(7) ? null : reader.GetString(7).Trim()
+            },
+            ("@p1", (object)id, DbType.Int32, (int?)null)
+        );
+
+        var record = result.Data?.FirstOrDefault();
+        if (record == null)
+            return new DataResult<NtflSvcMapRecord> { StatusCode = 404, ErrorCode = "FileLoading.ServiceMapNotFound", ErrorMessage = $"Service mapping {id} not found" };
+
+        return new DataResult<NtflSvcMapRecord> { StatusCode = 200, Data = record };
+    }
+
+    public async Task<ValueResult<int>> InsertServiceMapAsync(NtflSvcMapRecord record)
+    {
+        var sql = @"INSERT INTO ntfl_svc_map
+                    (file_type_code, service_reference, mapping_string, seq_no, updated_by)
+                    VALUES (?, ?, ?, ?, ?)";
+
+        var result = _dbContext.ExecuteRawCommand(
+            sql,
+            ("@p1", (object)record.FileTypeCode, DbType.String, (int?)10),
+            ("@p2", (object)record.ServiceReference, DbType.Int32, (int?)null),
+            ("@p3", (object)record.MappingString, DbType.String, (int?)120),
+            ("@p4", (object)record.SeqNo, DbType.Int32, (int?)null),
+            ("@p5", (object)record.UpdatedBy, DbType.String, (int?)18)
+        );
+
+        if (!result.IsSuccess)
+            return new ValueResult<int> { StatusCode = 500, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
+
+        var idResult = _dbContext.ExecuteRawScalar<int>("SELECT DBINFO('sqlca.sqlerrd1') FROM systables WHERE tabid = 1");
+        var newId = idResult.IsSuccess ? idResult.Value : 0;
+        return new ValueResult<int> { StatusCode = 201, Value = newId };
+    }
+
+    public async Task<RawCommandResult> UpdateServiceMapAsync(NtflSvcMapRecord record)
+    {
+        return _dbContext.ExecuteRawCommand(
+            @"UPDATE ntfl_svc_map
+              SET file_type_code = ?, service_reference = ?, mapping_string = ?, seq_no = ?, updated_by = ?
+              WHERE id = ?",
+            ("@p1", (object)record.FileTypeCode, DbType.String, (int?)10),
+            ("@p2", (object)record.ServiceReference, DbType.Int32, (int?)null),
+            ("@p3", (object)record.MappingString, DbType.String, (int?)120),
+            ("@p4", (object)record.SeqNo, DbType.Int32, (int?)null),
+            ("@p5", (object)record.UpdatedBy, DbType.String, (int?)18),
+            ("@p6", (object)record.Id, DbType.Int32, (int?)null)
+        );
+    }
+
+    public async Task<RawCommandResult> DeleteServiceMapAsync(int id)
+    {
+        return _dbContext.ExecuteRawCommand(
+            "DELETE FROM ntfl_svc_map WHERE id = ?",
             ("@p1", (object)id, DbType.Int32, (int?)null)
         );
     }

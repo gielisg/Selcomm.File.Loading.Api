@@ -49,6 +49,18 @@ public class FileTypeRecord
     /// <example>Telstra</example>
     public string? Network { get; set; }
 
+    /// <summary>Service type code for auto-creating services (foreign key to srvctype). Null if disabled.</summary>
+    /// <example>GSM</example>
+    public string? AutoCreateService { get; set; }
+
+    /// <summary>Whether to charge directly to the account instead of a service (Y/N).</summary>
+    /// <example>N</example>
+    public string MapToAccount { get; set; } = "N";
+
+    /// <summary>Service type name (populated by JOIN, read-only).</summary>
+    /// <example>GSM Mobile</example>
+    public string? ServiceTypeName { get; set; }
+
     /// <summary>Updated by user (audit column, not returned in GET responses).</summary>
     /// <example>admin</example>
     public string? UpdatedBy { get; set; }

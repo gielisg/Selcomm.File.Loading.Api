@@ -336,6 +336,28 @@ public interface IFileManagementService
     Task<DataResult<ChargeMapMatch?>> ResolveChargeMapAsync(string fileTypeCode, string chargeDescription, SecurityContext context);
 
     // ============================================
+    // Account Mappings (ntfl_acct_map)
+    // ============================================
+
+    Task<DataResult<List<NtflAcctMapRecord>>> GetAccountMapsAsync(string fileTypeCode, SecurityContext context);
+    Task<DataResult<NtflAcctMapRecord>> GetAccountMapAsync(int id, SecurityContext context);
+    Task<DataResult<NtflAcctMapRecord>> CreateAccountMapAsync(NtflAcctMapRequest request, SecurityContext context);
+    Task<DataResult<NtflAcctMapRecord>> UpdateAccountMapAsync(int id, NtflAcctMapRequest request, SecurityContext context);
+    Task<DataResult<bool>> DeleteAccountMapAsync(int id, SecurityContext context);
+    Task<DataResult<NtflAcctMapRecord?>> ResolveAccountMapAsync(string fileTypeCode, string value, SecurityContext context);
+
+    // ============================================
+    // Service Mappings (ntfl_svc_map)
+    // ============================================
+
+    Task<DataResult<List<NtflSvcMapRecord>>> GetServiceMapsAsync(string fileTypeCode, SecurityContext context);
+    Task<DataResult<NtflSvcMapRecord>> GetServiceMapAsync(int id, SecurityContext context);
+    Task<DataResult<NtflSvcMapRecord>> CreateServiceMapAsync(NtflSvcMapRequest request, SecurityContext context);
+    Task<DataResult<NtflSvcMapRecord>> UpdateServiceMapAsync(int id, NtflSvcMapRequest request, SecurityContext context);
+    Task<DataResult<bool>> DeleteServiceMapAsync(int id, SecurityContext context);
+    Task<DataResult<NtflSvcMapRecord?>> ResolveServiceMapAsync(string fileTypeCode, string value, SecurityContext context);
+
+    // ============================================
     // Configuration Readiness
     // ============================================
 

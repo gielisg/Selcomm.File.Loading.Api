@@ -1743,6 +1743,204 @@ public class FileManagementService : IFileManagementService
     }
 
     // ============================================
+    // Account Mappings (ntfl_acct_map)
+    // ============================================
+
+    public async Task<DataResult<List<NtflAcctMapRecord>>> GetAccountMapsAsync(string fileTypeCode, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "ACCT_MAP", fileTypeCode);
+        if (!auth.IsSuccess)
+            return new DataResult<List<NtflAcctMapRecord>> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        return await _repository.GetAccountMapsAsync(fileTypeCode);
+    }
+
+    public async Task<DataResult<NtflAcctMapRecord>> GetAccountMapAsync(int id, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "ACCT_MAP", "*");
+        if (!auth.IsSuccess)
+            return new DataResult<NtflAcctMapRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        return await _repository.GetAccountMapAsync(id);
+    }
+
+    public async Task<DataResult<NtflAcctMapRecord>> CreateAccountMapAsync(NtflAcctMapRequest request, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "ACCT_MAP", request.FileTypeCode);
+        if (!auth.IsSuccess)
+            return new DataResult<NtflAcctMapRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        var record = new NtflAcctMapRecord
+        {
+            FileTypeCode = request.FileTypeCode,
+            AccountCode = request.AccountCode,
+            MappingString = request.MappingString,
+            SeqNo = request.SeqNo,
+            UpdatedBy = context.UserCode ?? "SYSTEM"
+        };
+
+        var result = await _repository.InsertAccountMapAsync(record);
+        if (!result.IsSuccess)
+            return new DataResult<NtflAcctMapRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
+
+        var saved = await _repository.GetAccountMapAsync(result.Value);
+        return new DataResult<NtflAcctMapRecord> { StatusCode = 201, Data = saved.Data };
+    }
+
+    public async Task<DataResult<NtflAcctMapRecord>> UpdateAccountMapAsync(int id, NtflAcctMapRequest request, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "ACCT_MAP", request.FileTypeCode);
+        if (!auth.IsSuccess)
+            return new DataResult<NtflAcctMapRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        var existing = await _repository.GetAccountMapAsync(id);
+        if (!existing.IsSuccess || existing.Data == null)
+            return new DataResult<NtflAcctMapRecord> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = $"Account mapping {id} not found" };
+
+        var record = new NtflAcctMapRecord
+        {
+            Id = id,
+            FileTypeCode = request.FileTypeCode,
+            AccountCode = request.AccountCode,
+            MappingString = request.MappingString,
+            SeqNo = request.SeqNo,
+            UpdatedBy = context.UserCode ?? "SYSTEM"
+        };
+
+        var result = await _repository.UpdateAccountMapAsync(record);
+        if (!result.IsSuccess)
+            return new DataResult<NtflAcctMapRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
+
+        var saved = await _repository.GetAccountMapAsync(id);
+        return new DataResult<NtflAcctMapRecord> { StatusCode = 200, Data = saved.Data };
+    }
+
+    public async Task<DataResult<bool>> DeleteAccountMapAsync(int id, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "ACCT_MAP", "*");
+        if (!auth.IsSuccess)
+            return new DataResult<bool> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        var result = await _repository.DeleteAccountMapAsync(id);
+        return new DataResult<bool> { StatusCode = result.IsSuccess ? 200 : 500, Data = result.IsSuccess, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
+    }
+
+    public async Task<DataResult<NtflAcctMapRecord?>> ResolveAccountMapAsync(string fileTypeCode, string value, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "ACCT_MAP", fileTypeCode);
+        if (!auth.IsSuccess)
+            return new DataResult<NtflAcctMapRecord?> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        var mapsResult = await _repository.GetAccountMapsAsync(fileTypeCode);
+        if (!mapsResult.IsSuccess || mapsResult.Data == null || mapsResult.Data.Count == 0)
+            return new DataResult<NtflAcctMapRecord?> { StatusCode = 200, Data = null };
+
+        var match = mapsResult.Data.FirstOrDefault(m =>
+            string.Equals(m.MappingString, value, StringComparison.OrdinalIgnoreCase));
+
+        return new DataResult<NtflAcctMapRecord?> { StatusCode = 200, Data = match };
+    }
+
+    // ============================================
+    // Service Mappings (ntfl_svc_map)
+    // ============================================
+
+    public async Task<DataResult<List<NtflSvcMapRecord>>> GetServiceMapsAsync(string fileTypeCode, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "SVC_MAP", fileTypeCode);
+        if (!auth.IsSuccess)
+            return new DataResult<List<NtflSvcMapRecord>> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        return await _repository.GetServiceMapsAsync(fileTypeCode);
+    }
+
+    public async Task<DataResult<NtflSvcMapRecord>> GetServiceMapAsync(int id, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "SVC_MAP", "*");
+        if (!auth.IsSuccess)
+            return new DataResult<NtflSvcMapRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        return await _repository.GetServiceMapAsync(id);
+    }
+
+    public async Task<DataResult<NtflSvcMapRecord>> CreateServiceMapAsync(NtflSvcMapRequest request, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "SVC_MAP", request.FileTypeCode);
+        if (!auth.IsSuccess)
+            return new DataResult<NtflSvcMapRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        var record = new NtflSvcMapRecord
+        {
+            FileTypeCode = request.FileTypeCode,
+            ServiceReference = request.ServiceReference,
+            MappingString = request.MappingString,
+            SeqNo = request.SeqNo,
+            UpdatedBy = context.UserCode ?? "SYSTEM"
+        };
+
+        var result = await _repository.InsertServiceMapAsync(record);
+        if (!result.IsSuccess)
+            return new DataResult<NtflSvcMapRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
+
+        var saved = await _repository.GetServiceMapAsync(result.Value);
+        return new DataResult<NtflSvcMapRecord> { StatusCode = 201, Data = saved.Data };
+    }
+
+    public async Task<DataResult<NtflSvcMapRecord>> UpdateServiceMapAsync(int id, NtflSvcMapRequest request, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "SVC_MAP", request.FileTypeCode);
+        if (!auth.IsSuccess)
+            return new DataResult<NtflSvcMapRecord> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        var existing = await _repository.GetServiceMapAsync(id);
+        if (!existing.IsSuccess || existing.Data == null)
+            return new DataResult<NtflSvcMapRecord> { StatusCode = 404, ErrorCode = "FileLoading.NotFound", ErrorMessage = $"Service mapping {id} not found" };
+
+        var record = new NtflSvcMapRecord
+        {
+            Id = id,
+            FileTypeCode = request.FileTypeCode,
+            ServiceReference = request.ServiceReference,
+            MappingString = request.MappingString,
+            SeqNo = request.SeqNo,
+            UpdatedBy = context.UserCode ?? "SYSTEM"
+        };
+
+        var result = await _repository.UpdateServiceMapAsync(record);
+        if (!result.IsSuccess)
+            return new DataResult<NtflSvcMapRecord> { StatusCode = 500, ErrorCode = result.ErrorCode ?? "FileLoading.DatabaseError", ErrorMessage = result.ErrorMessage };
+
+        var saved = await _repository.GetServiceMapAsync(id);
+        return new DataResult<NtflSvcMapRecord> { StatusCode = 200, Data = saved.Data };
+    }
+
+    public async Task<DataResult<bool>> DeleteServiceMapAsync(int id, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "SVC_MAP", "*");
+        if (!auth.IsSuccess)
+            return new DataResult<bool> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        var result = await _repository.DeleteServiceMapAsync(id);
+        return new DataResult<bool> { StatusCode = result.IsSuccess ? 200 : 500, Data = result.IsSuccess, ErrorCode = result.ErrorCode, ErrorMessage = result.ErrorMessage };
+    }
+
+    public async Task<DataResult<NtflSvcMapRecord?>> ResolveServiceMapAsync(string fileTypeCode, string value, SecurityContext context)
+    {
+        var auth = await _repository.AuthoriseAsync(context, "SVC_MAP", fileTypeCode);
+        if (!auth.IsSuccess)
+            return new DataResult<NtflSvcMapRecord?> { StatusCode = 403, ErrorCode = "FileLoading.Unauthorised", ErrorMessage = auth.ErrorMessage ?? "Not authorised" };
+
+        var mapsResult = await _repository.GetServiceMapsAsync(fileTypeCode);
+        if (!mapsResult.IsSuccess || mapsResult.Data == null || mapsResult.Data.Count == 0)
+            return new DataResult<NtflSvcMapRecord?> { StatusCode = 200, Data = null };
+
+        var match = mapsResult.Data.FirstOrDefault(m =>
+            string.Equals(m.MappingString, value, StringComparison.OrdinalIgnoreCase));
+
+        return new DataResult<NtflSvcMapRecord?> { StatusCode = 200, Data = match };
+    }
+
+    // ============================================
     // Configuration Readiness
     // ============================================
 

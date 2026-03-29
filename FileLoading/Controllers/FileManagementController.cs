@@ -2742,4 +2742,386 @@ public class FileManagementController : DbControllerBase<FileLoaderDbContext>
             return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
         }
     }
+
+    // ============================================
+    // Account Mappings (CRUD)
+    // ============================================
+
+    /// <summary>
+    /// List all account mappings for a file type, ordered by sequence number.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <response code="200">Account mappings returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("account-maps/{file-type-code}")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_account_maps_file_type_code")]
+    [Tags("Account Mappings")]
+    [ProducesResponseType(typeof(List<NtflAcctMapRecord>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetAccountMaps(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_account_maps_file_type_code");
+            var result = await _managementService.GetAccountMapsAsync(fileTypeCode, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting account maps for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Get a specific account mapping by ID.
+    /// </summary>
+    /// <param name="id">Account mapping ID</param>
+    /// <response code="200">Account mapping returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Account mapping not found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("account-maps/by-id/{id:int}")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_account_maps_id")]
+    [Tags("Account Mappings")]
+    [ProducesResponseType(typeof(NtflAcctMapRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetAccountMap([FromRoute] int id)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_account_maps_id");
+            var result = await _managementService.GetAccountMapAsync(id, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting account map id={Id}", id);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Create a new account mapping.
+    /// </summary>
+    /// <param name="request">Account mapping request</param>
+    /// <response code="201">Account mapping created successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPost("account-maps")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_account_maps")]
+    [Tags("Account Mappings")]
+    [ProducesResponseType(typeof(NtflAcctMapRecord), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> CreateAccountMap(
+        [FromBody] NtflAcctMapRequest request)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_account_maps");
+            var result = await _managementService.CreateAccountMapAsync(request, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating account map for fileTypeCode={FileTypeCode}", request.FileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Update an existing account mapping.
+    /// </summary>
+    /// <param name="id">Account mapping ID</param>
+    /// <param name="request">Account mapping request</param>
+    /// <response code="200">Account mapping updated successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Account mapping not found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPatch("account-maps/{id:int}")]
+    [SwaggerOperation(OperationId = "patch_api_v4_file_loading_account_maps_id")]
+    [Tags("Account Mappings")]
+    [ProducesResponseType(typeof(NtflAcctMapRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> UpdateAccountMap(
+        [FromRoute] int id,
+        [FromBody] NtflAcctMapRequest request)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("patch_api_v4_file_loading_account_maps_id");
+            var result = await _managementService.UpdateAccountMapAsync(id, request, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating account map id={Id}", id);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Delete an account mapping.
+    /// </summary>
+    /// <param name="id">Account mapping ID</param>
+    /// <response code="200">Account mapping deleted successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Account mapping not found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpDelete("account-maps/{id:int}")]
+    [SwaggerOperation(OperationId = "delete_api_v4_file_loading_account_maps_id")]
+    [Tags("Account Mappings")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DeleteAccountMap([FromRoute] int id)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("delete_api_v4_file_loading_account_maps_id");
+            var result = await _managementService.DeleteAccountMapAsync(id, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting account map id={Id}", id);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Resolve a value to an account using the mapping table.
+    /// Tests the value against stored mappings in sequence order and returns the first exact match.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <param name="value">Value to match against mapping strings</param>
+    /// <response code="200">Resolution result (null data if no match found)</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("account-maps/{file-type-code}/resolve")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_account_maps_file_type_code_resolve")]
+    [Tags("Account Mappings")]
+    [ProducesResponseType(typeof(NtflAcctMapRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> ResolveAccountMap(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromQuery(Name = "value")] string value)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_account_maps_file_type_code_resolve");
+            var result = await _managementService.ResolveAccountMapAsync(fileTypeCode, value, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resolving account map for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    // ============================================
+    // Service Mappings (CRUD)
+    // ============================================
+
+    /// <summary>
+    /// List all service mappings for a file type, ordered by sequence number.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <response code="200">Service mappings returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("service-maps/{file-type-code}")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_service_maps_file_type_code")]
+    [Tags("Service Mappings")]
+    [ProducesResponseType(typeof(List<NtflSvcMapRecord>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetServiceMaps(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_service_maps_file_type_code");
+            var result = await _managementService.GetServiceMapsAsync(fileTypeCode, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting service maps for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Get a specific service mapping by ID.
+    /// </summary>
+    /// <param name="id">Service mapping ID</param>
+    /// <response code="200">Service mapping returned successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Service mapping not found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("service-maps/by-id/{id:int}")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_service_maps_id")]
+    [Tags("Service Mappings")]
+    [ProducesResponseType(typeof(NtflSvcMapRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetServiceMap([FromRoute] int id)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_service_maps_id");
+            var result = await _managementService.GetServiceMapAsync(id, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting service map id={Id}", id);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Create a new service mapping.
+    /// </summary>
+    /// <param name="request">Service mapping request</param>
+    /// <response code="201">Service mapping created successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPost("service-maps")]
+    [SwaggerOperation(OperationId = "post_api_v4_file_loading_service_maps")]
+    [Tags("Service Mappings")]
+    [ProducesResponseType(typeof(NtflSvcMapRecord), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> CreateServiceMap(
+        [FromBody] NtflSvcMapRequest request)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("post_api_v4_file_loading_service_maps");
+            var result = await _managementService.CreateServiceMapAsync(request, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating service map for fileTypeCode={FileTypeCode}", request.FileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Update an existing service mapping.
+    /// </summary>
+    /// <param name="id">Service mapping ID</param>
+    /// <param name="request">Service mapping request</param>
+    /// <response code="200">Service mapping updated successfully</response>
+    /// <response code="400">Invalid request data</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Service mapping not found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpPatch("service-maps/{id:int}")]
+    [SwaggerOperation(OperationId = "patch_api_v4_file_loading_service_maps_id")]
+    [Tags("Service Mappings")]
+    [ProducesResponseType(typeof(NtflSvcMapRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> UpdateServiceMap(
+        [FromRoute] int id,
+        [FromBody] NtflSvcMapRequest request)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("patch_api_v4_file_loading_service_maps_id");
+            var result = await _managementService.UpdateServiceMapAsync(id, request, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating service map id={Id}", id);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Delete a service mapping.
+    /// </summary>
+    /// <param name="id">Service mapping ID</param>
+    /// <response code="200">Service mapping deleted successfully</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="404">Service mapping not found</response>
+    /// <response code="500">Internal server error</response>
+    [HttpDelete("service-maps/{id:int}")]
+    [SwaggerOperation(OperationId = "delete_api_v4_file_loading_service_maps_id")]
+    [Tags("Service Mappings")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DeleteServiceMap([FromRoute] int id)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("delete_api_v4_file_loading_service_maps_id");
+            var result = await _managementService.DeleteServiceMapAsync(id, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting service map id={Id}", id);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
+
+    /// <summary>
+    /// Resolve a value to a service using the mapping table.
+    /// Tests the value against stored mappings in sequence order and returns the first exact match.
+    /// </summary>
+    /// <param name="fileTypeCode">File type code</param>
+    /// <param name="value">Value to match against mapping strings</param>
+    /// <response code="200">Resolution result (null data if no match found)</response>
+    /// <response code="401">Unauthorized - invalid or missing authentication</response>
+    /// <response code="500">Internal server error</response>
+    [HttpGet("service-maps/{file-type-code}/resolve")]
+    [SwaggerOperation(OperationId = "get_api_v4_file_loading_service_maps_file_type_code_resolve")]
+    [Tags("Service Mappings")]
+    [ProducesResponseType(typeof(NtflSvcMapRecord), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> ResolveServiceMap(
+        [FromRoute(Name = "file-type-code")] string fileTypeCode,
+        [FromQuery(Name = "value")] string value)
+    {
+        try
+        {
+            var securityContext = CreateSecurityContext("get_api_v4_file_loading_service_maps_file_type_code_resolve");
+            var result = await _managementService.ResolveServiceMapAsync(fileTypeCode, value, securityContext);
+            return HandleDataResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resolving service map for fileTypeCode={FileTypeCode}", fileTypeCode);
+            return StatusCode(500, new ErrorResponse("An error occurred", "INTERNAL_ERROR"));
+        }
+    }
 }

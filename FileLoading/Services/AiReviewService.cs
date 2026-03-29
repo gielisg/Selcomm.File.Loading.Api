@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using ClosedXML.Excel;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using FileLoading.Interfaces;
@@ -658,7 +659,18 @@ Generate a detailed, file-type-specific validation/parsing prompt based on the a
 
             try
             {
-                var content = await File.ReadAllTextAsync(example.FilePath);
+                string content;
+                var ext = Path.GetExtension(example.FilePath).ToLowerInvariant();
+
+                if (ext is ".xlsx" or ".xls")
+                {
+                    content = ReadExcelAsText(example.FilePath);
+                }
+                else
+                {
+                    content = await File.ReadAllTextAsync(example.FilePath);
+                }
+
                 if (content.Length > 10000)
                     content = content[..10000] + "\n... (truncated)";
 
@@ -674,6 +686,53 @@ Generate a detailed, file-type-specific validation/parsing prompt based on the a
         }
 
         return parts.Count > 0 ? string.Join("\n\n", parts) : null;
+    }
+
+    /// <summary>
+    /// Read an Excel file and convert it to CSV-like text for AI analysis.
+    /// Reads up to 100 data rows from each worksheet (up to 3 sheets).
+    /// </summary>
+    private static string ReadExcelAsText(string filePath)
+    {
+        using var stream = File.OpenRead(filePath);
+        using var workbook = new XLWorkbook(stream);
+
+        var sb = new StringBuilder();
+        var sheetsToRead = Math.Min(workbook.Worksheets.Count, 3);
+
+        for (var s = 0; s < sheetsToRead; s++)
+        {
+            var worksheet = workbook.Worksheets.Skip(s).First();
+            var rangeUsed = worksheet.RangeUsed();
+            if (rangeUsed == null) continue;
+
+            if (sheetsToRead > 1)
+                sb.AppendLine($"--- Sheet: {worksheet.Name} ---");
+
+            var lastRow = Math.Min(rangeUsed.LastRow().RowNumber(), 101); // header + 100 data rows
+            var lastCol = rangeUsed.LastColumn().ColumnNumber();
+
+            for (var r = 1; r <= lastRow; r++)
+            {
+                var row = worksheet.Row(r);
+                var cells = new List<string>();
+                for (var c = 1; c <= lastCol; c++)
+                {
+                    var cell = row.Cell(c);
+                    cells.Add(cell.IsEmpty() ? "" : cell.GetFormattedString());
+                }
+                sb.AppendLine(string.Join(",", cells.Select(v => v.Contains(',') || v.Contains('"') || v.Contains('\n')
+                    ? $"\"{v.Replace("\"", "\"\"")}\""
+                    : v)));
+            }
+
+            if (rangeUsed.LastRow().RowNumber() > 101)
+                sb.AppendLine($"... ({rangeUsed.LastRow().RowNumber() - 101} more rows)");
+
+            sb.AppendLine();
+        }
+
+        return sb.ToString();
     }
 
     // ============================================
